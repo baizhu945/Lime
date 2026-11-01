@@ -329,7 +329,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.core)
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
-    testImplementation("org.mockito:mockito-core:5.23.0")
+    testImplementation("org.mockito:mockito-core:5.24.0")
     testImplementation("org.mockito.kotlin:mockito-kotlin:6.3.0")
     // JVM 单测使用真实 org.json 实现（android.jar 内为抛异常的 stub）
     testImplementation("org.json:json:20240303")
