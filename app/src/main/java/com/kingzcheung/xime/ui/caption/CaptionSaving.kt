@@ -5,7 +5,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** 「自动保存字幕」: each session's transcript kept as one file in 下载/CyIME字幕, updated as it goes. On by default. */
+/** 「自动保存字幕」: each session's transcript kept as one file in 下载/Lime字幕, updated as it goes. On by default. */
 internal object CaptionAutoSave {
     private const val PREFS = "caption_mode"
     private const val KEY = "auto_save"
@@ -48,5 +48,5 @@ internal object CaptionNameAlert {
 internal fun callsName(text: String, names: String): Boolean =
     names.split(' ', ',', '，', '、', ';', '；').map { it.trim() }.filter { it.isNotEmpty() }.any { text.contains(it, ignoreCase = true) }
 
-/** One earlier caption file in 下载/CyIME字幕. */
+/** One earlier caption file in 下载/Lime字幕. */
 internal data class SavedCaption(val name: String, val modifiedMs: Long, val sizeBytes: Long, val uri: android.net.Uri?, val file: java.io.File?)

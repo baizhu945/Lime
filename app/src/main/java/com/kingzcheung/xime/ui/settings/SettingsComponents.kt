@@ -747,7 +747,7 @@ fun CodeDisplayCard(
                             if (showCodeInInputBox) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = "CyIME shu ru fa",
+                                        text = "Lime shu ru fa",
                                         fontSize = 12.sp,
                                         color = onSurface,
                                         maxLines = 1
@@ -837,7 +837,7 @@ fun CodeDisplayCard(
 fun CodeDisplayCardPreview_SelectedWithCode() {
     XimeTheme {
         CodeDisplayCard(
-            title = "CyIME",
+            title = "Lime",
             isSelected = true,
             showCodeInInputBox = true,
             onClick = {},
@@ -853,7 +853,7 @@ fun CodeDisplayCardPreview_SelectedWithCode() {
 fun CodeDisplayCardPreview_NotSelectedNoCode() {
     XimeTheme {
         CodeDisplayCard(
-            title = "CyIME",
+            title = "Lime",
             isSelected = true,
             showCodeInInputBox = false,
             onClick = {},

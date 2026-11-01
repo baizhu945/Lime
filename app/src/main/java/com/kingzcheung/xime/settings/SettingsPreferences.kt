@@ -2,6 +2,8 @@ package com.kingzcheung.xime.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.kingzcheung.xime.keyboard.ModeChangeTarget
+import com.kingzcheung.xime.keyboard.modeChangeTargetFromPreference
 import com.kingzcheung.xime.plugin.core.runtime.PluginManager
 
 object SettingsPreferences {
@@ -95,11 +97,11 @@ object SettingsPreferences {
     
     /** 默认主题 ID，可从 xime.yaml 的 style.color_scheme 初始化。 */
     @JvmStatic
-    var defaultKeyboardTheme: String = com.kingzcheung.xime.ui.theme.PureBlackTheme.ID
+    var defaultKeyboardTheme: String = "lavender_purple"
 
     /** 默认显示模式，可从 xime.yaml 的 style.dark_mode 初始化。 */
     @JvmStatic
-    var defaultDarkMode: Int = 1
+    var defaultDarkMode: Int = 2
     
     const val KEY_SWIPE_UP_HINTS_ENABLED = "swipe_up_hints_enabled"
     const val KEY_SWIPE_DOWN_HINTS_ENABLED = "swipe_down_hints_enabled"
@@ -114,6 +116,16 @@ object SettingsPreferences {
 
     fun setAutoNumberKeyboardEnabled(context: Context, enabled: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_AUTO_NUMBER_KEYBOARD, enabled).apply()
+    }
+
+    /** 底排 ?123 单键上次进的是数字页还是常用符号页；没写过就是数字（同 Xime 原实现）。 */
+    private const val KEY_MODE_CHANGE_TARGET = "mode_change_target"
+
+    fun modeChangeTarget(context: Context): ModeChangeTarget =
+        modeChangeTargetFromPreference(getPrefs(context).getString(KEY_MODE_CHANGE_TARGET, null))
+
+    fun setModeChangeTarget(context: Context, target: ModeChangeTarget) {
+        getPrefs(context).edit().putString(KEY_MODE_CHANGE_TARGET, target.prefValue).apply()
     }
     
     const val KEY_SPLIT_KEYBOARD = "split_keyboard_enabled"
@@ -605,18 +617,7 @@ object SettingsPreferences {
 
     fun getKeyboardTheme(context: Context): String {
         val prefs = getPrefs(context)
-        val stored = prefs.getString(KEY_KEYBOARD_THEME, defaultKeyboardTheme) ?: defaultKeyboardTheme
-        // 不再提供的主题（如跟随系统动态配色）改用柔和蓝；只改选择，不删主题代码。
-        if (stored == "dynamic") {
-            prefs.edit().putString(KEY_KEYBOARD_THEME, com.kingzcheung.xime.ui.theme.SoftBlueTheme.ID).apply()
-            return com.kingzcheung.xime.ui.theme.SoftBlueTheme.ID
-        }
-        if (stored == "858AdvanceColor") {
-            // 已移除主题仍沿用原兼容映射，不随新安装默认配色改变。
-            prefs.edit().putString(KEY_KEYBOARD_THEME, com.kingzcheung.xime.ui.theme.SoftBlueTheme.ID).apply()
-            return com.kingzcheung.xime.ui.theme.SoftBlueTheme.ID
-        }
-        return stored
+        return prefs.getString(KEY_KEYBOARD_THEME, defaultKeyboardTheme) ?: defaultKeyboardTheme
     }
 
     const val KEY_VISUAL_STYLE = "cyime_visual_style"
@@ -700,7 +701,8 @@ object SettingsPreferences {
      * 不用先按一下收起联想。关着时照旧：第一下收起联想，第二下才删字。
      */
     fun isDeleteSkipsAssociation(context: Context): Boolean =
-        getPrefs(context).getBoolean(KEY_DELETE_SKIPS_ASSOCIATION, false)
+        // 默认直接删字：提交后常驻联想不应让第一次退格看起来“没反应”（用户反馈）。
+        getPrefs(context).getBoolean(KEY_DELETE_SKIPS_ASSOCIATION, true)
 
     fun setDeleteSkipsAssociation(context: Context, enabled: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_DELETE_SKIPS_ASSOCIATION, enabled).apply()

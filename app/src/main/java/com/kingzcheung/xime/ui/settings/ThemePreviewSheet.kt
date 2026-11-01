@@ -439,7 +439,7 @@ private fun CandidateBarPreview(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             PreviewCandidate(
-                text = "CyIME",
+                text = "Lime",
                 isSelected = true,
                 accent = accent,
                 textColor = textColor,

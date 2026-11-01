@@ -53,6 +53,15 @@ internal data class KeyGestureActions(
     val freeDirection: Boolean = false,
 )
 
+/**
+ * 长按气泡里手指横向落在第几项：每项 [itemWidth] 宽，从键的中心算起，两边半格即算选中；
+ * 只有一项或一项也没有时恒为 0。按住符号键当 Ctrl 的键要弹菜单时也用同一份算法。
+ */
+internal fun longPressItemIndex(dx: Float, itemWidth: Float, count: Int): Int {
+    if (count <= 1) return 0
+    return ((dx / itemWidth.coerceAtLeast(1f)) + 0.5f).toInt().coerceIn(0, count - 1)
+}
+
 internal suspend fun PointerInputScope.detectExclusiveKeyGestures(
     currentActions: () -> KeyGestureActions,
 ) = coroutineScope {
@@ -132,9 +141,7 @@ internal suspend fun PointerInputScope.detectExclusiveKeyGestures(
                 crossedSwipeThreshold = if (actions.freeDirection) outsideCentre
                     else crossedSwipeThreshold || up || downSwipe || left || right || blockedUp || blockedDown
                 if (longPressed && items.isNotEmpty()) {
-                    val itemWidth = (actions.keyWidth / items.size).coerceAtLeast(1f)
-                    selectedIndex = ((dx / itemWidth) + if (items.size > 1) 0.5f else 0f)
-                        .toInt().coerceIn(items.indices)
+                    selectedIndex = longPressItemIndex(dx, actions.keyWidth / items.size, items.size)
                     actions.onPreview(SwipeState(isPressed = true, isLongPress = true,
                         longPressItems = items, selectedLongPressIndex = selectedIndex,
                         longPressDrawableIds = actions.longPressDrawableIds))

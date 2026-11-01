@@ -94,6 +94,10 @@ object AppUpdater {
 
     /** 自动检查失败时不打扰，保持原状态；手动检查把失败原因显示出来。 */
     fun check(context: Context, manual: Boolean = true) {
+        if (!AppUpdateCatalog.ENABLED) {
+            if (manual) _state.value = AppUpdateState.UpToDate(BuildConfig.VERSION_NAME)
+            return
+        }
         if (!supported || job?.isActive == true) return
         val app = context.applicationContext
         job = scope.launch {
@@ -239,7 +243,7 @@ object AppUpdater {
         val pm = context.packageManager
         val archive = pm.getPackageArchiveInfo(apk.path, PackageManager.GET_SIGNING_CERTIFICATES)
             ?: return "下载的安装包打不开，请重新下载"
-        if (archive.packageName != context.packageName) return "下载的文件不是 CyIME 安装包"
+        if (archive.packageName != context.packageName) return "下载的文件不是 Lime 安装包"
         val installed = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
         if (archive.longVersionCode <= installed.longVersionCode) return "下载的安装包不比现在装的新，不用更新"
         val newSigners = archive.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet()

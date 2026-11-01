@@ -1,10 +1,8 @@
 package com.kingzcheung.xime.ui.keyboard
 
-import com.kingzcheung.xime.service.isSingleCharacter
 import androidx.compose.ui.zIndex
 
 import androidx.compose.ui.draw.drawWithContent
-import com.kingzcheung.xime.util.InputLatencyTrace
 
 import androidx.compose.ui.platform.testTag
 
@@ -78,6 +76,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kingzcheung.xime.handwriting.HandwritingCandidate
+import com.kingzcheung.xime.keyboard.MODE_CHANGE_LAST
+import com.kingzcheung.xime.keyboard.ModeChangeTarget
 import com.kingzcheung.xime.keyboard.textMainType
 import com.kingzcheung.xime.keyboard.underlyingPage
 import com.kingzcheung.xime.keyboard.KeyboardPage
@@ -90,10 +90,7 @@ import com.kingzcheung.xime.keyboard.ToolbarButtonItem
 import com.kingzcheung.xime.keyboard.resolveToolbarButtonItem
 import com.kingzcheung.xime.rime.T9InputController
 import com.kingzcheung.xime.service.CandidateState
-import com.kingzcheung.xime.service.highlightedCandidateIndex
 import com.kingzcheung.xime.service.shownPreedit
-import com.kingzcheung.xime.service.focusedT9AssociationIndex
-import com.kingzcheung.xime.service.usesT9CandidateNavigation
 import com.kingzcheung.xime.service.ExpandedCandidatePager
 import com.kingzcheung.xime.settings.KeysConfigHelper
 import com.kingzcheung.xime.settings.SettingsPreferences
@@ -689,7 +686,12 @@ fun KeyboardView(
             }
         }
         // 无痕只在它自己的位置（工具栏或菜单）显示开启状态，不额外插入图标。
-        val toolbarQuickActions = state.toolbarButtons.mapNotNull(::quickAction)
+        // 工具按钮列表按真实输入记忆（state/page/布局/偏好/开关/回调）：候选每变一次不必重建列表，
+        // 候选栏（及其上的工具按钮）在别的状态变化时也能整块跳过重组。
+        val temporaryHandwriting = viewModel.hasTemporaryHandwriting
+        val toolbarQuickActions = remember(
+            state, page, keyboardState, inputPreferences, quickToggles, temporaryHandwriting, callbacks, quickContext,
+        ) { state.toolbarButtons.mapNotNull(::quickAction) }
         val menuQuickActions = state.menuButtons.mapNotNull(::quickAction)
         // 面板高度包含工具栏/候选栏；按键区只分配剩余高度。
         // Service 以整张卡片顶部上报避让区域，不能只上报按键区。
@@ -848,11 +850,18 @@ fun KeyboardView(
             }
 
             if (preeditEditSession != null && preeditFrame != null) {
-                PreeditEditorBar(preeditFrame!!, keyBgColor, candidateTextColor, accentColor,
+                // 编码预览（candidateState.preeditText）在编辑条自己的作用域里读：
+                // 原来这一句写在 Column 内容里，等于每次按键都把整块键盘（含字母键盘）订阅上。
+                PreeditEditorBarHost(
+                    candidateState = candidateState,
+                    frame = preeditFrame!!,
+                    keyBackgroundColor = keyBgColor,
+                    textColor = candidateTextColor,
+                    accentColor = accentColor,
                     onClose = { closePreeditEditor() },
                     onCaret = { editPreedit(caret = it) },
                     onReplace = { editPreedit(text = it) },
-                    preedit = candidateState.value.preeditText)
+                )
             }
 
             // 候选栏与展开页共用：候选栏实际显示了哪些，展开页就从后面接着排。编码变化时清空。
@@ -863,251 +872,47 @@ fun KeyboardView(
                     visibleBarAssociations = emptyList(); visibleBarCandidates = emptyList()
                 }
             }
-            // 候选状态只在候选栏自己的组合范围里读：每次按键只重组候选栏，不再连带整块键盘
-            // （Box/Column 是内联的，在外层读候选状态会让整个键盘一起重组）。
+            // 候选状态只在候选栏自己的组合范围里读（见 CandidateBarHost）：每次按键只有候选栏子树重组，
+            // 不再连带整块键盘（Box/Column 的内容 lambda、展开页、字母键盘与工具栏都不跟着失效）。
             val renderCandidateBar: @Composable (KeyboardPage) -> Unit = { barPage ->
-            // 收起的候选栏滑到后面接上展开列表时，数据源同展开态（不打开展开页）。
-            val expandedDataMode = (candidatePageExpanded || candidateStripExtended) &&
-                candidateState.value.expandedCandidatesLoaded
-
-            val cs = candidateState.value
-            androidx.compose.runtime.SideEffect { com.kingzcheung.xime.service.KeyLatencyProbe.composed() }
-            // 展开态候选栏数据源：全量列表（筛选态取单字子列表，仍是同源关系）。
-            // 每项携带全量原索引：筛选态过滤掉词组后位置索引 ≠ 全局索引，
-            // 点选/长按必须经 first 换算回全局索引，与展开页 globalIndices 同口径
-            val railExpanded = if (expandedDataMode) {
-                if (singleCharFilter) {
-                    cs.expandedCandidates.withIndex()
-                        .mapNotNull { (i, c) -> if (c.text.isSingleCharacter()) i to c else null }
-                } else {
-                    cs.expandedCandidates.withIndex().map { it.index to it.value }
-                }
-            } else {
-                emptyList()
-            }
-            // 释义模式只换显示用注释；点选仍按索引回到原候选数据（九键靠其中的拼音定位）。
-            val glossRevision = CandidateGlossary.revision
-            val glossChinese = !state.isAsciiMode && state.inputProfile.language == InputLanguage.CHINESE
-            // 按住 Shift（屏幕键、物理键或九键长按“下一项”）时有英文的候选中英对调，此时点选上屏英文。
-            val shiftModeNow by viewModel.shiftMode.collectAsStateWithLifecycle()
-            val glossSwap = glossChinese &&
-                CandidateGlossary.swapHeld(shiftModeNow == com.kingzcheung.xime.viewmodel.ShiftMode.HELD)
-            val candidateBarState = remember(
-                cs.candidates, cs.candidateComments, cs.inputText, cs.preeditText, cs.isComposing,
-                cs.associationCandidates, cs.pendingEnglishText, cs.isShowingRecentClipboard, cs.hasNextPage,
-                state.isCalculatorMode, handwritingCandidates, handwritingComments, showHandwritingCandidates,
-                railExpanded, expandedDataMode, isHandwritingPage, cs.smsVerificationCode, cs.clipboardImage,
-                cs.candidateFocus, cs.engineRevision, cs.candidateActions, state.inputProfile,
-                hardwareCandidateHighlight, glossRevision, glossChinese, glossSwap,
-            ) {
-                if (showHandwritingCandidates) {
-                    CandidateBarState.AssociationOnly(
-                        candidates = handwritingCandidates,
-                        comments = handwritingComments,
-                        highlightIndex = 0,
-                    )
-                } else if (isHandwritingPage) {
-                    CandidateBarState.Idle
-                } else {
-                    val barTexts = if (expandedDataMode) railExpanded.map { it.second.text } else cs.candidates
-                    val barComments = if (expandedDataMode) railExpanded.map { it.second.comment } else cs.candidateComments
-                    val (shownTexts, shownComments) = when {
-                        glossSwap -> CandidateGlossary.swapped(barTexts, barComments)
-                        glossChinese -> barTexts to CandidateGlossary.annotate(barTexts, barComments)
-                        else -> barTexts to barComments
-                    }
-                    CandidateBarState.from(
-                        candidates = shownTexts,
-                        candidateComments = shownComments,
-                        inputText = cs.inputText,
-                        preeditText = cs.shownPreedit(state.inputProfile),
-                        isComposing = cs.isComposing,
-                        associationCandidates = if (cs.pendingEnglishText.isNotEmpty() && cs.englishReplaceSupported) {
-                            listOf(cs.pendingEnglishText) + cs.associationCandidates
-                        } else {
-                            cs.associationCandidates
-                        },
-                        isShowingRecentClipboard = cs.isShowingRecentClipboard,
-                        hasNextPage = cs.hasNextPage,
-                        isCalculatorActive = state.isCalculatorMode,
-                        smsVerificationCode = cs.smsVerificationCode,
-                        clipboardImage = cs.clipboardImage,
-                        highlightIndex = if (expandedDataMode || !cs.usesT9CandidateNavigation(state.inputProfile)) 0
-                            else cs.highlightedCandidateIndex,
-                        hardwareHighlightIndex = hardwareCandidateHighlight,
-                        associationHighlightIndex = cs.focusedT9AssociationIndex,
-                    )
-                }
-            }
-
-            androidx.compose.runtime.CompositionLocalProvider(
-                LocalLearnedCandidates provides candidateState.value.learnedCandidates,
-                LocalCorrectedCandidates provides candidateState.value.correctedCandidates) {
-            ScaledCandidateBar(candidateBarScaleState.floatValue) {
-            CandidateBar(
-                modifier = Modifier.clipboardPanelExpandGesture().drawWithContent {
-                    drawContent()
-                    InputLatencyTrace.finish(candidateState.value.traceEventId, "draw-submitted")
-                },
-                state = if (barPage is KeyboardPage.Overlay || candidateBarState is CandidateBarState.ClipboardDisplay &&
-                    (state.voiceSticky || state.isHandwritingMode || viewModel.hasTemporaryHandwriting))
-                    CandidateBarState.Idle else candidateBarState,
-                page = barPage,
-                candidatePageExpanded = candidatePageExpanded,
-                showNumberLabels = hardwareKeyboardConnected && !state.isAsciiMode && cs.pendingEnglishText.isEmpty() &&
-                    !showHandwritingCandidates && !expandedDataMode,
-                isFloatingMode = state.isFloatingMode,
-                isVoiceSticky = state.voiceSticky,
-                voiceAmplitude = voiceAmplitudeState.value,
-                voiceSpectrum = voiceSpectrumState.value,
-                voiceRecognitionState = state.voiceRecognitionState,
-                voicePluginName = state.voicePluginName,
-                toolbarActions = toolbarQuickActions,
-                visuals = CandidateBarVisuals(
-                    backgroundColor = Color.Transparent,
+                CandidateBarHost(
+                    candidateState = candidateState,
+                    page = barPage,
+                    uiState = state,
+                    viewModel = viewModel,
+                    callbacks = callbacks,
+                    candidatePageExpanded = candidatePageExpanded,
+                    candidateStripExtended = candidateStripExtended,
+                    singleCharFilter = singleCharFilter,
+                    showPreeditPreview = preeditEditSession == null,
+                    hardwareHighlightIndex = hardwareCandidateHighlight,
+                    hardwareKeyboardConnected = hardwareKeyboardConnected,
+                    toolbarActions = toolbarQuickActions,
+                    onToolbarFeedback = toolbarFeedback,
+                    barScale = candidateBarScaleState,
+                    voiceAmplitude = voiceAmplitudeState,
+                    voiceSpectrum = voiceSpectrumState,
+                    handwritingCandidates = handwritingCandidates,
+                    handwritingComments = handwritingComments,
+                    showHandwritingCandidates = showHandwritingCandidates,
+                    isHandwritingPage = isHandwritingPage,
+                    handwritingContext = handwritingContext,
                     textColor = candidateTextColor,
                     dividerColor = dividerColor,
                     accentColor = accentColor,
                     selectedTextColor = candidateSelectedTextColor,
-                    isDarkTheme = state.isDarkTheme,
-                    preeditBackgroundColor = keyBgColor,
-                ),
-                callbacks = CandidateBarCallbacks(
+                    keyBackgroundColor = keyBgColor,
+                    onDeletePending = { word, message, confirm ->
+                        deletePending = DeletePendingWord(word, message, confirm)
+                    },
                     onVisibleCandidatesChanged = { visibleBarCandidates = it },
                     onVisibleAssociationsChanged = { visibleBarAssociations = it },
-                    onReorderToolbar = callbacks.onUpdateToolbarButtons,
-                    onCancelInput = {
-                        closePreeditEditor()
-                        toolbarFeedback()
-                        viewModel.setCandidatePageExpanded(false)
-                        if (showHandwritingCandidates) {
-                            clearHandwriting()
-                        } else {
-                            callbacks.onKeyPress("clear_composition", false)
-                        }
-                    },
-                    onDismissClipboardPreview = {
-                        toolbarFeedback()
-                        callbacks.onDismissClipboardPreview?.invoke()
-                    },
-                    onOpenClipboard = {
-                        toolbarFeedback()
-                        callbacks.onDismissClipboardPreview?.invoke()
-                        viewModel.showOverlay(OverlayRoute.Clipboard(0))
-                    },
-                    onClipboardImageSelect = callbacks.onClipboardImageSelect,
-                    onExpandClipboardImages = callbacks.onExpandClipboardImages,
-                    onCandidateSelect = select@{ index ->
-                        if (!showHandwritingCandidates && !callbacks.isCandidateSnapshotCurrent(cs)) return@select
-                        closePreeditEditor()
-                        if (showHandwritingCandidates && index in handwritingCandidates.indices) {
-                            selectHandwriting(index)
-                        } else if (expandedDataMode) {
-                            // 展开态候选栏数据源=全量列表（筛选态为其单字子列表）：
-                            // 位置索引经 railExpanded 换算全局索引再走全局链路
-                            val globalIndex = railExpanded.getOrNull(index)?.first
-                            if (globalIndex != null) {
-                                callbacks.onGlobalCandidateSelect?.invoke(globalIndex)
-                            }
-                        } else {
-                            callbacks.onCandidateSelect(index)
-                        }
-                    },
-                    onCandidateStripScrolled = {
-                        // 展开着滑候选栏：收起展开页，候选栏接着用展开列表滑下去，同一个候选不出现两次。
-                        if (candidatePageExpanded) {
-                            viewModel.setCandidateStripExtended(true)
-                            viewModel.setCandidatePageExpanded(false)
-                        }
-                    },
-                    onCandidateStripNearEnd = {
-                        // 只在引擎第一页、没有键盘焦点时接：展开列表从第一个候选排起，位置才对得上。
-                        if (!candidatePageExpanded && !showHandwritingCandidates && cs.hasNextPage &&
-                            !cs.hasPrevPage && cs.candidateFocus == null) callbacks.onExtendCandidateStrip?.invoke()
-                    },
-                    onCandidateLongPress = { index ->
-                        // 手写候选：读手写列表（不是引擎列表），长按＝忘掉这个字从手写里学到的笔迹
-                        val handwritingWord = if (showHandwritingCandidates) handwritingCandidates.getOrNull(index) else null
-                        val railEntry = if (expandedDataMode && !showHandwritingCandidates) railExpanded.getOrNull(index) else null
-                        val word = railEntry?.second?.text
-                            ?: cs.candidates.getOrNull(index)
-                        if (showHandwritingCandidates) {
-                            if (!handwritingWord.isNullOrEmpty()) deletePending = DeletePendingWord(handwritingWord,
-                                "忘掉「$handwritingWord」从手写里学到的笔迹？内置的写法和训练样本照常能认。") {
-                                com.kingzcheung.xime.handwriting.HandwritingTemplates.forget(handwritingContext, handwritingWord)
-                            }
-                        } else if (!word.isNullOrEmpty()) {
-                            deletePending = DeletePendingWord(word) {
-                                if (!callbacks.isCandidateSnapshotCurrent(cs)) return@DeletePendingWord
-                                if (railEntry != null) {
-                                    callbacks.onGlobalCandidateDelete?.invoke(railEntry.first)
-                                } else {
-                                    callbacks.onCandidateDelete?.invoke(index)
-                                }
-                            }
-                        }
-                    },
-                    onClearAssociation = {
-                        toolbarFeedback()
-                        if (showHandwritingCandidates) {
-                            clearHandwriting()
-                        } else {
-                            callbacks.onClearAssociation?.invoke()
-                        }
-                    },
-                    onLogoClick = {
-                        toolbarFeedback()
-                        viewModel.showOverlay(OverlayRoute.Menu)
-                    },
-                    onBack = {
-                        toolbarFeedback()
-                        if (page is KeyboardPage.Overlay) {
-                            if ((page as KeyboardPage.Overlay).backStack.isEmpty()) viewModel.closeOverlay()
-                            else viewModel.popOverlay()
-                        } else if (isHandwritingPage) {
-                            callbacks.onHandwritingToggle?.invoke()
-                        } else if (showHandwritingCandidates) {
-                            clearHandwriting()
-                        } else if (page is KeyboardPage.Panel) {
-                            viewModel.exitPanel()
-                        } else {
-                            viewModel.setCandidatePageExpanded(false)
-                        }
-                    },
-                    onHideKeyboard = {
-                        toolbarFeedback()
-                        callbacks.onHideKeyboard?.invoke()
-                        viewModel.resetKeyboard(state.isAsciiMode, state.currentSchemaId)
-                    },
-                    onShowMoreCandidates = {
-                        toolbarFeedback()
-                        viewModel.setCandidatePageExpanded(true)
-                        // 拉取跨页全量候选（展开页数据源，含首次展开）
-                        callbacks.onRequestExpandedCandidates?.invoke()
-                    },
-                    onInputTextClick = {
-                        if (candidateState.value.inputText.isNotEmpty()) {
-                            callbacks.onClipboardSelect?.invoke(candidateState.value.inputText)
-                        }
-                    },
-                    onAssociationSelect = { index ->
-                        if (showHandwritingCandidates && index in handwritingCandidates.indices) {
-                            selectHandwriting(index)
-                        } else {
-                            callbacks.onAssociationSelect?.invoke(index)
-                        }
-                    },
-                ),
-                inlineSuggestions = if (barPage is KeyboardPage.Overlay) emptyList<Any>() else inlineSuggestions,
-                showPreeditPreview = preeditEditSession == null,
-                onEditPreedit = if (!state.isAsciiMode && !isHandwritingPage &&
-                    com.kingzcheung.xime.rime.PinyinEditBuffer.supports(state.currentSchemaId) &&
-                    callbacks.onOpenPreeditEditor != null) ({
-                    openPreeditEditor()
-                }) else null,
-            )
-            }
-            }
+                    onClosePreeditEditor = { closePreeditEditor() },
+                    onOpenPreeditEditor = { openPreeditEditor() },
+                    onSelectHandwriting = { selectHandwriting(it) },
+                    onClearHandwriting = { clearHandwriting() },
+                    inlineSuggestions = inlineSuggestions,
+                )
             }
             // Opening a tool must not insert a row and shrink the underlying handwriting canvas.
             if (!state.handwritingExpanded || candidatePageExpanded) renderCandidateBar(page)
@@ -1317,6 +1122,8 @@ fun KeyboardView(
                     MainType.FULL -> {
                         val suppressCursorMove = remember { mutableStateOf(false) }
                         val cursorMod = keyboardSwipeCursor(callbacks.onCursorMove, inputPreferences, suppressCursorMove)
+                        // ?123 上次页面的偏好读写都用当前上下文的 SharedPreferences（不另建存储）。
+                        val modeKeyContext = LocalContext.current
 
                         val fullScreenOnKeyPress: (String) -> Unit = { key ->
                             when (key) {
@@ -1325,13 +1132,22 @@ fun KeyboardView(
                                 "shift_caps" -> viewModel.doubleTapShift()
                                 // 拼音留在候选栏，点符号时连同字母原样上屏（和九键一致）。
                                 "symbol", "mode_change", "mode_change_symbol" -> viewModel.showOverlay(OverlayRoute.Symbol)
+                                // 底排 ?123 单键：进上次用过的数字/常用符号页（偏好默认「数字」）。
+                                // 和下面两条一样只切面板，不碰输入引擎。
+                                MODE_CHANGE_LAST -> {
+                                    callbacks.onCommitTypedBeforeModeChange?.invoke()
+                                    viewModel.enterPanel(SettingsPreferences.modeChangeTarget(modeKeyContext).panel)
+                                }
                                 "number", "mode_change_number" -> {
                                     callbacks.onCommitTypedBeforeModeChange?.invoke()
+                                    // 记下“上次用的页面”，下次点 ?123 直接进数字页。
+                                    SettingsPreferences.setModeChangeTarget(modeKeyContext, ModeChangeTarget.NUMBER)
                                     viewModel.enterPanel(PanelType.NUMBER)
                                 }
                                 // Keep legacy configuration commands compatible; default keys use the direct symbol route.
                                 "mode_change_common_symbol" -> {
                                     callbacks.onCommitTypedBeforeModeChange?.invoke()
+                                    SettingsPreferences.setModeChangeTarget(modeKeyContext, ModeChangeTarget.COMMON_SYMBOL)
                                     viewModel.enterPanel(PanelType.COMMON_SYMBOL)
                                 }
                                 "emoji" -> viewModel.showOverlay(OverlayRoute.Emoji)
@@ -1373,6 +1189,8 @@ fun KeyboardView(
                             when (key) {
                                 "abc" -> viewModel.returnToTextKeyboard()
                                 "number" -> {
+                                    // 从常用符号页自己切到数字页也算“上次用的页面”。
+                                    SettingsPreferences.setModeChangeTarget(modeKeyContext, ModeChangeTarget.NUMBER)
                                     viewModel.enterPanel(PanelType.NUMBER)
                                 }
                                 "symbol" -> {

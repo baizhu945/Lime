@@ -662,7 +662,7 @@ class SpeechRecognitionManager(
             var deliveryStarted = false
             try {
                 val audioRecord = microphone.acquire { createAudioRecord() }
-                    ?: if (stopRequested) return else error("麦克风打不开：请检查 CyIME 的录音权限，或关掉正在用麦克风的应用")
+                    ?: if (stopRequested) return else error("麦克风打不开：请检查 Lime 的录音权限，或关掉正在用麦克风的应用")
                 if (stopRequested) return
                 // 麦克风启动失败不能悄无声息地结束：报给用户（键盘上会显示）。
                 if (!microphone.start()) error("麦克风没能开始录音：可能被其他应用占用，或没有录音权限")

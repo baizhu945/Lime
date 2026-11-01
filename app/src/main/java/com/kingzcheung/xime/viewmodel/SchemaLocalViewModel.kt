@@ -78,7 +78,7 @@ class SchemaLocalViewModel(application: Application) : AndroidViewModel(applicat
                 val info = installedMap[id]
                 LocalPackageItem(
                     packageId = id,
-                    displayName = if (id == "builtin") "CyIME 内置资源" else info?.displayName ?: downloaded[id] ?: id,
+                    displayName = if (id == "builtin") "Lime 内置资源" else info?.displayName ?: downloaded[id] ?: id,
                     version = info?.version ?: "",
                     downloaded = id in downloadedIds,
                     installed = info != null,

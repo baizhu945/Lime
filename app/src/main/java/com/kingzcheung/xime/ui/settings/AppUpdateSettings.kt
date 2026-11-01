@@ -98,7 +98,7 @@ internal fun AppUpdateSection() {
                     is AppUpdateState.Available -> startDownload(current.release)
                     is AppUpdateState.Downloading -> AppUpdater.cancelDownload()
                     is AppUpdateState.ReadyToInstall -> if (!AppUpdater.install(context, current.file)) {
-                        Toast.makeText(context, "请允许 CyIME 安装应用，回来后再点一次「检查更新」", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "请允许 Lime 安装应用，回来后再点一次「检查更新」", Toast.LENGTH_LONG).show()
                     }
                     is AppUpdateState.Failed -> current.release?.let { startDownload(it) } ?: AppUpdater.check(context)
                     else -> AppUpdater.check(context)
@@ -146,7 +146,7 @@ internal fun AppUpdateHomeNotice(release: AppRelease, onOpen: () -> Unit) {
     SettingsSection(title = "版本更新") {
         SettingsItem(
             icon = Icons.TwoTone.SystemUpdate,
-            title = "CyIME ${release.version} 可以更新",
+            title = "Lime ${release.version} 可以更新",
             subtitle = "现在是 ${BuildConfig.VERSION_NAME}，点这里到「关于」下载安装",
             status = "新版本",
             statusTone = SettingsStatusTone.OK,

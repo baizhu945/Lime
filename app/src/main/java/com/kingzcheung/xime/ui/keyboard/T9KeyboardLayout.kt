@@ -41,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -436,7 +437,10 @@ private fun T9KeyboardContent(
                     .background(frostedKeyColor(keyBackgroundColor, keyTextColor, frostedGlass))
             ) {
                 val showCandidates = controller.leftPanelState != T9InputController.LeftPanelState.IDLE
-                val highlightedSyllable = candidateState.value.highlightedT9Syllable(uiState.inputProfile)
+                // 只订阅「高亮候选的第一个音节」这一个字符串：编码每变一次不必重组整个左栏。
+                val highlightedSyllable by remember(candidateState, uiState.inputProfile) {
+                    derivedStateOf { candidateState.value.highlightedT9Syllable(uiState.inputProfile) }
+                }
                 val currentFirstOptions = controller.firstOptions
                 // 空闲态符号列表来自 xime.yaml keyboard.t9.side_symbols（可自定义，>4 滚动）
                 val configVersion by KeysConfigHelper.configVersion.collectAsState()
@@ -712,7 +716,10 @@ private fun T9KeyboardContent(
                 shadowShapeRadius = shadowShapeRadius,
                 compactMode = compactMode,
             )
-            val nextCandidate = candidateState.value.usesT9CandidateNavigation(uiState.inputProfile)
+            // 只订阅这一个布尔值：编码每变一次不必重组整排数字/功能键。
+            val nextCandidate by remember(candidateState, uiState.inputProfile) {
+                derivedStateOf { candidateState.value.usesT9CandidateNavigation(uiState.inputProfile) }
+            }
             // 长按“下一项”= 按住 Shift：按住期间候选中英对调，松手就恢复（用户 10-30：松手不恢复就再也变不回去）；
             // 长按那次松手不切下一项。
             var glossHoldUsed by remember { mutableStateOf(false) }

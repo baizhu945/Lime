@@ -23,9 +23,7 @@
             <data android:mimeType="image/*" />
         </intent>
     </queries>
-    <!-- 本应用组件统一使用全限定类名：applicationId（com.cyletix.cyime）与 namespace
-         （com.kingzcheung.xime）不同，相对类名的解析结果取决于 AGP 版本，
-         写全限定名可无歧义地指向实际类所在包。 -->
+    <!-- 本应用组件使用全限定类名，明确指向实际类所在包。 -->
     <application
         android:name="com.kingzcheung.xime.XimeApplication"
         android:allowBackup="true"
@@ -46,7 +44,7 @@
             android:exported="true"
             android:permission="android.permission.DUMP">
             <intent-filter>
-                <action android:name="com.cyletix.cyime.DEV_LEARNING" />
+                <action android:name="${applicationId}.DEV_LEARNING" />
             </intent-filter>
         </receiver>
         <receiver
@@ -373,7 +371,7 @@
         <service
             android:name="com.kingzcheung.xime.service.XimeInputMethodService"
             android:exported="true"
-            android:label="CyIME"
+            android:label="Lime"
             android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter>
                 <action android:name="android.view.InputMethod" />

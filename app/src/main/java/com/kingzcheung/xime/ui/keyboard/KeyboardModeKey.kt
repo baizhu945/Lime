@@ -39,7 +39,7 @@ internal fun KeyboardModeKey(
         text = target.label,
         targets = ctrlTargets,
         holdMillis = LocalKeyboardInputPreferences.current.symbolKeyHoldMs,
-        onOpenSymbols = { onKeyPress(target.action) },
+        onTap = { onKeyPress(target.action) },
         onShortcut = onCtrlShortcut,
         onPressDown = { onKeyPressDown?.invoke("mode_change") },
         backgroundColor = backgroundColor,

@@ -185,6 +185,8 @@ class FeedbackManagerTest {
             "2" to KeyFeedbackType.NUMBER, "，" to KeyFeedbackType.SYMBOL,
             "space" to KeyFeedbackType.SPACE, "enter" to KeyFeedbackType.ENTER,
             "clear_all" to KeyFeedbackType.DELETE, "ime_switch" to KeyFeedbackType.MODE_SWITCH,
+            // 底排 ?123 单键的“上次页面”也是切换键，声音和震动跟原来两个模式键一致。
+            "mode_change_last" to KeyFeedbackType.MODE_SWITCH,
             "japanese_convert" to KeyFeedbackType.MODIFIER, "japanese_left" to KeyFeedbackType.NAVIGATION,
             "select_arrow_right" to KeyFeedbackType.NAVIGATION, "select_paragraph_start" to KeyFeedbackType.NAVIGATION,
             "copy" to KeyFeedbackType.EDITING, "toolbar" to KeyFeedbackType.TOOLBAR,

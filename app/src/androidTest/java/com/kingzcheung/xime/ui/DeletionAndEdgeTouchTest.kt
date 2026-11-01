@@ -30,8 +30,8 @@ class DeletionAndEdgeTouchTest {
         rule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f)) {
                 Box(Modifier.width(panelWidth.value).height(60.dp).testTag("row")) {
-                    KeyboardRowWithConfig("asdfghjkl".map(Char::toString), { letters += it },
-                        KeyboardRowConfig(Color.Gray, Color.White), false, edgeInset = 16.dp)
+                    KeyboardRowWithConfig(keys = "asdfghjkl".map(Char::toString), onKeyPress = { letters += it },
+                        config = KeyboardRowConfig(Color.Gray, Color.White), isShifted = false, edgeInset = 16.dp)
                 }
             }
         }

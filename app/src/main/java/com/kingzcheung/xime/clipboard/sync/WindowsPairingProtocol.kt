@@ -49,7 +49,7 @@ object WindowsPairingProtocol {
                 require(bytes.size <= 4096)
                 JSONObject(bytes.toString(Charsets.UTF_8))
             }
-            else -> error("不是 CyIME 电脑配对二维码")
+            else -> error("不是 Lime 电脑配对二维码")
         }
         return data.also {
             require(data.getInt("v") == 2)
@@ -79,7 +79,7 @@ object WindowsPairingProtocol {
         }
         fun uuid() = UUID(buffer.long, buffer.long).toString()
         fun take(size: Int) = ByteArray(size).also { buffer.get(it) }
-        return JSONObject().put("v", 2).put("endpoints", origins).put("name", "CyIME 电脑")
+        return JSONObject().put("v", 2).put("endpoints", origins).put("name", "Lime 电脑")
             .put("server_id", uuid())
             .put("certificate_sha256", take(32).joinToString("") { "%02x".format(it.toInt() and 255) })
             .put("pairing_id", uuid()).put("secret", Base64.getUrlEncoder().withoutPadding().encodeToString(take(32)))

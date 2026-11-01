@@ -220,7 +220,7 @@ fun SpeechToTextSettingsContent(
                         )
                     }
                     Text(
-                        text = "从打开字幕到按“退出”算一次，每次存成一个文件，边听边更新，在“下载/CyIME字幕”里。关闭后只在点“保存”时存。",
+                        text = "从打开字幕到按“退出”算一次，每次存成一个文件，边听边更新，在“下载/Lime字幕”里。关闭后只在点“保存”时存。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -243,7 +243,7 @@ fun SpeechToTextSettingsContent(
                         )
                     }
                     Text(
-                        text = "“下载/CyIME字幕”里超过 3 天的字幕记录在下次打开字幕时自动删掉。关闭后一直保留。",
+                        text = "“下载/Lime字幕”里超过 3 天的字幕记录在下次打开字幕时自动删掉。关闭后一直保留。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

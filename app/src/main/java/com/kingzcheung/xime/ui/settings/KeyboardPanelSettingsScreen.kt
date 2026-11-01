@@ -100,7 +100,7 @@ internal fun KeyboardPanelSettingsContent(panel: KeyboardPanelLaunch.Panel, onBa
                 SettingsItem(
                     icon = if (panel == KeyboardPanelLaunch.Panel.RESIZE) Icons.TwoTone.AspectRatio else Icons.TwoTone.Padding,
                     title = if (panel == KeyboardPanelLaunch.Panel.RESIZE) "打开键盘调节" else "打开排列面板",
-                    subtitle = "需要 CyIME 是当前输入法；面板关掉后可再点这里",
+                    subtitle = "需要 Lime 是当前输入法；面板关掉后可再点这里",
                     onClick = { openCount++ },
                 )
             })

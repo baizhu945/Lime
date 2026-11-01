@@ -49,7 +49,7 @@ internal data class SetupStatus(
 internal fun imePickerFallbackHint(manufacturer: String, brand: String): String? {
     val vivo = listOf(manufacturer, brand).any { it.equals("vivo", true) || it.equals("iqoo", true) }
     return if (vivo) "vivo / iQOO（OriginOS）的输入法选择框可能是空的。请点下面按钮打开系统输入法设置，" +
-        "在「默认输入法」（或「当前输入法」）里选 CyIME；如果打开的页面里没有，就进" +
+        "在「默认输入法」（或「当前输入法」）里选 Lime；如果打开的页面里没有，就进" +
         "「设置 → 系统管理（或更多设置）→ 语言与输入法 → 默认输入法」，也可以在设置顶部搜索「默认输入法」。"
     else null
 }
@@ -161,10 +161,10 @@ internal fun SetupWizardContent(
             .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("按顺序完成下面三项，即可开始输入。", style = MaterialTheme.typography.bodyLarge)
-            SetupCard(1, "启用 CyIME", status.imeEnabled,
+            SetupCard(1, "启用 Lime", status.imeEnabled,
                 if (status.imeEnabled) "已启用" else "待启用") {
                 if (!status.imeEnabled) {
-                    Text("在系统输入法列表中打开 CyIME，返回后会自动检查。")
+                    Text("在系统输入法列表中打开 Lime，返回后会自动检查。")
                     Button(onClick = onEnable) { Text("去系统设置启用") }
                 }
             }
@@ -190,16 +190,16 @@ internal fun SetupWizardContent(
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = onSchemas, enabled = !status.preparing) { Text("选择其他方案（可选）") }
             }
-            SetupCard(3, "切换到 CyIME", status.imeEnabled && status.imeSelected,
+            SetupCard(3, "切换到 Lime", status.imeEnabled && status.imeSelected,
                 if (status.imeEnabled && status.imeSelected) "已切换" else "待切换") {
                 if (!status.imeEnabled || !status.imeSelected) {
                     val canSwitch = status.imeEnabled && status.ready
                     if (pickerFallbackHint == null) {
-                        Text("启用并准备完成后，在输入法选择器中选中 CyIME。")
-                        Button(onClick = onSwitch, enabled = canSwitch) { Text("选择 CyIME") }
+                        Text("启用并准备完成后，在输入法选择器中选中 Lime。")
+                        Button(onClick = onSwitch, enabled = canSwitch) { Text("选择 Lime") }
                     } else {
                         Text(pickerFallbackHint)
-                        Button(onClick = onOpenImeSettings, enabled = canSwitch) { Text("去系统设置选择 CyIME") }
+                        Button(onClick = onOpenImeSettings, enabled = canSwitch) { Text("去系统设置选择 Lime") }
                         TextButton(onClick = onSwitch, enabled = canSwitch) { Text("仍用输入法选择框") }
                     }
                 }

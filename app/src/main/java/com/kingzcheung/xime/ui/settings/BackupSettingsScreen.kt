@@ -183,7 +183,7 @@ fun BackupSettingsContent(onBack: () -> Unit) {
                             Button(
                                 onClick = {
                                     val date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-                                    exportLauncher.launch("CyIME备份-$date.zip")
+                                    exportLauncher.launch("Lime备份-$date.zip")
                                 },
                                 modifier = Modifier.weight(1f),
                                 enabled = !busy

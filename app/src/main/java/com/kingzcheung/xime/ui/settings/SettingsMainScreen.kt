@@ -487,7 +487,7 @@ fun SettingsMainContent(
                     }
                     SettingsItem(
                         icon = Icons.TwoTone.Info,
-                        title = stringResource(R.string.item_about_title), searchKey = "关于 CyIME",
+                        title = stringResource(R.string.item_about_title), searchKey = "关于 Lime",
                         subtitle = stringResource(R.string.item_about_summary),
                         onClick = onNavigateToAbout,
                         showArrow = true

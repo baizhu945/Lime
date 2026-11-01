@@ -38,6 +38,11 @@ fun getGitHash(): String {
 // 获取构建时间已移除：构建时刻会写入 BuildConfig 进而进入 classes.dex，
 // 破坏 F-Droid 可复现构建（不同环境构建时间不同导致产物不一致）。
 
+// 仅供隔离调试包快速验证；默认构建仍覆盖全部 ABI。
+val migrationArm64Only = providers.gradleProperty("migrationArm64Only").orNull == "true"
+val targetAbis = if (migrationArm64Only) listOf("arm64-v8a")
+    else listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+
 // 加载签名配置
 val keystorePropertiesFile = rootProject.file("app/keystore.properties")
 val keystoreProperties = Properties()
@@ -68,17 +73,15 @@ android {
     }
 
     defaultConfig {
-        // 安装身份（对外）与源码 namespace（内部）分离：
-        // applicationId 使用 CyIME 自己的包名，namespace 保留 com.kingzcheung.xime，
-        // 以便继续跟踪上游、避免大规模移动源码目录。
-        applicationId = "com.cyletix.cyime"
+        // 沿用 Xime 的安装身份；源码 namespace 保持不变。
+        applicationId = "com.kingzcheung.xime"
         minSdk = 28
         targetSdk = 35
         // 按发布批次定号：兼容修复升 PATCH，兼容功能升 MINOR 并归零 PATCH。
         // 不兼容变更升 MAJOR；日常编辑不逐次升号。完整规则见 docs/packaging.md。
         // versionCode 是独立递增的交付序号；同批普通版与内置版共用。
-        versionCode = 20261386
-        versionName = "1.15.34"
+        versionCode = 20261387
+        versionName = "1.15.35"
 
 
         // Isolated Compose rendering on a local x86 emulator; ordinary device tests keep the full app.
@@ -87,7 +90,7 @@ android {
 
         // NDK 配置
         ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            abiFilters += targetAbis
         }
 
         // 构建信息
@@ -128,10 +131,8 @@ android {
 
     buildTypes {
         debug {
-            // 本地有正式密钥时沿用它，debug/release 都能覆盖原应用，避免卸载丢数据。
-            if (keystorePropertiesFile.exists()) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            // 数据迁移验证完成前，测试包不能覆盖原 Xime 的私有数据。
+            applicationIdSuffix = ".migration"
         }
         release {
             isMinifyEnabled = true
@@ -214,16 +215,18 @@ android {
     // 分架构打包
     splits {
         abi {
-            isEnable = true
-            reset()
-            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-            isUniversalApk = true
+            isEnable = !migrationArm64Only
+            if (!migrationArm64Only) {
+                reset()
+                include(*targetAbis.toTypedArray())
+                isUniversalApk = true
+            }
         }
     }
 }
 
 android.applicationVariants.all {
-    val appName = "CyIME"
+    val appName = "Lime"
     outputs.all {
         val abi = filters.find { it.filterType.toString() == "ABI" }?.identifier ?: "universal"
         val buildLabel = if (buildType.name == "debug") "-debug" else ""

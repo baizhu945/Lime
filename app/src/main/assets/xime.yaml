@@ -12,10 +12,10 @@ style:
   # 浅色/深色模式的配色，deep 为降级后备
   # 可选值：内置主题 id 或 color_schemes 中定义的 id
   color_scheme:
-    light: pure_black
-    dark: "" # 默认沿用当前所选配色；可在自定义配置中指定独立深色主题
-  # 显示模式：0=浅色, 1=深色（默认）, 2=跟随系统
-  dark_mode: 1
+    light: lavender_purple
+    dark: slate_gray
+  # 显示模式：0=浅色, 1=深色, 2=跟随系统（默认）
+  dark_mode: 2
 
 # 配色方案可配置背景类型（纯色/渐变/图片），默认均为纯色。
 # 如需渐变/图片背景，在 xime.custom.yaml 的对应主题下覆盖 keyboard_background 即可：
@@ -51,21 +51,222 @@ style:
 #                                                 key_text_color（图片背景看不清时建议单独配置）
 #
 color_schemes:
+  dynamic:
+    name: "动态配色"
+    dynamic_color: true
+
   lavender_purple:
     name: "薰衣草紫"
     primary_color: 0x8F73E2
+    special_key_bg_color_dark: 0x8d79d1
     keyboard_background:
       type: solid
-      color: 0xEEE8F4
-      color_dark: 0x211E28
-    key_background:
+      color: 0xE3E4E8
+      color_dark: 0x1E1838
+
+  slate_gray:
+    name: "沉稳石墨"
+    primary_color: 0x424242
+    candidate_selected_text_color_dark: 0xF0F0F0
+    keyboard_background:
       type: solid
-      color: 0xFFFBFF
-      color_dark: 0x38333F
+      color: 0xE3E4E8
+      color_dark: 0x1A1A1A
   
-  # 1.9.15 移除的旧主题按单色相明度阶梯重新配色，每个色系留一套作为内置主题恢复（TonalThemes.kt，
-  # 由 tools/theme_rebuild.py 生成并检查对比度）。在 xime.custom.yaml 写同名 id 仍可覆盖；
-  # 未知 id 会回落到柔和蓝。
+  ocean_blue:
+    name: "海洋蔚蓝"
+    primary_color: 0x1A73E8
+    special_key_bg_color_dark: 0x4478c4
+    keyboard_background: { type: solid, color: 0xE3E4E8, color_dark: 0x0D1B33 }
+
+  sunset_orange:
+    name: "落日橙光"
+    primary_color: 0xE65100
+    special_key_bg_color_dark: 0xD97757
+    keyboard_background: { type: solid, color: 0xE3E4E8, color_dark: 0x1A0D00 }
+
+  rose_pink:
+    name: "浪漫玫瑰"
+    primary_color: 0xAD1457
+    special_key_bg_color_dark: 0x8B1E42
+    keyboard_background: { type: solid, color: 0xE3E4E8, color_dark: 0x2D1020 }
+
+  teal_cyan:
+    name: "青碧如水"
+    primary_color: 0x00796B
+    keyboard_background: { type: solid, color: 0xE3E4E8, color_dark: 0x002622 }
+
+  sakura_pink:
+    name: "樱花粉黛"
+    primary_color: 0xe91e63
+    special_key_bg_color_dark: 0xFAD2E0
+    keyboard_background: { type: solid, color: 0xfdf0f4, color_dark: 0xfdf0f4 }
+    key_bg_color: 0xfff8fb
+    key_bg_color_dark: 0xfff8fb
+    key_text_color: 0x7d3a52
+    key_text_color_dark: 0x7d3a52
+    candidate_text_color: 0x7d3a52
+    candidate_text_color_dark: 0x7d3a52
+
+  sky_blue:
+    name: "晴空浅蓝"
+    primary_color: 0x0288d1
+    keyboard_background: { type: solid, color: 0xe8f4fd, color_dark: 0xe8f4fd }
+    key_bg_color: 0xf7fcff
+    key_bg_color_dark: 0xf7fcff
+    key_text_color: 0x2d5f7a
+    key_text_color_dark: 0x2d5f7a
+    candidate_text_color: 0x2d5f7a
+    candidate_text_color_dark: 0x2d5f7a
+
+  mint_green:
+    name: "薄荷浅绿"
+    primary_color: 0x2e7d32
+    keyboard_background: { type: solid, color: 0xe9f5ec, color_dark: 0xe9f5ec }
+    key_bg_color: 0xf6fbf7
+    key_bg_color_dark: 0xf6fbf7
+    key_text_color: 0x3c5c44
+    key_text_color_dark: 0x3c5c44
+    candidate_text_color: 0x3c5c44
+    candidate_text_color_dark: 0x3c5c44
+
+  lilac_purple:
+    name: "丁香浅紫"
+    primary_color: 0x8e24aa
+    keyboard_background: { type: solid, color: 0xf3edf8, color_dark: 0xf3edf8 }
+    key_bg_color: 0xfbf8fd
+    key_bg_color_dark: 0xfbf8fd
+    key_text_color: 0x5d4a70
+    key_text_color_dark: 0x5d4a70
+    candidate_text_color: 0x5d4a70
+    candidate_text_color_dark: 0x5d4a70
+
+  peach_orange:
+    name: "蜜桃浅橙"
+    primary_color: 0xef6c00
+    keyboard_background: { type: solid, color: 0xfdf0e3, color_dark: 0xfdf0e3 }
+    key_bg_color: 0xfffaf3
+    key_bg_color_dark: 0xfffaf3
+    key_text_color: 0x7a5130
+    key_text_color_dark: 0x7a5130
+    candidate_text_color: 0x7a5130
+    candidate_text_color_dark: 0x7a5130
+
+  cream_beige:
+    name: "奶油米白"
+    primary_color: 0x8d6e63
+    keyboard_background: { type: solid, color: 0xfaf5ee, color_dark: 0xfaf5ee }
+    key_bg_color: 0xfffdf8
+    key_bg_color_dark: 0xfffdf8
+    key_text_color: 0x5d4037
+    key_text_color_dark: 0x5d4037
+    candidate_text_color: 0x5d4037
+    candidate_text_color_dark: 0x5d4037
+
+  aurora_gradient:
+    name: "极光青蓝"
+    primary_color: 0x00b0a8
+    keyboard_background: { type: gradient, colors: [0xe0f7fa, 0xb2ebf2], colors_dark: [0x001915, 0x003d38], angle: 90 }
+    key_bg_color: 0xe6ffffff
+    key_bg_color_dark: 0x5affffff
+    key_text_color: 0x14444a
+    key_text_color_dark: 0xe0f7fa
+    candidate_text_color: 0x14444a
+    candidate_text_color_dark: 0xe0f7fa
+
+  sunset_gradient:
+    name: "落日余晖"
+    primary_color: 0xff7043
+    special_key_bg_color_dark: 0xd57355
+    keyboard_background: { type: gradient, colors: [0xfff3e0, 0xffccbc], colors_dark: [0x260703, 0x5a170a], angle: 90 }
+    key_bg_color: 0xe6ffffff
+    key_bg_color_dark: 0x5affffff
+    key_text_color: 0x5d2a17
+    key_text_color_dark: 0xffe0d6
+    candidate_text_color: 0x5d2a17
+    candidate_text_color_dark: 0xffe0d6
+
+  ocean_gradient:
+    name: "深海渐变"
+    primary_color: 0x1e88e5
+    special_key_bg_color_dark: 0x4f96df
+    keyboard_background: { type: gradient, colors: [0xe3f2fd, 0x90caf9], colors_dark: [0x01132a, 0x0f2f63], angle: 90 }
+    key_bg_color: 0xe6ffffff
+    key_bg_color_dark: 0x5affffff
+    key_text_color: 0x0d3a5c
+    key_text_color_dark: 0xd6eaff
+    candidate_text_color: 0x0d3a5c
+    candidate_text_color_dark: 0xd6eaff
+
+  purple_gradient:
+    name: "紫梦渐变"
+    primary_color: 0x7e57c2
+    special_key_bg_color_dark: 0x9c7fd7
+    keyboard_background: { type: gradient, colors: [0xede7f6, 0xd1c4e9], colors_dark: [0x130d29, 0x2f2661], angle: 90 }
+    key_bg_color: 0xe6ffffff
+    key_bg_color_dark: 0x5affffff
+    key_text_color: 0x3c2a66
+    key_text_color_dark: 0xe8def8
+    candidate_text_color: 0x3c2a66
+    candidate_text_color_dark: 0xe8def8
+
+  rose_gradient:
+    name: "玫瑰渐变"
+    primary_color: 0xec407a
+    special_key_bg_color_dark: 0xd36d87
+    keyboard_background: { type: gradient, colors: [0xfce4ec, 0xf8bbd0], colors_dark: [0x240614, 0x551535], angle: 90 }
+    key_bg_color: 0xe6ffffff
+    key_bg_color_dark: 0x5affffff
+    key_text_color: 0x5d1035
+    key_text_color_dark: 0xffdbe8
+    candidate_text_color: 0x5d1035
+    candidate_text_color_dark: 0xffdbe8
+
+  forest_gradient:
+    name: "森林迷雾"
+    primary_color: 0x43a047
+    special_key_bg_color_dark: 0x5ca75d
+    keyboard_background: { type: gradient, colors: [0xe8f5e9, 0xc8e6c9], colors_dark: [0x001904, 0x013e09], angle: 90 }
+    key_bg_color: 0xe6ffffff
+    key_bg_color_dark: 0x5affffff
+    key_text_color: 0x1e4620
+    key_text_color_dark: 0xdff5e0
+    candidate_text_color: 0x1e4620
+    candidate_text_color_dark: 0xdff5e0
+
+  kitosonita_landscape:
+    name: "夜幕之影"
+    keyboard_background: { type: image, src: "themes/lll-sh-silhouette-bg.jpg", fit: cover, overlay_alpha: 0.15, overlay_alpha_dark: 0.30 }
+    key_bg_color: 0x8cffffff
+    key_bg_color_dark: 0x5affffff
+    key_text_color: 0x232323
+    key_text_color_dark: 0xf2f2f2
+    candidate_text_color: 0x232323
+    candidate_text_color_dark: 0xf2f2f2
+    candidate_selected_text_color: 0x9CB2D6
+    candidate_selected_text_color_dark: 0x9CB2D6
+
+  mrfawdi_nature:
+    name: "暮色之桥"
+    keyboard_background: { type: image, src: "themes/nordseher-bridge-bg.jpg", fit: cover, overlay_alpha: 0.15, overlay_alpha_dark: 0.30 }
+    key_bg_color: 0x8cffffff
+    key_bg_color_dark: 0x5affffff
+    key_text_color: 0x3a2028
+    key_text_color_dark: 0xf7eef1
+    candidate_text_color: 0xA4828C
+    candidate_text_color_dark: 0xA4828C
+    candidate_selected_text_color: 0xDCA79C
+    candidate_selected_text_color_dark: 0xDCA79C
+
+  olivcelso_desert:
+    name: "大漠流金"
+    keyboard_background: { type: image, src: "themes/olivcelso-desert-bg.jpg", fit: cover, overlay_alpha: 0.30, overlay_alpha_dark: 0.45 }
+    key_bg_color: 0x8cffffff
+    key_bg_color_dark: 0x5affffff
+    key_text_color: 0x6789BF
+    key_text_color_dark: 0xf7eccb
+    candidate_text_color: 0x6789BF
+    candidate_text_color_dark: 0xE4C656
 
 # ── 26 键全键盘手势配置 ──
 # 每个按键可定义 4 个手势：
@@ -150,11 +351,21 @@ keyboard:
     # compact: 紧凑布局（主文字在左上，下滑提示占满键帽中部）
     button_layout: standard
     layout:
+      # 第四行按 Xime 的控制行声明：单个 ?123、逗号、空格、地球、回车。
       rows:
         - [q, w, e, r, t, y, u, i, o, p]
         - [a, s, d, f, g, h, j, k, l]
-        - [z, x, c, v, b, n, m]
+        - [shift, z, x, c, v, b, n, m, delete]
+        - [mode_change, comma, space, earth, enter]
     keys:
+      # 功能键只声明 Xime 的宽度；点按、长按与滑动由键盘组件自身的行为负责。
+      shift: { width: 1.4 }
+      delete: { width: 1.4 }
+      mode_change: { width: 1.2 }
+      comma: { width: 0.8 }
+      space: { width: 3 }
+      earth: { width: 0.8 }
+      enter: { width: 1.2 }
       # ── 第一行 ──
       # long_press 顺序：小写 → 大写 → 带变音符号的相似字母
       # swipe_down 显示对应的五笔字根（action:none 仅显示不上屏）
@@ -188,11 +399,10 @@ keyboard:
       b: { tap: "b", swipe_up: { label: "！", value: "!" }, swipe_down: { label: "子耳了也阝卩㔾凵", action: "none", display: "bubble" }, long_press: { display: "bubble", values: ["b", "B"] } }
       n: { tap: "n", swipe_up: { label: "％", value: "%" }, swipe_down: { label: "已己巳心忄羽乙𠃜", action: "none", display: "bubble" }, long_press: { display: "bubble", values: ["n", "N", "ñ"] } }
       m: { tap: "m", swipe_up: { label: "＃", value: "#" }, swipe_down: { label: "山由贝冂冎几", action: "none", display: "bubble" }, long_press: { display: "bubble", values: ["m", "M"] } }
-      # ── 第四行: 暂时不受layout控制 ──
+      # ── 第四行由 layout.rows 与上方功能键宽度控制 ──
       #  逗号键，label 为中文显示，value 为英文显示+提交值
       "'": { tap: { label: "，", value: "," }, swipe_up: { label: "。", value: "." } , long_press: { display: "bubble", values: [ ",","."] }}
-      # 中/英切换键，label 为按键显示文字
-      earth: { tap: { label: "@language", action: "toggle_ascii" }, long_press: { display: "bubble", values: [ { label: "选择输入法", action: "command", value: "show_ime_picker" } ] } }
+      # 中/英切换键的点按与长按由语言键组件负责，这里只给宽度。
     
   # 英文键盘布局
   qwerty_en:
@@ -204,8 +414,16 @@ keyboard:
       rows:
         - [q, w, e, r, t, y, u, i, o, p]
         - [a, s, d, f, g, h, j, k, l]
-        - [z, x, c, v, b, n, m]
+        - [shift, z, x, c, v, b, n, m, delete]
+        - [mode_change, comma, space, earth, enter]
     keys:
+      shift: { width: 1.4 }
+      delete: { width: 1.4 }
+      mode_change: { width: 1.2 }
+      comma: { width: 0.8 }
+      space: { width: 3 }
+      earth: { width: 0.8 }
+      enter: { width: 1.2 }
       # ── 第一行 ──
       q: { tap: "q", swipe_up: "1", long_press: { display: "bubble", values: ["q", "Q"] } }
       w: { tap: "w", swipe_up: "2", long_press: { display: "bubble", values: ["w", "W"] } }
@@ -239,8 +457,7 @@ keyboard:
       m: { tap: "m", swipe_up: "#", long_press: { display: "bubble", values: ["m", "M"] } }
       #  逗号键，label 为中文显示，value 为英文显示+提交值
       "'": { tap: { label: ",", value: "," }, swipe_up: { label: ".", value: "." } }
-      # 中/英切换键，label 为按键显示文字
-      earth: { tap: { label: "@language", action: "toggle_ascii" }, long_press: { display: "bubble", values: [ { label: "选择输入法", action: "command", value: "show_ime_picker" } ] } }
+      # 中/英切换键的点按与长按由语言键组件负责，这里只给宽度。
 
   # ── 合并键布局（14/17/18 键）──
   # rows 支持子数组：[[q, w], [e, r], ...] 表示 q/w 合并在同一个键，每行键数变少键自然更宽（行内等宽）。

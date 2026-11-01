@@ -27,7 +27,7 @@ internal object ClipboardExport {
             .sortedWith(compareByDescending<ClipboardItem> { it.isPinned }.thenByDescending { it.timestamp })
 
     fun fileName(format: ClipboardExportFormat, now: Long): String =
-        "CyIME剪贴板-${SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(now))}.${format.extension}"
+        "Lime剪贴板-${SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(now))}.${format.extension}"
 
     /** [groupOf]: the name of the clipboard group a record is in, null when it is in none. */
     fun write(items: List<ClipboardItem>, format: ClipboardExportFormat, out: Writer, now: Long,
@@ -38,7 +38,7 @@ internal object ClipboardExport {
                 out.write(item.text)
             }
             ClipboardExportFormat.MD -> {
-                out.write("# CyIME 剪贴板（${time(now)} 导出，${items.size} 条）\n")
+                out.write("# Lime 剪贴板（${time(now)} 导出，${items.size} 条）\n")
                 val (pinned, history) = items.partition { it.isPinned }
                 for ((title, group) in listOf("固定内容" to pinned, "历史记录" to history)) {
                     if (group.isEmpty()) continue

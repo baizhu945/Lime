@@ -44,14 +44,14 @@ object CellDictionaryEnglish {
     }
 
     fun dictionary(kind: Kind, words: Collection<String>): String = buildString {
-        append("# English words of imported dictionaries; managed by CyIME\n---\nname: ${kind.dictionary}\n")
+        append("# English words of imported dictionaries; managed by Lime\n---\nname: ${kind.dictionary}\n")
         append("version: \"1\"\nsort: by_weight\n...\n")
         words.distinct().forEach { word -> code(kind, word)?.let { append(word).append('\t').append(it).append("\t100\n") } }
     }
 
     /** Compilation-only schema, like cyime_k14_english: Rime builds a table's prism through a schema. */
     fun schema(kind: Kind): String = """
-        |# Internal compilation dependency of imported English words; not an input mode. Managed by CyIME.
+        |# Internal compilation dependency of imported English words; not an input mode. Managed by Lime.
         |schema:
         |  schema_id: ${kind.dictionary}
         |  name: 导入词库英文依赖

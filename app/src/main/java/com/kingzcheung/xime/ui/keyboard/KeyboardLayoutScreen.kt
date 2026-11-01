@@ -2,6 +2,7 @@ package com.kingzcheung.xime.ui.keyboard
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -99,8 +100,13 @@ fun KeyboardLayoutScreen(
             when (keyboardState) {
             is KeyboardLayoutState.Chinese -> {
                 if (uiState.inputProfile.layout.kind == com.kingzcheung.xime.settings.LayoutKind.KANA_KEYPAD) {
+                    // 只订阅「有没有输入」这一个布尔值（derivedStateOf 自带依赖跟踪与相等比较）：
+                    // 编码每变一次不必重组整块假名键盘，真变了才重组。
+                    val hasKanaInput by remember(candidateState) {
+                        derivedStateOf { candidateState.value.inputText.isNotEmpty() }
+                    }
                     JapaneseKanaKeyboardLayout(
-                        hasKanaInput = candidateState.value.inputText.isNotEmpty(),
+                        hasKanaInput = hasKanaInput,
                         onKanaAction = { callbacks.onJapaneseKanaAction?.invoke(it) },
                         onKeyPress = onKeyPress,
                         keyBackgroundColor = keyBgColor,

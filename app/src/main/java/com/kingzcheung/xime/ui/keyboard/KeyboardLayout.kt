@@ -123,8 +123,32 @@ fun KeyboardLayout(
     val letterLayout = remember(cfgVer, isAsciiMode, uiState.currentSchemaId) {
         KeysConfigHelper.letterLayout(uiState.currentSchemaId, isAsciiMode)
     }
-    val keyRows = remember(cfgVer, isAsciiMode, uiState.currentSchemaId, letterLayout) {
-        letterLayout?.typingRows() ?: KeysConfigHelper.getKeyRows(uiState.currentSchemaId, isAsciiMode)
+    val controlPrefs = LocalKeyboardInputPreferences.current
+    // 每帧重算会重建 keyRows/几何，按键变卡；只在这些输入变化时重算。
+    val configuredRow = remember(
+        cfgVer, isAsciiMode, uiState.currentSchemaId, uiState.inputProfile.layout,
+        uiState.inputProfile.scheme, uiState.inputProfile.language, uiState.isVoiceMode,
+        letterLayout, controlPrefs.splitKeyboardEnabled, controlPrefs.qwertyCommaKey,
+    ) {
+        configuredControlRow(
+            layout = KeysConfigHelper.getRowsLayout(isAsciiMode),
+            eligible = letterLayout == null && !controlPrefs.splitKeyboardEnabled &&
+                controlPrefs.qwertyCommaKey &&
+                // Xime 的控制行没有单独的句号键：句号在逗号键的上滑/长按里，故不受句号键开关限制。
+                uiState.inputProfile.layout == com.kingzcheung.xime.settings.InputLayout.QWERTY &&
+                uiState.inputProfile.scheme in setOf(com.kingzcheung.xime.settings.InputScheme.PINYIN,
+                    com.kingzcheung.xime.settings.InputScheme.DIRECT) &&
+                uiState.inputProfile.language in setOf(com.kingzcheung.xime.settings.InputLanguage.CHINESE,
+                    com.kingzcheung.xime.settings.InputLanguage.ENGLISH) &&
+                !uiState.isVoiceMode,
+            bindings = { KeysConfigHelper.getKeyGesture(it, isAsciiMode) },
+        )
+    }
+    val keyRows = remember(cfgVer, isAsciiMode, uiState.currentSchemaId, letterLayout, configuredRow) {
+        val legacy = letterLayout?.typingRows() ?: KeysConfigHelper.getKeyRows(uiState.currentSchemaId, isAsciiMode)
+        configuredRow?.letterRows ?: if (letterLayout == null)
+            legacyControlLayoutLetters(KeysConfigHelper.getRowsLayout(isAsciiMode), legacy) ?: legacy
+        else legacy
     }
     // Typewise honeycomb: a fourth letter row, short rows offset half a key, hexagonal letter caps.
     val honeycomb = letterLayout?.honeycomb == true
@@ -228,8 +252,10 @@ fun KeyboardLayout(
     )
     val standardRowInset = letterRowGeometry?.middleRowInsetDp?.dp
     val standardRowEndInset = letterRowGeometry?.middleRowEndInsetDp?.dp
-    val letterSideKeyWeight = letterRowGeometry?.outerKeyWeight ?: 1.4f
-    val letterDeleteKeyWeight = letterRowGeometry?.deleteKeyWeight ?: 1.4f
+    val letterSideKeyWeight = configuredRow?.let { KeysConfigHelper.getKeyGesture("shift", isAsciiMode)?.width }
+        ?: letterRowGeometry?.outerKeyWeight ?: 1.4f
+    val letterDeleteKeyWeight = configuredRow?.let { KeysConfigHelper.getKeyGesture("delete", isAsciiMode)?.width }
+        ?: letterRowGeometry?.deleteKeyWeight ?: 1.4f
     val letterBottomWeight = letterRowGeometry?.bottomLetterWeight ?: 7f
     val splitWeighted = letterLayout != null || fourteenKey
     val baseRow1 = keyRows.getOrElse(1) { listOf("a", "s", "d", "f", "g", "h", "j", "k", "l") }
@@ -943,7 +969,8 @@ fun KeyboardLayout(
                     // 逗号键分词：有逗号键放逗号键左下角，只开句号键放句号键。
                     val (leftSplit, rightSplit) = syllableSplitOnPunctuation(syllableSplit, leftPunctuation, rightPunctuation)
                     @Composable
-                    fun RowScope.PunctuationKey(key: SpacePunctuationKey, tag: String, split: Boolean = false) =
+                    fun RowScope.PunctuationKey(key: SpacePunctuationKey, tag: String, split: Boolean = false,
+                        weight: Float = bottom.punctuation) =
                         // 主副字符已按全角/半角写定并原样上屏；键面不能再转一次，否则角标与副字符的宽度相反。
                         CompositionLocalProvider(LocalKeyboardPunctuation provides null) {
                         SwipeableKeyButton(
@@ -953,7 +980,7 @@ fun KeyboardLayout(
                             onClick = { commitPunctuation(key.primary) },
                             backgroundColor = keyBackgroundColor,
                             textColor = keyTextColor,
-                            modifier = Modifier.weight(bottom.punctuation).testTag(tag),
+                            modifier = Modifier.weight(weight).testTag(tag),
                             swipeText = key.alternate.ifEmpty { null },
                             symbolInputText = key.alternate.ifEmpty { null },
                             onSwipe = if (key.alternate.isEmpty()) null else { _ -> commitPunctuation(key.alternate) },
@@ -969,6 +996,63 @@ fun KeyboardLayout(
                             shadowShapeRadius = shadowShapeRadius,
                         )
                         }
+                    // 配置控制行只接管已验证可完整复用现有交互的子集。
+                    if (configuredRow != null && leftPunctuation != null) {
+                        Row(Modifier.fillMaxWidth().weight(1f).testTag("configured-control-row")) {
+                            configuredRow.controls.forEach { id -> androidx.compose.runtime.key(id) {
+                                val weight = KeysConfigHelper.getKeyGesture(id, isAsciiMode)?.width ?: when (id) {
+                                    "mode_change" -> bottom.mode * 2f
+                                    "comma" -> bottom.punctuation
+                                    "space" -> bottomSpaceWeight
+                                    "earth" -> bottom.language
+                                    else -> bottom.enter
+                                }
+                                when (id) {
+                                    // Xime 外观：一颗 ?123；点按进上次的页面，长按选“数字”“常用符号”。
+                                    // 总权重和原来两个键一样（分别是 weight / 2f），Ctrl 拖选也还在同一颗键上。
+                                    "mode_change" -> XimeModeKey(
+                                        onKeyPress = onKeyPress,
+                                        backgroundColor = specialKeyBackgroundColor, textColor = specialKeyTextColor,
+                                        modifier = Modifier.weight(weight), onKeyPressDown = onKeyPressDown,
+                                        shadowEnabled = shadowEnabled, shadowElevation = shadowElevation,
+                                        shadowShapeRadius = shadowShapeRadius, ctrlTargets = shiftSlideTargets,
+                                        onCtrlShortcut = { letter -> onGestureAction(GestureAction.COMMAND,
+                                            com.kingzcheung.xime.keyboard.CtrlShortcuts.command(letter)) },
+                                        onSwipeStateChange = { state, bounds -> processSwipeState(state, bounds) },
+                                    )
+                                    "comma" -> PunctuationKey(leftPunctuation, "qwerty-punctuation-key", leftSplit, weight)
+                                    "space" -> SpaceKey(
+                                        schemaName = schemaName, isAsciiMode = isAsciiMode, isSttEnabled = isSttEnabled,
+                                        isVoiceMode = isVoiceMode, voiceSticky = isVoiceSticky,
+                                        keyBackgroundColor = keyBackgroundColor, keyTextColor = keyTextColor,
+                                        shadowEnabled = shadowEnabled, shadowElevation = shadowElevation,
+                                        shadowShapeRadius = shadowShapeRadius, modifier = Modifier.weight(weight),
+                                        onKeyPress = onKeyPress, onKeyPressDown = onKeyPressDown,
+                                        onKeyRelease = onKeyRelease, onVoiceModeChange = onVoiceModeChange,
+                                    )
+                                    "earth" -> LanguageKeyButton(
+                                        icon = rememberVectorPainter(Icons.Default.Language),
+                                        onClick = { onGestureAction(GestureAction.TOGGLE_ASCII, "ime_switch") },
+                                        backgroundColor = specialKeyBackgroundColor, iconColor = specialKeyTextColor,
+                                        modifier = Modifier.weight(weight).testTag("configured-earth-key"),
+                                        onPress = { onKeyPressDown?.invoke("ime_switch") },
+                                        onRelease = { onKeyRelease?.invoke("ime_switch") },
+                                        shadowEnabled = shadowEnabled, shadowElevation = shadowElevation,
+                                        shadowShapeRadius = shadowShapeRadius,
+                                    )
+                                    "enter" -> ActionKeyButton(
+                                        text = enterKeyText, onClick = { onKeyPress("enter") },
+                                        backgroundColor = specialKeyBackgroundColor, textColor = specialKeyTextColor,
+                                        modifier = Modifier.weight(weight).testTag("qwerty-enter-key"),
+                                        onPress = { onKeyPressDown?.invoke("enter") },
+                                        onRelease = { onKeyRelease?.invoke("enter") },
+                                        shadowEnabled = shadowEnabled, shadowElevation = shadowElevation,
+                                        shadowShapeRadius = shadowShapeRadius,
+                                    )
+                                }
+                            } }
+                        }
+                    } else {
                     // 第四行（控制行）
                     Row(
                         modifier = Modifier
@@ -1293,6 +1377,7 @@ fun KeyboardLayout(
                                 shadowShapeRadius = shadowShapeRadius,
                             )
                         }
+                    }
                     }
                 }
 

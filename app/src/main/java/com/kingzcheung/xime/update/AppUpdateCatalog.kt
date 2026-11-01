@@ -25,8 +25,10 @@ data class AppReleaseAsset(val name: String, val url: String, val sizeBytes: Lon
  * 同一个仓库里还有 Windows 版（windows-日期）和模型（models）的发布，只认 x.y.z 标签；草稿和预发布不算。
  */
 object AppUpdateCatalog {
-    const val RELEASES_API = "https://api.github.com/repos/Cyletix/CyIME/releases?per_page=30"
-    const val RELEASES_PAGE = "https://github.com/Cyletix/CyIME/releases"
+    /** Lime 没有公开的发布仓库：关闭在线更新，避免把上游 CyIME 的安装包装到 Lime 上。 */
+    const val ENABLED = false
+    const val RELEASES_API = ""
+    const val RELEASES_PAGE = ""
 
     private val androidTag = Regex("""^v?(\d+\.\d+\.\d+)$""")
     // CyIME-1.14.156-arm64-v8a.apk / CyIME-1.14.156-full-arm64-v8a.apk（1.14.72 里的完整版文件名是 1.14.73）。
@@ -55,6 +57,7 @@ object AppUpdateCatalog {
      * 安装包按这两项挑，找不到时退到 universal，再没有就只给发布页。
      */
     fun latest(releasesJson: String, full: Boolean, abis: List<String>): AppRelease? {
+        if (!ENABLED) return null
         val releases = json.parseToJsonElement(releasesJson) as? JsonArray ?: return null
         return releases.mapNotNull { (it as? JsonObject)?.let { release -> parseRelease(release, full, abis) } }
             .maxWithOrNull { a, b -> compareVersions(a.version, b.version) }

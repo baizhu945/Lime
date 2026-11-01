@@ -6,6 +6,12 @@ import com.kingzcheung.xime.ui.theme.visualMaterial
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -111,10 +117,52 @@ fun MenuBar(
             currentState = if (toggle) (if (action.active) "已开启" else "已关闭") else null,
             selected = if (toggle) action.active else null, toolbarItem = action.item, onLongClick = action.onLongClick)
     }
-    KeyboardPanelGrid(menuItems, isLandscape, textColor, "menu-pages",
-        modifier.fillMaxWidth().keyboardPanelBackground(state.backgroundColor), preferSinglePage = true) { item, cellModifier ->
-        MenuItemButton(item, state.keyBgColor, textColor,
-            cellModifier.testTag("menu-item:${item.id}"), isLandscape)
+    BoxWithConstraints(modifier.fillMaxWidth().keyboardPanelBackground(state.backgroundColor)) {
+        val cellWidth = (maxWidth - 32.dp - 36.dp) / 4
+        // Xime 的两行正方形网格放不下时保留 CyIME 的自适应分页。
+        val useXimeGrid = !isLandscape && cellWidth >= 64.dp &&
+            maxHeight >= cellWidth * 2 + 12.dp + 24.dp &&
+            androidx.compose.ui.platform.LocalDensity.current.fontScale <= 1.3f
+        if (useXimeGrid && menuItems.isNotEmpty()) {
+            val pages = menuItems.chunked(8)
+            val pagerState = rememberPagerState(pageCount = { pages.size })
+            Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceAround) {
+                HorizontalPager(pagerState, modifier = Modifier.fillMaxWidth().testTag("menu-pages")) { page ->
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        repeat(2) { row ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                repeat(4) { column ->
+                                    val item = pages[page].getOrNull(row * 4 + column)
+                                    val cell = Modifier.weight(1f).aspectRatio(1f)
+                                    if (item == null) Spacer(cell) else MenuItemButton(
+                                        item, state.keyBgColor, textColor,
+                                        cell.testTag("menu-item:${item.id}"), ximeStyle = true)
+                                }
+                            }
+                        }
+                    }
+                }
+                if (pages.size > 1) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        repeat(pages.size) { index ->
+                            Box(Modifier.size(if (index == pagerState.currentPage) 8.dp else 6.dp)
+                                .clip(CircleShape).background(if (index == pagerState.currentPage) textColor
+                                else textColor.copy(alpha = 0.3f)))
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
+        } else {
+            KeyboardPanelGrid(menuItems, isLandscape, textColor, "menu-pages",
+                Modifier.fillMaxSize(), preferSinglePage = true) { item, cellModifier ->
+                MenuItemButton(item, state.keyBgColor, textColor,
+                    cellModifier.testTag("menu-item:${item.id}"), isLandscape)
+            }
+        }
     }
 }
 
@@ -125,7 +173,8 @@ fun MenuItemButton(
     bgColor: Color,
     textColor: Color,
     modifier: Modifier = Modifier,
-    isLandscape: Boolean = false
+    isLandscape: Boolean = false,
+    ximeStyle: Boolean = false
 ) {
     val on = item.selected == true
     // 开启的开关用文字色作底、取反色作字，任何主题（含玻璃半透明键帽）下都能一眼看出。
@@ -145,14 +194,22 @@ fun MenuItemButton(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        if (item.toolbarItem != null) {
+        val ximeIcon = if (ximeStyle) when ((item.toolbarItem as? ToolbarButtonItem.Builtin)?.button) {
+            ToolbarButton.SCHEMA -> Icons.TwoTone.Keyboard
+            ToolbarButton.FLOAT -> Icons.TwoTone.SettingsOverscan
+            else -> null
+        } else null
+        if (ximeIcon != null) {
+            Icon(imageVector = ximeIcon, contentDescription = item.label,
+                tint = content.copy(alpha = 0.7f), modifier = Modifier.size(24.dp))
+        } else if (item.toolbarItem != null) {
             ToolbarButtonIcon(item = item.toolbarItem, tint = content.copy(alpha = if (on) 1f else 0.7f),
-                modifier = Modifier.size(26.dp), active = on)
+                modifier = Modifier.size(if (ximeStyle) 24.dp else 26.dp), active = on)
         } else if (item.textIcon != null) {
             Text(
                 text = item.textIcon,
                 color = content.copy(alpha = 0.7f),
-                fontSize = 26.sp,
+                fontSize = if (ximeStyle) 24.sp else 26.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1
             )
@@ -161,15 +218,15 @@ fun MenuItemButton(
                 painter = item.icon,
                 contentDescription = item.label,
                 tint = content.copy(alpha = 0.7f),
-                modifier = Modifier.size(26.dp)
+                modifier = Modifier.size(if (ximeStyle) 24.dp else 26.dp)
             )
         }
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = item.label,
             color = content,
-            fontSize = 12.sp,
-            lineHeight = if (isLandscape) 13.sp else 14.sp,
+            fontSize = if (ximeStyle) 10.sp else 12.sp,
+            lineHeight = if (ximeStyle) 12.sp else if (isLandscape) 13.sp else 14.sp,
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.Center,
             maxLines = 2,

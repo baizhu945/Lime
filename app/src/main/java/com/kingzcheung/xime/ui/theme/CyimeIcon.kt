@@ -38,7 +38,7 @@ fun CyimeGeneratedIcon(style: VisualStyle, modifier: Modifier = Modifier, backgr
         }
         remember(bitmap) { BitmapPainter(bitmap.asImageBitmap()) }
     }
-    Image(painter, "CyIME · ${style.title}", modifier, contentScale = ContentScale.Fit)
+    Image(painter, "Lime · ${style.title}", modifier, contentScale = ContentScale.Fit)
 }
 
 /** Export the production vector, rather than a second drawing implementation. */

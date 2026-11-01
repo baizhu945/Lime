@@ -87,12 +87,12 @@ object AppInfo {
     
     val dependencies = listOf(
         LicenseItem(
-            name = "CyIME（由 Cyletix 维护开发）",
+            name = "CyIME（输入底层上游，由 Cyletix 维护）",
             license = "GPL-3.0",
             url = "https://github.com/Cyletix/CyIME/blob/main/LICENSE"
         ),
         LicenseItem(
-            name = "Xime（上游，原名曦码）",
+            name = "Xime（键盘外观上游，原名曦码）",
             license = "GPL-3.0",
             url = "https://github.com/ximeiorg/Xime"
         ),
@@ -209,14 +209,14 @@ fun AboutContent(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "CyIME",
+                            text = "Lime",
                             fontSize = 28.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "基于 Xime 项目 fork 的 Android 输入法，采用 Rime 输入引擎，由 Cyletix 维护开发，遵循 GNU GPLv3 开源协议。保留上游作者及第三方版权与许可声明。",
+                            text = "Lime 是 Xime 与 CyIME 的 fork：输入底层来自 CyIME，键盘外观与交互设计来自 Xime。采用 Rime 输入引擎，遵循 GNU GPLv3 开源协议，保留上游作者及第三方版权与许可声明。",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -231,135 +231,9 @@ fun AboutContent(
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { uriHandler.openUri("https://github.com/Cyletix/CyIME/releases") },
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "查看最新版本",
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
                     }
                 }
-            
-            // 本分支维护者优先，与源代码、上游作者使用同一种完整卡片。
-                AboutLinkCard(
-                    title = "Cyletix · 维护与开发",
-                    subtitle = "github.com/Cyletix",
-                    icon = Icons.TwoTone.PersonOutline,
-                    onClick = { uriHandler.openUri("https://github.com/Cyletix") },
-                )
-                AboutLinkCard(
-                    title = "CyIME 源代码",
-                    subtitle = "github.com/Cyletix/CyIME",
-                    icon = Icons.TwoTone.Code,
-                    onClick = { uriHandler.openUri("https://github.com/Cyletix/CyIME") },
-                )
-                AboutLinkCard(
-                    title = "Kor1 (kingzcheung) · 上游作者",
-                    subtitle = "github.com/kingzcheung",
-                    icon = Icons.TwoTone.PersonOutline,
-                    onClick = { uriHandler.openUri("https://github.com/kingzcheung") },
-                )
 
-                AppUpdateSection()
-
-            // 链接项
-                SettingsSection(title = "信息与工具") {
-                        SettingsItem(
-                            icon = Icons.TwoTone.Favorite,
-                            title = "鸣谢",
-                            onClick = onNavigateToCredits
-                        )
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = 56.dp),
-                            thickness = 0.5.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
-                        SettingsItem(
-                            icon = Icons.TwoTone.PrivacyTip,
-                            title = "隐私策略",
-                            onClick = onNavigateToPrivacy
-                        )
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = 56.dp),
-                            thickness = 0.5.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
-                        SettingsItem(
-                            icon = Icons.TwoTone.Description,
-                            title = "开源许可证",
-                            onClick = onNavigateToLicenses
-                        )
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = 56.dp),
-                            thickness = 0.5.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
-                        // 使用文档从设置首页收到这里（内容较旧，少有人点）。
-                        SettingsItem(
-                            icon = Icons.TwoTone.Description,
-                            title = "使用文档",
-                            onClick = { uriHandler.openUri("https://github.com/Cyletix/CyIME/blob/main/docs/usage.md") }
-                        )
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = 56.dp),
-                            thickness = 0.5.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
-                        SettingsItem(
-                            icon = Icons.TwoTone.BugReport,
-                            title = "日志查看器",
-                            onClick = onNavigateToLogViewer
-                        )
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = 56.dp),
-                            thickness = 0.5.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
-                        SettingsItem(
-                            icon = Icons.TwoTone.Storage,
-                            title = "存储空间",
-                            onClick = onNavigateToStorageSpace
-                        )
-                        if (BuildConfig.DEBUG) {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(start = 56.dp),
-                                thickness = 0.5.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                            )
-                            SettingsItem(
-                                icon = Icons.TwoTone.BugReport,
-                                title = "调试日志",
-                                onClick = {},
-                                trailing = {
-                                    Switch(
-                                        checked = verboseLoggingEnabled,
-                                        onCheckedChange = { enabled ->
-                                            verboseLoggingEnabled = enabled
-                                            SettingsPreferences.setVerboseLoggingEnabled(context, enabled)
-                                            FileLogger.setVerboseLoggingEnabled(enabled)
-                                        }
-                                    )
-                                }
-                            )
-                        }
-                }
-            
             // 设备信息
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -501,7 +375,7 @@ fun PrivacyPolicyContent(
                             .padding(16.dp)
                     ) {
                         Text(
-                            text = "CyIME隐私策略",
+                            text = "Lime 隐私策略",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -509,12 +383,12 @@ fun PrivacyPolicyContent(
                         
                         PrivacySection(
                             title = "数据收集",
-                            content = "CyIME 默认使用本地输入与识别。主动启用在线语音或其他联网服务时，相应音频或文本会发送给您选择的服务商。"
+                            content = "Lime 默认使用本地输入与识别。主动启用在线语音或其他联网服务时，相应音频或文本会发送给您选择的服务商。"
                         )
                         
                         PrivacySection(
                             title = "本地存储",
-                            content = "CyIME 默认在本地存储设置、词库和剪贴板历史。主动启用剪贴板同步插件时，剪贴板内容会按插件配置传输；备份只导出到您选择的本地文件。您可以随时清除本地数据。"
+                            content = "Lime 默认在本地存储设置、词库和剪贴板历史。主动启用剪贴板同步插件时，剪贴板内容会按插件配置传输；备份只导出到您选择的本地文件。您可以随时清除本地数据。"
                         )
                         
                         PrivacySection(
@@ -534,7 +408,7 @@ fun PrivacyPolicyContent(
                         
                         PrivacySection(
                             title = "开源",
-                            content = "CyIME是开源软件，源代码公开可审计。您可以在 GitHub 上查看完整源代码。"
+                            content = "Lime 是开源软件，源代码公开可审计。您可以在 GitHub 上查看完整源代码。"
                         )
                         
                         Spacer(modifier = Modifier.height(16.dp))

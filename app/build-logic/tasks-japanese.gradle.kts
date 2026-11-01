@@ -29,6 +29,9 @@ val prepareJapaneseDictionaries by tasks.registering {
     inputs.property("revision", japaneseDataRevision)
     inputs.property("checksums", japaneseDataHashes)
     val targetRoot = japaneseAssetRoot.get().asFile
+    // 本地缓存：联网不可用时用同一哈希的副本，避免每次都依赖网络。
+    val cacheRoot = rootProject.file("build/japanese-dict-cache")
+    inputs.files(japaneseDataHashes.keys.map { File(cacheRoot, it) })
     outputs.files(japaneseDataHashes.keys.map { File(targetRoot, it) })
     outputs.upToDateWhen {
         japaneseDataHashes.all { (name, hash) -> File(targetRoot, name).let { it.isFile && sha256(it) == hash } }
@@ -38,6 +41,12 @@ val prepareJapaneseDictionaries by tasks.registering {
         japaneseDataHashes.forEach { (name, hash) ->
             val target = File(targetRoot, name)
             if (target.isFile && sha256(target) == hash) return@forEach
+            val cached = File(cacheRoot, name)
+            if (cached.isFile && sha256(cached) == hash) {
+                logger.lifecycle("Using cached pinned Japanese dictionary: $name")
+                java.nio.file.Files.copy(cached.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                return@forEach
+            }
             check(!gradle.startParameter.isOffline) { "Missing Japanese data: $name; run prepareJapaneseDictionaries once online." }
             val url = "https://raw.githubusercontent.com/lazyfoxchan/rime-jaroomaji/$japaneseDataRevision/$name"
             logger.lifecycle("Downloading pinned Japanese dictionary: $name")

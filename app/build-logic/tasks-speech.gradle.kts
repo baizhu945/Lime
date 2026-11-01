@@ -10,10 +10,20 @@ val prepareSpeechRuntime = tasks.register("prepareSpeechRuntime") {
     outputs.file(speechAar)
     outputs.dir(speechAssets)
     doLast {
+        val cacheDir = rootProject.file("build/speech-cache")
+        fun sha256Of(f: File) = MessageDigest.getInstance("SHA-256").digest(f.readBytes())
+            .joinToString("") { "%02x".format(it) }
         fun fetch(url: String, file: File, sha: String) {
-            fun digest() = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
-                .joinToString("") { "%02x".format(it) }
+            fun digest() = sha256Of(file)
             if (file.isFile && digest() == sha) return
+            // 联网不可用时用同一哈希的本地缓存副本。
+            val cached = File(cacheDir, file.name)
+            if (cached.isFile && sha256Of(cached) == sha) {
+                file.parentFile.mkdirs()
+                java.nio.file.Files.copy(cached.toPath(), file.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                return
+            }
             file.parentFile.mkdirs()
             val conn = java.net.URL(url).openConnection().apply {
                 connectTimeout = 30_000; readTimeout = 300_000

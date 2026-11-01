@@ -365,7 +365,7 @@ object DeviceHost {
             return Response(401)
         }
         val clientId = runCatching { UUID.fromString(request.getString("client_id")).toString() }.getOrNull() ?: return Response(400)
-        val name = request.optString("client_name").filterNot { it.isISOControl() }.take(64).ifBlank { "CyIME 设备" }
+        val name = request.optString("client_name").filterNot { it.isISOControl() }.take(64).ifBlank { "Lime 设备" }
         val existing = _devices.value.firstOrNull { it.clientId == clientId }
         if (existing == null && _devices.value.size >= MAX_DEVICES) return Response(409)
         val token = token()

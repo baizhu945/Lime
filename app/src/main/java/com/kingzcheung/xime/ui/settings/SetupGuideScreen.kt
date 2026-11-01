@@ -154,7 +154,7 @@ internal fun SetupGuideContent(
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             Spacer(Modifier.height(4.dp))
-            Text("告诉 CyIME 你平时怎么打字、打算怎么用，它会照你的习惯设好打字方式和键盘，" +
+            Text("告诉 Lime 你平时怎么打字、打算怎么用，它会照你的习惯设好打字方式和键盘，" +
                 "再看这台设备的情况推荐留哪些模型、删掉哪些用不到的，让应用少占空间。",
                 style = GuideText.body(), color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (facts == null || plan == null) {
@@ -384,7 +384,7 @@ private fun AnswerSection(facts: SetupFacts, answers: SetupAnswers, onAnswers: (
         Triple(false, "不用字幕", (if (facts.captionIconChangeable) "桌面上不放「字幕」图标（已有的会变灰，可长按移除），" else "") +
             "删掉分清谁在说话的模型。以后想用，在 设置 → 语音转文本 → 字幕 打开"),
     ), answers.caption, "setup-caption",
-        note = "「字幕」是 CyIME 里单独的一个页面：把身边的人说的话实时变成大字显示在屏幕上，还能分清是谁在说。" +
+        note = "「字幕」是 Lime 里单独的一个页面：把身边的人说的话实时变成大字显示在屏幕上，还能分清是谁在说。" +
             "适合开会、上课，或和听力不好的人当面说话。用不用都不影响打字和语音输入。") {
         onAnswers(answers.copy(caption = it))
     }

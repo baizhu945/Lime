@@ -10,7 +10,8 @@ enum class KeyFeedbackType(val sound: String = "standard") {
             "delete", "backspace", "clear_composition", "clear_all" -> DELETE
             "enter" -> ENTER
             "space" -> SPACE
-            "ime_switch", "ascii", "mode_change", "mode_change_symbol", "mode_change_number", "mode_change_common_symbol" -> MODE_SWITCH
+            "ime_switch", "ascii", "mode_change", "mode_change_symbol", "mode_change_number", "mode_change_common_symbol",
+            "mode_change_last" -> MODE_SWITCH
             "shift", "japanese_modify", "japanese_convert", "japanese_undo" -> MODIFIER
             "left", "right", "up", "down", "home", "end", "line_start", "line_end", "paragraph_start", "paragraph_end", "japanese_left", "japanese_right" -> NAVIGATION
             "copy", "cut", "paste", "all", "begin" -> EDITING

@@ -70,7 +70,7 @@ class KeyboardPaletteTest {
         }
     }
     @Test fun completePalettesIgnoreLegacyGlobalFunctionKeyColors() {
-        val full = SoftLavenderTheme.create()
+        val full = SoftBlueTheme.create()
         assertEquals(full.specialKeyDark, resolvedSpecialKeyColor(full, true, Color.Red))
         assertEquals(full.specialKeyLight, resolvedSpecialKeyColor(full, false, Color.Red))
         val legacy = full.copy(useThemeColors = false)
@@ -78,16 +78,12 @@ class KeyboardPaletteTest {
         assertEquals(legacy.specialKeyDark, resolvedSpecialKeyColor(legacy, true, null))
     }
 
-    @Test fun lavenderHasOpaqueReadableKeycapsAndASubtleBackground() {
+    @Test fun ximeLavenderSupportsLegacyFunctionKeyOverrides() {
         val lavender = SoftLavenderTheme.create()
-        assertEquals(1f, lavender.keyBgDark.alpha, 0f)
-        assertEquals(1f, lavender.keyBgLight.alpha, 0f)
-        assertTrue(contrast(lavender.keyTextColorDark, lavender.keyBgDark) >= 4.5f)
-        assertTrue(contrast(lavender.keyTextColorLight, lavender.keyBgLight) >= 4.5f)
-        assertTrue(contrast(Color.White, lavender.specialKeyDark) >= 4.5f)
-        val background = lavender.keyboardBgDark
-        assertTrue(maxOf(background.red, background.green, background.blue) -
-            minOf(background.red, background.green, background.blue) < 0.06f)
+        assertFalse(lavender.useThemeColors)
+        assertEquals(Color.Red, resolvedSpecialKeyColor(lavender, false, Color.Red))
+        assertEquals(Color.Red, resolvedSpecialKeyColor(lavender, true, Color.Red))
+        assertEquals(lavender.specialKeyDark, resolvedSpecialKeyColor(lavender, true, null))
     }
 
     @Test fun retiredThemeFallsBackToDayNightCapableDefault() {

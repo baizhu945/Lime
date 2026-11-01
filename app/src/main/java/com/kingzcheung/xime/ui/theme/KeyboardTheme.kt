@@ -102,6 +102,15 @@ data class KeyboardColorScheme(
     val specialKeyTextColorDark: Color? = null,
 )
 
+// 与 CyIME 重建调色板同 ID 的 Xime 主题；配置存在时须整套构建，不能混入旧调色板。
+internal val ximeOverlappingThemeIds = setOf(
+    "sakura_pink", "mint_green", "cream_beige", "aurora_gradient",
+    "sunset_gradient", "olivcelso_desert",
+)
+
+internal fun useXimeConfigTheme(id: String, configuredIds: Set<String>): Boolean =
+    id in ximeOverlappingThemeIds && id in configuredIds
+
 object KeyboardThemes {
     /** 从 xime.yaml 加载的配置覆盖项。 */
     private var configOverrides: Map<String, ColorSchemeEntry> = emptyMap()
@@ -132,11 +141,11 @@ object KeyboardThemes {
         VisualStyles.current = com.kingzcheung.xime.settings.SettingsPreferences.getVisualStyle(context)
         KeyShapes.current = com.kingzcheung.xime.settings.SettingsPreferences.getKeyShape(context)
         IconAppearance.reload(context)
-        configOverrides = KeysConfigHelper.loadColorSchemes(context).filterKeys {
-            it != "858AdvanceColor"
-        }
+        configOverrides = KeysConfigHelper.loadColorSchemes(context)
         // 1) 对硬编码主题应用配置覆盖
-        val overridden = defaultThemes.map { applyConfigOverrides(context, it) }
+        val overridden = defaultThemes
+            .filterNot { useXimeConfigTheme(it.id, configOverrides.keys) }
+            .map { applyConfigOverrides(context, it) }
         // 2) 把配置中有但硬编码列表中没有的新主题也加入缓存
         //    （dynamic_color: true 的条目由 DynamicThemes 运行时从壁纸调色板构建）
         val existingIds = overridden.map { it.id }.toSet()
@@ -210,7 +219,7 @@ object KeyboardThemes {
             id = id,
             name = entry.name.ifEmpty { id },
             specialKeyLight = entry.specialKeyBgColor?.let(::longToColor) ?: veryLight,
-            specialKeyDark = entry.specialKeyBgColorDark?.let(::longToColor) ?: softDarkKeyContainer(lightened),
+            specialKeyDark = entry.specialKeyBgColorDark?.let(::longToColor) ?: cfgColor,
             enterKeyLight = entry.enterKeyBgColor?.let(::longToColor),
             enterKeyDark = entry.enterKeyBgColorDark?.let(::longToColor),
             specialKeyTextColorLight = entry.specialKeyTextColor?.let(::longToColor),
@@ -220,7 +229,7 @@ object KeyboardThemes {
             primaryLight = cfgColor,
             primaryDark = lightened,
             primaryContainerLight = veryLight,
-            primaryContainerDark = softDarkKeyContainer(lightened),
+            primaryContainerDark = cfgColor,
             surfaceLight = Color.White,
             surfaceDark = Color(0xFF1C1B1F),
             keyboardBgLight = kbdBg,
@@ -417,14 +426,14 @@ object KeyboardThemes {
         val global = KeysConfigHelper.getKeyboardColors()
         return scheme.copy(
             name = entry.name.ifEmpty { scheme.name },
-            specialKeyLight = entry.specialKeyBgColor?.let(::longToColor) ?: if (hasSeedOverride) lightenColor(cfgColor, 0.8f) else scheme.specialKeyLight,
-            specialKeyDark = entry.specialKeyBgColorDark?.let(::longToColor) ?: if (hasSeedOverride) softDarkKeyContainer(lightened) else scheme.specialKeyDark,
+            specialKeyLight = entry.specialKeyBgColor?.let(::longToColor) ?: if (scheme.useThemeColors && hasSeedOverride) lightenColor(cfgColor, 0.8f) else scheme.specialKeyLight,
+            specialKeyDark = entry.specialKeyBgColorDark?.let(::longToColor) ?: if (scheme.useThemeColors && hasSeedOverride) softDarkKeyContainer(lightened) else scheme.specialKeyDark,
             enterKeyLight = entry.enterKeyBgColor?.let(::longToColor) ?: scheme.enterKeyLight,
             enterKeyDark = entry.enterKeyBgColorDark?.let(::longToColor) ?: scheme.enterKeyDark,
             specialKeyTextColorLight = entry.specialKeyTextColor?.let(::longToColor) ?: scheme.specialKeyTextColorLight,
             specialKeyTextColorDark = entry.specialKeyTextColorDark?.let(::longToColor) ?: scheme.specialKeyTextColorDark,
-            primaryContainerLight = if (hasSeedOverride) lightenColor(cfgColor, 0.8f) else scheme.primaryContainerLight,
-            primaryContainerDark = if (hasSeedOverride) softDarkKeyContainer(lightened) else scheme.primaryContainerDark,
+            primaryContainerLight = if (scheme.useThemeColors && hasSeedOverride) lightenColor(cfgColor, 0.8f) else scheme.primaryContainerLight,
+            primaryContainerDark = if (scheme.useThemeColors && hasSeedOverride) softDarkKeyContainer(lightened) else scheme.primaryContainerDark,
             accentLight = if (hasSeedOverride) cfgColor else scheme.accentLight,
             accentDark = if (hasSeedOverride) lightened else scheme.accentDark,
             primaryLight = cfgColor,

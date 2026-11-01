@@ -163,7 +163,7 @@ private fun CaptionPage(controller: CaptionController, onExit: () -> Unit) {
             ModelBanner("打电话、微信视频时也想看字幕？开启后通话中会自动在屏幕底部显示", "去开启通话字幕", ModelDownloadState.Idle,
                 onDismiss = {
                     controller.dismissCallCaptionCard()
-                    android.widget.Toast.makeText(context, "以后要用，可以在系统设置 → 无障碍里打开“CyIME 通话字幕”", android.widget.Toast.LENGTH_LONG).show()
+                    android.widget.Toast.makeText(context, "以后要用，可以在系统设置 → 无障碍里打开“Lime 通话字幕”", android.widget.Toast.LENGTH_LONG).show()
                 }) {
                 runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }

@@ -775,7 +775,7 @@ class CaptionController(context: Context) : CaptionInferenceClient.Listener {
         const val SESSION_STRIDE = 1_000_000_000_000_000L
         const val MAX_LINES = 400
         private const val AUTO_SAVE_DELAY_MS = 3_000L
-        const val SAVE_FOLDER = "CyIME字幕"
+        const val SAVE_FOLDER = "Lime字幕"
         val FONT_SP = intArrayOf(24, 32, 44)
         val FONT_LABEL = arrayOf("大", "特大", "巨大")
         /** Okabe-Ito colour-blind safe palette: orange, sky blue, bluish green, blue, vermillion, reddish purple, yellow, grey. */

@@ -18,11 +18,22 @@ internal object LanguageSwitchPreferences {
 
     fun read(context: Context): LanguageSwitchOptions {
         val prefs = SettingsPreferences.getPrefsPublic(context)
+        val stored = LanguageSwitchMode.entries.firstOrNull { it.id == prefs.getString(MODE_KEY, null) }
+        val mode = stored ?: rememberDefaultMode(context)
         return LanguageSwitchOptions(
-            LanguageSwitchMode.entries.firstOrNull { it.id == prefs.getString(MODE_KEY, null) }
-                ?: LanguageSwitchMode.CURRENT_ENGLISH,
+            mode,
             InputLanguage.fromId(prefs.getString(LANGUAGE_KEY, null).orEmpty())?.takeUnless { it == InputLanguage.ENGLISH },
         )
+    }
+
+    /**
+     * 未显式设置时的默认行为：只启用中、英时保持原来的“中英互切”；
+     * 启用了第二种非英语语言（例如日语）就改为在已启用语言间循环，否则地球键永远到不了日语。
+     */
+    private fun rememberDefaultMode(context: Context): LanguageSwitchMode {
+        val native = LanguagePreferences.enabled(context)
+            .count { it != InputLanguage.ENGLISH && it != InputLanguage.UNSPECIFIED }
+        return if (native >= 2) LanguageSwitchMode.CYCLE else LanguageSwitchMode.CURRENT_ENGLISH
     }
 
     fun save(context: Context, options: LanguageSwitchOptions) {

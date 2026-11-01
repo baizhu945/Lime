@@ -25,7 +25,7 @@ internal object ClipboardImport {
     const val MAX_FILE_BYTES = 16 * 1024 * 1024
 
     private const val TXT_SEPARATOR = "\n\n----------\n\n"
-    private const val MD_TITLE = "# CyIME 剪贴板"
+    private const val MD_TITLE = "# Lime 剪贴板"
     private val FENCE = Regex("^`{3,}$")
     private val GROUP_SUFFIX = Regex("（分组 (.+)）$")
     private val CODE_SUFFIX = Regex("（编码 (.+)）$")

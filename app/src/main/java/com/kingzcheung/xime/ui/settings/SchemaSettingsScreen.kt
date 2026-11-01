@@ -151,7 +151,7 @@ fun SchemaSettingsContent(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        "五笔等常用方案在「扩展 › 方案」可以直接获取。也可以在手机的文件管理里把文件「分享」给 CyIME 导入。",
+                        "五笔等常用方案在「扩展 › 方案」可以直接获取。也可以在手机的文件管理里把文件「分享」给 Lime 导入。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

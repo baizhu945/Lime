@@ -76,6 +76,7 @@ internal fun rememberImeKeyboardCallbacks(
             onSelectPinyinSyllable = syllableSelector::select,
             onKeyPress = keyPress@{ key, isShifted ->
                 if (service.inputReadiness.ticket() == null) return@keyPress
+                com.kingzcheung.xime.util.InputLatencyTrace.beginSimple()
                 if (service.keyRouter.usesDirectFieldInput) {
                     service.keyRouter.handleKeyPress(key, isShifted)
                     return@keyPress

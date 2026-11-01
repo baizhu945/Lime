@@ -53,7 +53,7 @@ internal fun CellDictionaryImportGuide(onDismiss: () -> Unit, onImport: () -> Un
             GuideText("最后的数字（词频）不读，所有词同一个权重；没有汉字的一行当作英文词，所有键盘的英文候选里都能打出来；" +
                 "# 开头的行跳过。文件编码 UTF-8、UTF-16、GBK 都可以。")
             GuideFormat("Rime 词典（.dict.yaml）", "只读文件头「...」下面的词条，每行「词⇥拼音⇥权重」，权重同样不读。")
-            GuideFormat("JSON（.json）", "CyIME 自己的格式，拼音按字用空格隔开：")
+            GuideFormat("JSON（.json）", "Lime 自己的格式，拼音按字用空格隔开：")
             GuideExample("{\"format\": \"cyime.dictionary.v1\", \"name\": \"我的词库\",\n" +
                 " \"language\": \"zh\", \"scheme\": \"pinyin\",\n" +
                 " \"entries\": [{\"word\": \"你好\", \"code\": \"ni hao\"}]}")

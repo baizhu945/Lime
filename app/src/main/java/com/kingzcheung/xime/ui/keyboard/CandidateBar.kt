@@ -466,7 +466,7 @@ fun CandidateBar(
                         } else {
                             KeyboardToolbarButton({ callbacks.onLogoClick?.invoke() }, iconButtonContainer,
                                 modifier = Modifier.testTag("toolbar-leading"), slotWidth = toolbarSlot) {
-                                Icon(painterResource(R.drawable.cyime_toolbar_mark), contentDescription = "CyIME Logo",
+                                Icon(painterResource(R.drawable.cyime_toolbar_mark), contentDescription = "Lime Logo",
                                     tint = iconButtonTint, modifier = Modifier.size(22.dp))
                             }
                         }

@@ -115,7 +115,7 @@ data class DoublePinyinScheme(
             .replaceFirst(Regex("(?m)^  schema_id: .*$"), "  schema_id: $id\n  language: zh\n  input_scheme: double_pinyin")
             .replaceFirst(Regex("(?m)^  name: .*$"), Regex.escapeReplacement("  name: ${org.json.JSONObject.quote(name)}"))
             .replaceFirst(Regex("(?m)^  description: \\|\\n(?:    .*\\n)*"),
-                "  description: |\n    CyIME 双拼方案（由键位表生成），词库、符号与按键排列和小鹤双拼相同。\n")
+                "  description: |\n    Lime 双拼方案（由键位表生成），词库、符号与按键排列和小鹤双拼相同。\n")
         check(schemaBlock.contains("  schema_id: $id\n")) { "小鹤双拼方案缺少 schema_id" }
         text = text.replaceRange(header.range, schemaBlock)
         text = replaceList(text, "speller", "algebra", algebra() + separatorRules())
@@ -151,7 +151,7 @@ data class DoublePinyinScheme(
             |  name: ${org.json.JSONObject.quote(name + "九键")}
             |  version: "1"
             |  description: |
-            |    CyIME 双拼方案（由键位表生成）的九键版本：每个字按它的两个双拼键所在的数字键输入。
+            |    Lime 双拼方案（由键位表生成）的九键版本：每个字按它的两个双拼键所在的数字键输入。
             |  dependencies:
             |    - cyime_t9_english
             |
@@ -254,7 +254,7 @@ data class DoublePinyinScheme(
             .replaceFirst(Regex("(?m)^  schema_id: .*$"), "  schema_id: $k14")
             .replaceFirst(Regex("(?m)^  name: .*$"), Regex.escapeReplacement("  name: ${org.json.JSONObject.quote(name)}"))
             .replaceFirst(Regex("(?m)^  description: \\|\\n(?:    .*\\n)*"),
-                "  description: |\n    CyIME 双拼方案（由键位表生成）的 14 键版本，词库和按键排列与 14 键小鹤双拼相同。\n")
+                "  description: |\n    Lime 双拼方案（由键位表生成）的 14 键版本，词库和按键排列与 14 键小鹤双拼相同。\n")
         check(schemaBlock.contains("  schema_id: $k14\n")) { "14 键小鹤双拼方案缺少 schema_id" }
         text = text.replaceRange(header.range, schemaBlock)
         // 每个字的两位各自可以换成合并键；词库里的单个大写字母音节与合并键的大写编码同形，14 键用不到，先删掉。
@@ -274,12 +274,12 @@ data class DoublePinyinScheme(
      */
     fun layoutSchema(base26: String, layoutVariantId: String, layoutName: String, groups: List<String>): String {
         require(this == FLYPY || valid())
-        var text = base26.replace("\r\n", "\n").lineSequence().dropWhile { it.startsWith(GENERATED_MARK) }.joinToString("\n")
+        var text = base26.replace("\r\n", "\n").lineSequence().dropWhile { it.startsWith(GENERATED_MARK) || it.startsWith(LEGACY_GENERATED_MARK) }.joinToString("\n")
         val header = Regex("(?ms)^schema:\\n.*?(?=^\\S)").find(text) ?: error("双拼方案缺少 schema 段")
         val schemaBlock = header.value
             .replaceFirst(Regex("(?m)^  schema_id: .*$"), "  schema_id: $layoutVariantId")
             .replaceFirst(Regex("(?m)^  description: \\|\\n(?:    .*\\n)*"), Regex.escapeReplacement(
-                "  description: |\n    CyIME 双拼方案（由键位表生成）在自建布局「$layoutName」上的版本，词库与 26 键双拼相同。\n"))
+                "  description: |\n    Lime 双拼方案（由键位表生成）在自建布局「$layoutName」上的版本，词库与 26 键双拼相同。\n"))
         check(schemaBlock.contains("  schema_id: $layoutVariantId\n")) { "双拼方案缺少 schema_id" }
         text = text.replaceRange(header.range, schemaBlock)
         val merged = (0..1).flatMap { position ->
@@ -339,7 +339,9 @@ data class DoublePinyinScheme(
     }.joinToString("\n")
 
     companion object {
-        const val GENERATED_MARK = "# CyIME 双拼方案生成："
+        const val GENERATED_MARK = "# Lime 双拼方案生成："
+        /** 上游 CyIME 生成过的旧文件，仍要能识别并重写，避免重复标题。 */
+        private const val LEGACY_GENERATED_MARK = "# CyIME 双拼方案生成："
         const val SHOUDAO_ID = "double_pinyin_shoudao"
         const val CUSTOM_PREFIX = "custom_shuangpin_"
         const val ZIRANMA_ID = "double_pinyin_ziranma"

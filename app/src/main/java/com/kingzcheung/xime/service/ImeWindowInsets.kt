@@ -99,8 +99,10 @@ internal fun extractBottomInset(
     val tappable = insets.getInsets(WindowInsets.Type.tappableElement()).bottom
     val mandatory = insets.getInsets(WindowInsets.Type.mandatorySystemGestures()).bottom
     val gestures = insets.getInsets(WindowInsets.Type.systemGestures()).bottom
-    val primary = maxOf(nav, mandatory, tappable)
-    val fallback = gestures
+    // 键盘底部只给系统导航区留位：手势导航时 navigationBars 就是手势条高度，
+    // mandatory/gestures 往往比它大（实测 72px vs 131px），按最大值算会把键盘抬出屏幕底部很远。
+    val primary = maxOf(nav, tappable)
+    val fallback = maxOf(mandatory, gestures)
     val full = if (primary > 0) primary else fallback
     val pick = gestureAwareBottom(insets, imeWindow, full)
     Log.d(INSETS_TAG, "bottom: sys=$sys nav=$nav tappable=$tappable mandatory=$mandatory gestures=$gestures pick=$pick")

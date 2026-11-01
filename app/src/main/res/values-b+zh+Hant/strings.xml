@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="settings_title">CyIME 設定</string>
+    <string name="settings_title">Lime 設定</string>
     <string name="section_model_download">模型下載</string>
     <string name="item_wait_wifi_title">等連上 Wi-Fi 再下載模型</string>
     <string name="item_wait_wifi_summary">語音、聯想、手寫等模型共約 %1$s；現在用的是行動數據，點這裡用行動數據下載</string>
     <string name="status_wait_wifi">等 Wi-Fi</string>
     <string name="section_setup">配置選擇</string>
     <string name="item_enable_ime_title">啟用輸入法</string>
-    <string name="item_enable_ime_summary">在系統設定中啟用 CyIME</string>
+    <string name="item_enable_ime_summary">在系統設定中啟用 Lime</string>
     <string name="item_select_ime_title">選擇輸入法</string>
-    <string name="item_select_ime_summary">將 CyIME 設為目前的輸入法</string>
+    <string name="item_select_ime_summary">將 Lime 設為目前的輸入法</string>
     <string name="status_set">已設定</string>
     <string name="status_not_set">未設定</string>
     <string name="item_setup_guide_title">依裝置推薦配置</string>
@@ -53,7 +53,7 @@
     <string name="item_backup_summary">把設定匯出為本機檔案，或從備份檔案還原</string>
     <string name="item_performance_title">效能與省電</string>
     <string name="item_performance_summary">檔位、語音模型佔用記憶體</string>
-    <string name="item_about_title">關於 CyIME</string>
+    <string name="item_about_title">關於 Lime</string>
     <string name="item_about_summary">版本資訊、開發者、聯絡方式</string>
     <string name="settings_app_language">介面語言 · Language</string>
     <string name="settings_app_language_summary">設定頁顯示的文字：简体中文、繁體中文、English、日本語</string>
@@ -71,6 +71,6 @@
     <string name="model_use">使用</string>
     <string name="model_go_to_store">去商店</string>
     <string name="subtype_label_pinyin">拼音</string>
-    <string name="call_caption_service_label">CyIME 通話字幕</string>
+    <string name="call_caption_service_label">Lime 通話字幕</string>
     <string name="call_caption_service_description">打電話、微信語音或視訊時，在螢幕底部自動顯示對方說的話（字幕），掛斷後自動消失。需要開擴音或外放。聲音只在本機辨識，不錄音、不上傳，也不讀取螢幕內容。</string>
 </resources>

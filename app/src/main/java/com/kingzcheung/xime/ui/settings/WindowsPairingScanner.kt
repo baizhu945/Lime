@@ -48,7 +48,7 @@ internal fun WindowsPairingScanner(onDismiss: () -> Unit, onCode: (String) -> Un
     val scope = rememberCoroutineScope()
     fun cameraAllowed() = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
     var allowed by remember { mutableStateOf(cameraAllowed()) }
-    var message by remember { mutableStateOf("对准电脑 CyIME 的配对二维码，识别后自动连接") }
+    var message by remember { mutableStateOf("对准电脑上 Lime 的配对二维码，识别后自动连接") }
     var importing by remember { mutableStateOf(false) }
     var torch by remember { mutableStateOf(false) }
     var hasFlash by remember { mutableStateOf(false) }
@@ -60,7 +60,7 @@ internal fun WindowsPairingScanner(onDismiss: () -> Unit, onCode: (String) -> Un
     fun accept(result: PairingQrDecoder.Result?, fromImage: Boolean = false) {
         when (result) {
             is PairingQrDecoder.Result.PairingCode -> if (delivered.compareAndSet(false, true)) latestCode(result.text)
-            PairingQrDecoder.Result.OtherCode -> message = "已识别二维码，但不是 CyIME 配对码；请打开电脑的“手机与电脑互联”"
+            PairingQrDecoder.Result.OtherCode -> message = "已识别二维码，但不是 Lime 配对码；请打开电脑的“手机与电脑互联”"
             PairingQrDecoder.Result.InvalidPairingCode -> message = "配对码格式不完整或版本不支持，请在电脑刷新二维码"
             null -> if (fromImage) message = "图片中未识别到二维码，请保留完整二维码和四周白边"
         }

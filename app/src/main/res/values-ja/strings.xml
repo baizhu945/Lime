@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="settings_title">CyIME 設定</string>
+    <string name="settings_title">Lime 設定</string>
     <string name="section_model_download">モデルのダウンロード</string>
     <string name="item_wait_wifi_title">Wi-Fi 接続後にモデルをダウンロード</string>
     <string name="item_wait_wifi_summary">音声・予測・手書きなどのモデル 計約 %1$s。現在モバイルデータ通信中です。タップするとモバイルデータでダウンロードします</string>
     <string name="status_wait_wifi">Wi-Fi 待ち</string>
     <string name="section_setup">セットアップ</string>
     <string name="item_enable_ime_title">キーボードを有効にする</string>
-    <string name="item_enable_ime_summary">システム設定で CyIME を有効にします</string>
+    <string name="item_enable_ime_summary">システム設定で Lime を有効にします</string>
     <string name="item_select_ime_title">キーボードを選択</string>
-    <string name="item_select_ime_summary">CyIME を現在のキーボードにします</string>
+    <string name="item_select_ime_summary">Lime を現在のキーボードにします</string>
     <string name="status_set">設定済み</string>
     <string name="status_not_set">未設定</string>
     <string name="item_setup_guide_title">このデバイスにおすすめの設定</string>
@@ -53,7 +53,7 @@
     <string name="item_backup_summary">設定をローカルファイルに書き出す、またはバックアップから復元します</string>
     <string name="item_performance_title">パフォーマンスと省電力</string>
     <string name="item_performance_summary">性能レベル、音声モデルのメモリ使用量</string>
-    <string name="item_about_title">CyIME について</string>
+    <string name="item_about_title">Lime について</string>
     <string name="item_about_summary">バージョン、開発者、連絡先</string>
     <string name="settings_app_language">表示言語 · Language</string>
     <string name="settings_app_language_summary">設定画面の表示言語：简体中文、繁體中文、English、日本語</string>
@@ -71,6 +71,6 @@
     <string name="model_use">使用する</string>
     <string name="model_go_to_store">ストアへ</string>
     <string name="subtype_label_pinyin">ピンイン</string>
-    <string name="call_caption_service_label">CyIME 通話字幕</string>
+    <string name="call_caption_service_label">Lime 通話字幕</string>
     <string name="call_caption_service_description">電話や WeChat の音声・ビデオ通話中、相手の話した内容を画面下部に字幕で表示し、通話を切ると消えます。スピーカーフォンが必要です。音声はこの端末内だけで認識し、録音・アップロードはせず、画面の内容も読み取りません。</string>
 </resources>

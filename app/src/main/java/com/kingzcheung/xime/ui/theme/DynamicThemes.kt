@@ -33,7 +33,7 @@ object DynamicThemes {
         SoftBlueTheme.create(id, if (id == THEME_ID) "跟随系统动态配色" else name)
 
     /**
-     * 构建动态配色键盘主题：强调色来自壁纸，深色功能键使用柔和中性容器。
+     * 构建动态配色键盘主题：支持的系统使用 Xime 壁纸调色板。
      * Android 12 以下使用中性深灰/蓝色兼容配色，保留同一主题入口。
      */
     fun create(context: Context, id: String = THEME_ID, name: String = "跟随系统动态配色"): KeyboardColorScheme? {
@@ -44,22 +44,21 @@ object DynamicThemes {
         return KeyboardColorScheme(
             id = id,
             name = if (id == THEME_ID) "跟随系统动态配色" else name,
-            // 浅色底用中性 100 色调，白键与底约 1.25:1；功能键再深一级，不与底色同一色调。
-            specialKeyLight = p.accent1(200),
-            specialKeyDark = softDarkKeyContainer(accentDark),
+            specialKeyLight = p.accent1(100),
+            specialKeyDark = p.accent1(700),
             accentLight = accentLight,
             accentDark = accentDark,
             primaryLight = accentLight,
             primaryDark = accentDark,
             primaryContainerLight = p.accent1(100),
-            primaryContainerDark = softDarkKeyContainer(accentDark),
-            surfaceLight = p.neutral1(100),
+            primaryContainerDark = p.accent1(700),
+            surfaceLight = p.neutral1(10),
             surfaceDark = p.neutral1(900),
-            keyboardBgLight = p.neutral1(100),
+            keyboardBgLight = p.neutral1(10),
             keyboardBgDark = p.neutral1(900),
             keyBgLight = p.neutral1(0),
             keyBgDark = p.neutral1(800),
-            candidateBarBgLight = p.neutral1(100),
+            candidateBarBgLight = p.neutral1(10),
             candidateBarBgDark = p.neutral1(900),
             keyTextColorLight = p.neutral1(900),
             keyTextColorDark = p.neutral1(100),

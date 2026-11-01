@@ -180,7 +180,7 @@ object BackupManager {
             }
             buffer.toByteArray()
         } ?: error("无法读取所选文件")
-        require(isCyimeBackup(bytes)) { "所选文件不是 CyIME 备份" }
+        require(isCyimeBackup(bytes)) { "所选文件不是 Lime 备份" }
         bytes
     }
 

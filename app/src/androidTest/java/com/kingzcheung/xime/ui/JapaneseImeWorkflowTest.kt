@@ -34,6 +34,9 @@ class JapaneseImeWorkflowTest {
         val engine = RimeEngine.getInstance()
         lateinit var editor: EditText
         try {
+            // 日语不是默认启用的语言；未启用时输入准备会拒绝 japanese_kana 并回落到中文方案。
+            com.kingzcheung.xime.settings.LanguagePreferences.save(
+                context, com.kingzcheung.xime.settings.InputLanguage.JAPANESE, true)
             val (user, shared) = RimeConfigHelper.initializeRimeDataAsync(context)
             engine.initialize(user, shared); assertTrue(RimeConfigHelper.ensureDeployment(context)); assertTrue(engine.ensureSession())
             assertTrue(engine.switchSchema("japanese_kana")); engine.setOption("ascii_mode", false)

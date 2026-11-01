@@ -107,20 +107,15 @@ fun resolvedSpecialKeyColor(theme: KeyboardColorScheme, isDark: Boolean, legacyO
     return if (theme.isDynamic || theme.useThemeColors) themed else legacyOverride ?: themed
 }
 
-/** 薰衣草使用不透明的中性紫灰键帽，避免半透明白叠深紫导致泛灰。 */
+/** Xime 内置薰衣草兜底；实际键盘颜色由配置和全局颜色覆盖。 */
 object SoftLavenderTheme {
     fun create() = KeyboardColorScheme(
         id = "lavender_purple", name = "薰衣草紫",
-        specialKeyLight = Color(0xFFE8DEF8), specialKeyDark = softDarkKeyContainer(Color(0xFFD0BCFF)),
+        specialKeyLight = Color(0xFFE8DEF8), specialKeyDark = Color(0xFF6750A4),
         accentLight = Color(0xFF8F73E2), accentDark = Color(0xFFD0BCFF),
-        surfaceLight = Color(0xFFEEE8F4), surfaceDark = Color(0xFF211E28),
-        keyboardBgLight = Color(0xFFEEE8F4), keyboardBgDark = Color(0xFF211E28),
-        candidateBarBgLight = Color(0xFFEEE8F4), candidateBarBgDark = Color(0xFF211E28),
-        keyBgLight = Color(0xFFFFFBFF), keyBgDark = Color(0xFF38333F),
-        keyTextColorLight = Color(0xFF25212C), keyTextColorDark = Color(0xFFF0EAF5),
-        candidateTextColorLight = Color(0xFF685191), candidateTextColorDark = Color(0xFFD0BCFF),
-        candidateSelectedTextColorLight = Color(0xFF59417F), candidateSelectedTextColorDark = Color(0xFFE9DDFF),
-        useThemeColors = true,
+        primaryLight = Color(0xFF8F73E2), primaryDark = Color(0xFFD0BCFF),
+        primaryContainerLight = Color(0xFFEADDFF), primaryContainerDark = Color(0xFF4F378B),
+        surfaceLight = Color(0xFFFAF8FC), surfaceDark = Color(0xFF2B2930),
     )
 }
 

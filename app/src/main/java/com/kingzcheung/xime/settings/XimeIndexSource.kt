@@ -85,7 +85,7 @@ object XimeIndexSource {
                 // 全部镜像都失败
                 Result.success(SchemesFetch(
                     CuratedRimeSchemes.merge(emptyList()).map { XimeIndexParser.toItem(it, appVersion) },
-                    "CyIME 内置目录（远程索引暂不可用）",
+                    "Lime 内置目录（远程索引暂不可用）",
                 ))
             } catch (e: Exception) {
                 Log.e(TAG, "fetchSchemes failed", e)

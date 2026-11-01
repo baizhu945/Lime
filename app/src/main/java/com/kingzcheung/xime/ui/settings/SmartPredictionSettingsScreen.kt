@@ -362,7 +362,7 @@ fun SmartPredictionSettingsContent(
                     profileSize = uiState.profileSize, busy = uiState.isSaving,
                     status = uiState.learningStatus,
                     onSave = viewModel::saveUserData, onRefresh = viewModel::refreshCacheSize,
-                    onExport = { exportFile.launch("CyIME-personal-learning.json") },
+                    onExport = { exportFile.launch("Lime-personal-learning.json") },
                     onImport = { importFile.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }
                 )
             }

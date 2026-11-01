@@ -182,7 +182,7 @@ object ScelDictionary {
     fun toRime(name: String, entries: List<DictEntry>): String {
         require(name.matches(Regex("[a-z0-9_]+")))
         return buildString {
-            append("# Imported SCEL dictionary; managed by CyIME\n---\nname: $name\nversion: \"1\"\nsort: by_weight\nuse_preset_vocabulary: false\n...\n")
+            append("# Imported SCEL dictionary; managed by Lime\n---\nname: $name\nversion: \"1\"\nsort: by_weight\nuse_preset_vocabulary: false\n...\n")
             entries.forEach { append(it.word).append('\t').append(it.code).append("\t100\n") }
         }
     }

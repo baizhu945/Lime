@@ -10,23 +10,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-/**
- * 2026-10-11 列表只留四个；2026-10-18 用户要求把 1.9.15 移除的主题按新配色加回，每个色系一套（[TonalThemes]）。
- * 跟随系统动态配色仍不在列表中。
- */
-internal val OFFERED_THEMES = setOf(
-    com.kingzcheung.xime.ui.theme.TransparentGlassTheme.ID,
-    com.kingzcheung.xime.ui.theme.PureBlackTheme.ID,
-    "lavender_purple",
-    com.kingzcheung.xime.ui.theme.SoftBlueTheme.ID,
-) + com.kingzcheung.xime.ui.theme.TonalThemes.create().map { it.id } +
-    // 「我的图片」只在用户选过图片后才在主题列表里（[com.kingzcheung.xime.ui.theme.CustomImageTheme]）。
-    com.kingzcheung.xime.ui.theme.CustomImageTheme.ID
-
 data class ThemeUiState(
     val darkMode: Int = 1,
     val colorTheme: String = SettingsPreferences.defaultKeyboardTheme,
-    val colorThemes: List<KeyboardColorScheme> = KeyboardThemes.themes.filter { it.id in OFFERED_THEMES },
+    val colorThemes: List<KeyboardColorScheme> = KeyboardThemes.themes,
 )
 
 class ThemeSettingsViewModel(application: Application) : AndroidViewModel(application) {
@@ -45,7 +32,7 @@ class ThemeSettingsViewModel(application: Application) : AndroidViewModel(applic
     
     /** 主题列表变了（选了自己的图片）后重新取。 */
     fun refreshThemes() {
-        _uiState.update { it.copy(colorThemes = KeyboardThemes.themes.filter { theme -> theme.id in OFFERED_THEMES }) }
+        _uiState.update { it.copy(colorThemes = KeyboardThemes.themes) }
     }
 
     fun setColorTheme(themeId: String) {

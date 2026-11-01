@@ -10,7 +10,7 @@ internal object CuratedRimeSchemes {
         id = "wubi86",
         name = "五笔86（Rime 官方）",
         author = "Rime / 王永民",
-        description = "Rime 官方五笔86，支持拼音反查；仅下载本方案和词库，基础依赖已随 CyIME 提供。",
+        description = "Rime 官方五笔86，支持拼音反查；仅下载本方案和词库，基础依赖已随 Lime 提供。",
         type = "remote",
         tags = listOf("五笔", "形码", "拼音"),
         dependencies = listOf("pinyin_simp", "symbols"),

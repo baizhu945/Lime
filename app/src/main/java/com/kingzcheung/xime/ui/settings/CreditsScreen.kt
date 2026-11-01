@@ -40,7 +40,7 @@ object Credits {
 
     val groups: List<Pair<String, List<CreditItem>>> = listOf(
         "上游" to listOf(
-            CreditItem("Xime", "Kingz Cheung（kingzcheung）及贡献者", "CyIME 从它 fork 而来", "GPL-3.0",
+            CreditItem("Xime", "Kingz Cheung（kingzcheung）及贡献者", "Lime 的键盘设计来自它；CyIME 也由它 fork", "GPL-3.0",
                 "https://github.com/ximeiorg/Xime"),
             CreditItem("Xime 手写与联想模型", "Xime 项目", "中文手写识别、智能联想",
                 "MIT、Apache-2.0、CC BY-NC-SA 4.0", "https://www.modelscope.cn/models/bikeand/ochwpro"),
