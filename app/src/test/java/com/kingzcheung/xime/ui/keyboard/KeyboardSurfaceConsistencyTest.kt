@@ -98,6 +98,8 @@ class KeyboardSurfaceConsistencyTest {
                 "cs.candidates, cs.candidateComments, cs.inputText, cs.preeditText"),
             // CandidateBarState 里的 preeditText 已经是 shownPreedit 的结果。
             "CandidateBar.kt" to listOf("it.preeditText.ifEmpty { it.inputText }"),
+            // 候选栏与预编辑条被拆到独立组合作用域后，读候选状态的地方就在这两个 Host 里。
+            "CandidateBarHost.kt" to listOf("cs.preeditText", "preedit = candidateState.value.preeditText"),
         )
         val raw = Regex("""\.preeditText\b""")
         val found = (uiFiles() + File(root, "service/XimeInputMethodService.kt")).flatMap { file ->

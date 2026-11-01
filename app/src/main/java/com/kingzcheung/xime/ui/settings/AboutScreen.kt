@@ -234,6 +234,110 @@ fun AboutContent(
                     }
                 }
 
+            // 本分支维护者优先，与源代码、上游作者使用同一种完整卡片。
+                AboutLinkCard(
+                    title = "Lime 源代码",
+                    subtitle = "github.com/baizhu945/Lime",
+                    icon = Icons.TwoTone.Code,
+                    onClick = { uriHandler.openUri("https://github.com/baizhu945/Lime") },
+                )
+                AboutLinkCard(
+                    title = "CyIME · 输入底层上游",
+                    subtitle = "github.com/Cyletix/CyIME",
+                    icon = Icons.TwoTone.Code,
+                    onClick = { uriHandler.openUri("https://github.com/Cyletix/CyIME") },
+                )
+                AboutLinkCard(
+                    title = "Xime · 键盘设计上游",
+                    subtitle = "github.com/ximeiorg/Xime",
+                    icon = Icons.TwoTone.PersonOutline,
+                    onClick = { uriHandler.openUri("https://github.com/ximeiorg/Xime") },
+                )
+
+                AppUpdateSection()
+
+            // 链接项
+                SettingsSection(title = "信息与工具") {
+                        SettingsItem(
+                            icon = Icons.TwoTone.Favorite,
+                            title = "鸣谢",
+                            onClick = onNavigateToCredits
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 56.dp),
+                            thickness = 0.5.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                        SettingsItem(
+                            icon = Icons.TwoTone.PrivacyTip,
+                            title = "隐私策略",
+                            onClick = onNavigateToPrivacy
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 56.dp),
+                            thickness = 0.5.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                        SettingsItem(
+                            icon = Icons.TwoTone.Description,
+                            title = "开源许可证",
+                            onClick = onNavigateToLicenses
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 56.dp),
+                            thickness = 0.5.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                        // 使用文档从设置首页收到这里（内容较旧，少有人点）。
+                        SettingsItem(
+                            icon = Icons.TwoTone.Description,
+                            title = "使用文档",
+                            onClick = { uriHandler.openUri("https://github.com/baizhu945/Lime#readme") }
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 56.dp),
+                            thickness = 0.5.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                        SettingsItem(
+                            icon = Icons.TwoTone.BugReport,
+                            title = "日志查看器",
+                            onClick = onNavigateToLogViewer
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 56.dp),
+                            thickness = 0.5.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                        SettingsItem(
+                            icon = Icons.TwoTone.Storage,
+                            title = "存储空间",
+                            onClick = onNavigateToStorageSpace
+                        )
+                        if (BuildConfig.DEBUG) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 56.dp),
+                                thickness = 0.5.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            )
+                            SettingsItem(
+                                icon = Icons.TwoTone.BugReport,
+                                title = "调试日志",
+                                onClick = {},
+                                trailing = {
+                                    Switch(
+                                        checked = verboseLoggingEnabled,
+                                        onCheckedChange = { enabled ->
+                                            verboseLoggingEnabled = enabled
+                                            SettingsPreferences.setVerboseLoggingEnabled(context, enabled)
+                                            FileLogger.setVerboseLoggingEnabled(enabled)
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                }
+            
             // 设备信息
                 Card(
                     modifier = Modifier.fillMaxWidth(),

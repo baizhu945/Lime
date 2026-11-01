@@ -25,14 +25,14 @@ data class AppReleaseAsset(val name: String, val url: String, val sizeBytes: Lon
  * 同一个仓库里还有 Windows 版（windows-日期）和模型（models）的发布，只认 x.y.z 标签；草稿和预发布不算。
  */
 object AppUpdateCatalog {
-    /** Lime 没有公开的发布仓库：关闭在线更新，避免把上游 CyIME 的安装包装到 Lime 上。 */
-    const val ENABLED = false
-    const val RELEASES_API = ""
-    const val RELEASES_PAGE = ""
+    const val ENABLED = true
+    /** 只看 Lime 自己的发布，避免把上游 CyIME 的安装包装到 Lime 上。 */
+    const val RELEASES_API = "https://api.github.com/repos/baizhu945/Lime/releases?per_page=30"
+    const val RELEASES_PAGE = "https://github.com/baizhu945/Lime/releases"
 
     private val androidTag = Regex("""^v?(\d+\.\d+\.\d+)$""")
     // CyIME-1.14.156-arm64-v8a.apk / CyIME-1.14.156-full-arm64-v8a.apk（1.14.72 里的完整版文件名是 1.14.73）。
-    private val apkName = Regex("""^CyIME-\d+(?:\.\d+)*(-full)?-(.+)\.apk$""")
+    private val apkName = Regex("""^Lime-\d+(?:\.\d+)*(-full)?-(.+)\.apk$""")
     private val json = Json { ignoreUnknownKeys = true }
 
     fun parseVersion(text: String): List<Int> =
@@ -93,5 +93,5 @@ object AppUpdateCatalog {
 
     /** 下载目录里留下的安装包名对应的版本；用来清掉已经装上的旧包。 */
     fun versionOfApk(fileName: String): String? =
-        Regex("""^CyIME-(\d+(?:\.\d+)*)""").find(fileName)?.groupValues?.get(1)
+        Regex("""^Lime-(\d+(?:\.\d+)*)""").find(fileName)?.groupValues?.get(1)
 }

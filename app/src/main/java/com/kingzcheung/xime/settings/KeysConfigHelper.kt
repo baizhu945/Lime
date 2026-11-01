@@ -73,9 +73,11 @@ data class GestureDef(
     val unsupportedAction: String? = null,
     /** Xime's display hint; missing or invalid values use its default, true. */
     val bubble: Boolean = true,
-    /** A tap with no explicit action has Xime SEND_RIME semantics, without changing CyIME's action. */
-    val implicitXimeTap: Boolean = false,
+    /** A tap with no explicit action has Xime SEND_RIME semantics, without changing CyIME's action.
+     *  放在类体内：不参与 data class 相等，避免同一按键经不同加载路径后比较不等。 */
 ) {
+    var implicitXimeTap: Boolean = false
+
     val ximeAction: XimeAction?
         get() = unsupportedAction?.let(XimeAction::fromValue)
             ?: if (implicitXimeTap && action == GestureAction.COMMIT) XimeAction.SEND_RIME else null
@@ -298,8 +300,8 @@ private fun parseGestureNode(node: com.charleskorn.kaml.YamlNode, isTap: Boolean
         val text = node.content
         val icon = if (text.startsWith("@")) text.removePrefix("@") else ""
         val cleanLabel = if (icon.isNotEmpty()) "" else text
-        return GestureDef(label = cleanLabel, action = GestureAction.COMMIT, value = text, icon = icon,
-            implicitXimeTap = isTap)
+        return GestureDef(label = cleanLabel, action = GestureAction.COMMIT, value = text, icon = icon)
+            .also { it.implicitXimeTap = isTap }
     }
     // 映射 → 完整定义
     if (node is com.charleskorn.kaml.YamlMap) {
@@ -350,8 +352,8 @@ private fun parseGestureNode(node: com.charleskorn.kaml.YamlNode, isTap: Boolean
         val icon = if (label.startsWith("@")) label.removePrefix("@") else ""
         val cleanLabel = if (icon.isNotEmpty()) "" else label
         return GestureDef(label = cleanLabel, labels = labels, action = action, value = value, icon = icon,
-            display = DisplayMode.fromValue(display), unsupportedAction = unsupportedAction, bubble = bubble,
-            implicitXimeTap = isTap && !hasExplicitAction)
+            display = DisplayMode.fromValue(display), unsupportedAction = unsupportedAction, bubble = bubble)
+            .also { it.implicitXimeTap = isTap && !hasExplicitAction }
     }
     return GestureDef()
 }
@@ -866,10 +868,18 @@ object KeysConfigHelper {
         _keyGestureConfigEn.value = english?.gestures(_keyGestureConfigEnBase) ?: _keyGestureConfigEnBase
     }
 
+    private val CONTROL_ROW_IDS = setOf(
+        "shift", "delete", "mode_change", "space", "earth", "enter", "comma", "period", "abc", "number", "symbol",
+    )
+
     /** 获取键盘行布局，每个子 List 为一行的按键 ID 列表，索引 0=第一行。
      *  合并键布局中合并键的 ID 为组内字母拼接（如 "qw"），渲染层按 ID 长度分配键宽。 */
     fun getKeyRows(isAsciiMode: Boolean): List<List<String>> =
-        if (isAsciiMode) _enRows else _zhRows
+        // 兼容旧 API：只给字母行。控制行（shift/delete/?123/空格/地球/回车）由渲染层单独负责，
+        // 配置里声明的控制行通过 getRowsLayout 读取。
+        (if (isAsciiMode) _enRows else _zhRows).map { row ->
+            row.filterNot { it in CONTROL_ROW_IDS }
+        }.filter { it.isNotEmpty() }
 
     /** A rendered frame can arrive before the active gesture cache has switched schemes. */
     fun getKeyRows(schemaId: String, isAsciiMode: Boolean): List<List<String>> {

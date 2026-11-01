@@ -123,7 +123,7 @@ object AppUpdater {
         val request = Request.Builder().url(AppUpdateCatalog.RELEASES_API)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
-            .header("User-Agent", "CyIME/${BuildConfig.VERSION_NAME}")
+            .header("User-Agent", "Lime/${BuildConfig.VERSION_NAME}")
             .build()
         client.newCall(request).execute().use { response ->
             if (response.code == 403 || response.code == 429) throw IOException("rate-limited")
@@ -194,7 +194,7 @@ object AppUpdater {
 
     private suspend fun fetchApk(release: AppRelease, asset: AppReleaseAsset, partial: File) {
         val offset = if (partial.isFile) partial.length() else 0L
-        val builder = Request.Builder().url(asset.url).header("User-Agent", "CyIME/${BuildConfig.VERSION_NAME}")
+        val builder = Request.Builder().url(asset.url).header("User-Agent", "Lime/${BuildConfig.VERSION_NAME}")
         if (offset > 0) builder.header("Range", "bytes=$offset-")
         client.newCall(builder.build()).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")

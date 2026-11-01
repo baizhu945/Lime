@@ -57,7 +57,10 @@ object FrostedGlassPreferences {
 
     fun isDark(context: Context): Boolean = when (SettingsPreferences.getEffectiveDarkMode(context)) {
         0 -> false
-        2 -> context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+        2 -> runCatching {
+            context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+                Configuration.UI_MODE_NIGHT_YES
+        }.getOrDefault(false)
         else -> true
     }
 

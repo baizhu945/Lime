@@ -97,11 +97,11 @@ object SettingsPreferences {
     
     /** 默认主题 ID，可从 xime.yaml 的 style.color_scheme 初始化。 */
     @JvmStatic
-    var defaultKeyboardTheme: String = "lavender_purple"
+    var defaultKeyboardTheme: String = com.kingzcheung.xime.ui.theme.SoftBlueTheme.ID
 
     /** 默认显示模式，可从 xime.yaml 的 style.dark_mode 初始化。 */
     @JvmStatic
-    var defaultDarkMode: Int = 2
+    var defaultDarkMode: Int = 1
     
     const val KEY_SWIPE_UP_HINTS_ENABLED = "swipe_up_hints_enabled"
     const val KEY_SWIPE_DOWN_HINTS_ENABLED = "swipe_down_hints_enabled"

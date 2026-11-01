@@ -51,6 +51,6 @@ class ClipboardExportTest {
 
     @Test fun fileNameCarriesTheFormatExtension() {
         assertTrue(ClipboardExport.fileName(ClipboardExportFormat.MD, 0).endsWith(".md"))
-        assertTrue(ClipboardExport.fileName(ClipboardExportFormat.JSON, 0).startsWith("CyIME剪贴板-"))
+        assertTrue(ClipboardExport.fileName(ClipboardExportFormat.JSON, 0).startsWith("Lime剪贴板-"))
     }
 }

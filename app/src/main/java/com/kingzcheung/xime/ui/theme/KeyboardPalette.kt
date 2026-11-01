@@ -116,6 +116,8 @@ object SoftLavenderTheme {
         primaryLight = Color(0xFF8F73E2), primaryDark = Color(0xFFD0BCFF),
         primaryContainerLight = Color(0xFFEADDFF), primaryContainerDark = Color(0xFF4F378B),
         surfaceLight = Color(0xFFFAF8FC), surfaceDark = Color(0xFF2B2930),
+        // 与 Xime 内置的候选文字色一致，避免磨砂对比度修正改写品牌色。
+        candidateTextColorLight = Color(0xFF202124), candidateTextColorDark = Color(0xFFE8EAED),
     )
 }
 

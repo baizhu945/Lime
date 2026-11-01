@@ -850,7 +850,7 @@ fun KeyboardView(
             }
 
             if (preeditEditSession != null && preeditFrame != null) {
-                // 编码预览（candidateState.preeditText）在编辑条自己的作用域里读：
+                // 编码预览在编辑条自己的作用域里读：
                 // 原来这一句写在 Column 内容里，等于每次按键都把整块键盘（含字母键盘）订阅上。
                 PreeditEditorBarHost(
                     candidateState = candidateState,
