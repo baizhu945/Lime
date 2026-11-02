@@ -60,9 +60,18 @@ class AppUpdateCatalogTest {
     }
 
     @Test
-    fun missingDigestStillOffersTheApk() {
+    fun missingDigestIsNotInstalledFromTheApp() {
         val list = "[" + release("1.16.1", asset("Lime-1.16.1-arm64-v8a.apk", digest = null)) + "]"
-        assertNull(AppUpdateCatalog.latest(list, false, listOf("arm64-v8a"))!!.asset!!.sha256)
+        assertEquals("1.16.1", AppUpdateCatalog.latest(list, false, listOf("arm64-v8a"))!!.version)
+        assertNull(AppUpdateCatalog.latest(list, false, listOf("arm64-v8a"))!!.asset)
+    }
+
+    @Test
+    fun downloadStaysOnGithubHttps() {
+        assertTrue(AppUpdateCatalog.downloadAllowed("https://github.com/baizhu945/Lime/releases/download/1/Lime.apk"))
+        assertTrue(AppUpdateCatalog.downloadAllowed("https://objects.githubusercontent.com/a"))
+        assertFalse(AppUpdateCatalog.downloadAllowed("http://github.com/a.apk"))
+        assertFalse(AppUpdateCatalog.downloadAllowed("https://evil.example/Lime.apk"))
     }
 
     @Test

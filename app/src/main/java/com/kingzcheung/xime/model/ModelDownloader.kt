@@ -5,6 +5,7 @@ import com.kingzcheung.xime.util.FileLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import com.kingzcheung.xime.plugin.core.lua.ws.localCleartextOnly
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
@@ -58,6 +59,7 @@ object ModelDownloader {
         .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
         .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
         .followRedirects(true)
+        .localCleartextOnly()
         .build()
 
     suspend fun downloadModel(

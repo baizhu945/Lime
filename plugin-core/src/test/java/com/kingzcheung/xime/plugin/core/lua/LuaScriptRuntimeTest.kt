@@ -159,6 +159,27 @@ class LuaScriptRuntimeTest {
     }
 
     @Test
+    fun `sandbox cannot recover io or load bytecode`() {
+        val dir = File("build/lua-sandbox-escape"); dir.mkdirs()
+        val runtime = runtimeFor(
+            """
+            return {
+              probe = function()
+                if package.loaded.io ~= nil then return "io" end
+                if package.loadlib ~= nil then return "loadlib" end
+                local ok = pcall(function() load("\27Lua") end)
+                if ok then return "bin" end
+                return "clean"
+              end
+            }
+            """.trimIndent(),
+            dir
+        )
+        runtime.load()
+        assertEquals("clean", runtime.call("probe").tojstring())
+    }
+
+    @Test
     fun `debug library is stripped from sandbox`() {
         val dir = File("build/lua-debug"); dir.mkdirs()
         val runtime = runtimeFor(

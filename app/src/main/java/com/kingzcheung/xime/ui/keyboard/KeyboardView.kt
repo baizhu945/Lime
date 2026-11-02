@@ -222,8 +222,10 @@ fun KeyboardView(
         viewModel.asciiStateMachine.saveMemory(prevContext, state.isAsciiMode)
         val target = viewModel.asciiStateMachine.targetFor(curContext, state.isAsciiMode)
         if (target != null) {
+            // 恢复这块键盘自己的中文或英文，只动当前方案的 ascii。不能发 ime_switch：
+            // 那是地球键，会按中文-英文-日语循环，英文下进符号页就会跳到下一种语言。
             FileLogger.i("XimeKeyboard", "ascii sync: ${prevContext.name}(${state.isAsciiMode}) -> ${curContext.name}($target)")
-            callbacks.onKeyPress("ime_switch", false)
+            callbacks.onKeyPress(if (target) com.kingzcheung.xime.viewmodel.ASCII_CONTEXT_ON else com.kingzcheung.xime.viewmodel.ASCII_CONTEXT_OFF, false)
         }
     }
 

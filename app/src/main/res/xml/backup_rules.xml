@@ -17,4 +17,8 @@
     <exclude domain="sharedpref" path="clipboard_board.xml" />
     <exclude domain="sharedpref" path="clipboard_images.xml" />
     <exclude domain="sharedpref" path="windows_device_pairing.xml" />
+    <!-- 在线语音密钥是明文，不能进云备份。 -->
+    <exclude domain="sharedpref" path="online_speech_api.xml" />
+    <!-- 用户词库、学习记录和方案脚本留在本机。换机用应用内备份。 -->
+    <exclude domain="file" path="rime" />
 </full-backup-content>

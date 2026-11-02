@@ -44,6 +44,10 @@ class SchemaSettingsViewModel(application: Application) : AndroidViewModel(appli
     /** 每次导入完成发一次；方案包有同名文件待确认时带上它，页面接着问用户。 */
     private val _importCompleted = MutableSharedFlow<ImportManager.ImportResult.Content?>(extraBufferCapacity = 1)
     val importCompleted: SharedFlow<ImportManager.ImportResult.Content?> = _importCompleted.asSharedFlow()
+    private val _scriptPrompt = MutableSharedFlow<ImportManager.ImportResult.NeedsScriptConfirmation>(extraBufferCapacity = 1)
+    val scriptPrompt: SharedFlow<ImportManager.ImportResult.NeedsScriptConfirmation> = _scriptPrompt.asSharedFlow()
+    private val _pluginPrompt = MutableSharedFlow<ImportManager.ImportResult.NeedsPluginConfirmation>(extraBufferCapacity = 1)
+    val pluginPrompt: SharedFlow<ImportManager.ImportResult.NeedsPluginConfirmation> = _pluginPrompt.asSharedFlow()
 
     init {
         refresh()
@@ -141,14 +145,43 @@ class SchemaSettingsViewModel(application: Application) : AndroidViewModel(appli
                     _importCompleted.tryEmit(result)
                     showToast(result.message)
                 }
+                is ImportManager.ImportResult.NeedsScriptConfirmation -> _scriptPrompt.tryEmit(result)
+                is ImportManager.ImportResult.NeedsPluginConfirmation -> _pluginPrompt.tryEmit(result)
                 is ImportManager.ImportResult.Plugin -> {
-                    withContext(Dispatchers.IO) { PluginManager.loadEnabledPlugins() }
+                    if (result.pluginInfo?.enabled == true) withContext(Dispatchers.IO) { PluginManager.loadEnabledPlugins() }
                     refresh()
                     _importCompleted.tryEmit(null)
-                    showToast("插件「${result.pluginInfo?.name}」安装成功")
+                    showToast(if (result.pluginInfo?.enabled == true) "插件「${result.pluginInfo?.name}」已更新"
+                        else "插件「${result.pluginInfo?.name ?: ""}」已安装，默认关闭。在插件页打开后才会运行")
                 }
                 is ImportManager.ImportResult.Failed -> showToast("导入失败：${result.reason}")
                 is ImportManager.ImportResult.Unsupported -> showToast("不支持的文件类型")
+            }
+        }
+    }
+
+    fun confirmLooseScript(uri: Uri) {
+        viewModelScope.launch {
+            when (val result = ImportManager.import(context, uri, allowScripts = true)) {
+                is ImportManager.ImportResult.Content -> {
+                    refresh()
+                    showToast(result.message)
+                }
+                is ImportManager.ImportResult.Failed -> showToast("导入失败：${result.reason}")
+                else -> showToast("导入失败")
+            }
+        }
+    }
+
+    fun confirmPluginInstall(uri: android.net.Uri) {
+        viewModelScope.launch {
+            when (val result = ImportManager.import(context, uri, installPlugin = true)) {
+                is ImportManager.ImportResult.Plugin -> {
+                    refresh()
+                    showToast("插件「${result.pluginInfo?.name ?: ""}」已安装，默认关闭。在插件页打开后才会运行")
+                }
+                is ImportManager.ImportResult.Failed -> showToast("安装失败：${result.reason}")
+                else -> showToast("安装失败")
             }
         }
     }

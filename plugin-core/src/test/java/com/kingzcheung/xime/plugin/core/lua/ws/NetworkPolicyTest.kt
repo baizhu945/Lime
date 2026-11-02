@@ -26,6 +26,17 @@ class NetworkPolicyTest {
     private val trusted = setOf("dashscope.aliyuncs.com")
 
     @Test
+    fun `cleartext stays on localhost and lan`() {
+        assertNull(CleartextTraffic.blockReason("https://api.openai.com/v1/audio"))
+        assertNull(CleartextTraffic.blockReason("http://127.0.0.1:18740/api/clipboard"))
+        assertNull(CleartextTraffic.blockReason("http://192.168.1.50:18740/"))
+        assertNull(CleartextTraffic.blockReason("http://localhost/status"))
+        assertEquals(CleartextTraffic.BLOCKED, CleartextTraffic.blockReason("http://example.com/a"))
+        assertEquals(CleartextTraffic.BLOCKED, NetworkPolicy.check(
+            "http://evil.example/a", setOf("evil.example"), emptyList(), emptySet()))
+    }
+
+    @Test
     fun `extractHost parses various urls`() {
         assertEquals("dashscope.aliyuncs.com", NetworkPolicy.extractHost("wss://dashscope.aliyuncs.com/api-ws/v1/inference/"))
         assertEquals("asr.example.com", NetworkPolicy.extractHost("wss://asr.example.com:443/ws"))

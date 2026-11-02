@@ -160,6 +160,16 @@ internal fun InstalledPluginActions() {
     IconButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) {
         Icon(Icons.Default.FileOpen, contentDescription = "从文件安装插件")
     }
+    val pending by viewModel.pendingPlugin.collectAsStateWithLifecycle()
+    pending?.let { (_, name) ->
+        ImportApprovalDialog(
+            title = "安装插件",
+            body = "安装插件「$name」？\n安装后默认关闭，不会看到你的输入。在插件页打开之后，它才能收到上屏文字。",
+            confirmLabel = "安装并保持关闭",
+            onConfirm = { viewModel.confirmPendingPlugin() },
+            onDismiss = { viewModel.cancelPendingPlugin() },
+        )
+    }
 }
 
 /** 已安装的插件列表（没有商店，插件只从文件导入）。 */

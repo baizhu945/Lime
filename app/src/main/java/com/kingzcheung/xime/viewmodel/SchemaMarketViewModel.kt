@@ -41,6 +41,8 @@ data class SchemaMarketUiState(
     val updatedAt: String = "",
     /** 选中的分类标签：null 表示全部 */
     val selectedTag: String? = null,
+    val scriptApprovalId: String? = null,
+    val scriptPaths: List<String> = emptyList(),
 ) {
     /** 索引中出现的全部分类标签（去重排序）。 */
     val availableTags: List<String>
@@ -62,6 +64,8 @@ data class SchemaMarketUiState(
 
 class SchemaMarketViewModel(application: Application) : AndroidViewModel(application) {
     private val context = application.applicationContext
+    private var scriptItem: MarketSchemeItem? = null
+    private var scriptEnablesScheme: Boolean = true
 
     private val _uiState = MutableStateFlow(SchemaMarketUiState())
     val uiState: StateFlow<SchemaMarketUiState> = _uiState.asStateFlow()
@@ -182,6 +186,7 @@ class SchemaMarketViewModel(application: Application) : AndroidViewModel(applica
             val install = if (result.success) withContext(Dispatchers.IO) {
                 XimeIndexSource.installFromMarket(context, item.scheme)
             } else null
+            if (install != null && holdScriptApproval(item, enableScheme = true, install)) return@launch
             val nowDownloaded = install?.success == true
             // 下载成功后记录本地版本号（用于更新检测）
             val actualVersion = if (nowDownloaded) {
@@ -262,6 +267,7 @@ class SchemaMarketViewModel(application: Application) : AndroidViewModel(applica
             val install = withContext(Dispatchers.IO) {
                 XimeIndexSource.installFromMarket(context, item.scheme, switchEnabled = false)
             }
+            if (holdScriptApproval(item, enableScheme = false, install)) return@launch
 
             val newVersion = selectedVersion ?: item.scheme.resolvedVersion()?.version
                 ?: item.scheme.currentVersion
@@ -293,6 +299,47 @@ class SchemaMarketViewModel(application: Application) : AndroidViewModel(applica
                 showToast(install.failureReason ?: "安装失败")
             }
         }
+    }
+
+    private fun holdScriptApproval(item: MarketSchemeItem, enableScheme: Boolean, result: com.kingzcheung.xime.settings.InstallResult): Boolean {
+        if (result.scriptPaths.isEmpty()) return false
+        scriptItem = item
+        scriptEnablesScheme = enableScheme
+        _uiState.update {
+            it.copy(downloadingId = null, downloadProgress = 0f, scriptApprovalId = item.scheme.id, scriptPaths = result.scriptPaths)
+        }
+        return true
+    }
+
+    fun confirmMarketScripts() {
+        val item = scriptItem ?: return
+        val enableScheme = scriptEnablesScheme
+        scriptItem = null
+        _uiState.update { it.copy(scriptApprovalId = null, scriptPaths = emptyList(), downloadingId = item.scheme.id) }
+        viewModelScope.launch {
+            val install = withContext(Dispatchers.IO) {
+                XimeIndexSource.installFromMarket(context, item.scheme, switchEnabled = enableScheme, allowScripts = true)
+            }
+            _uiState.update { it.copy(downloadingId = null) }
+            if (install.success) {
+                val version = item.scheme.resolvedVersion()?.version ?: item.scheme.currentVersion
+                withContext(Dispatchers.IO) { MarketVersionStore.setSchemeVersion(context, item.scheme.id, version) }
+                _uiState.update { st ->
+                    st.copy(
+                        downloadedIds = st.downloadedIds + item.scheme.id,
+                        downloadedVersions = st.downloadedVersions + (item.scheme.id to version),
+                        schemes = st.schemes.map { s -> if (s.scheme.id == item.scheme.id) s.copy(installedVersion = version) else s },
+                    )
+                }
+            }
+            showToast(if (install.success) "已安装「${item.scheme.name}」，到「已安装的方案」点「应用方案更改」生效"
+                else install.failureReason ?: "安装失败")
+        }
+    }
+
+    fun cancelMarketScripts() {
+        scriptItem = null
+        _uiState.update { it.copy(scriptApprovalId = null, scriptPaths = emptyList()) }
     }
 
     fun clearToast() = _uiState.update { it.copy(toastMessage = null) }

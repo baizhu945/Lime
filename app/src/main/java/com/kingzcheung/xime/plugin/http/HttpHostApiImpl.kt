@@ -11,6 +11,7 @@ import com.kingzcheung.xime.plugin.core.lua.ws.NetworkPolicy
 import com.kingzcheung.xime.plugin.core.runtime.PluginManager
 import com.kingzcheung.xime.plugin.core.security.PluginErrorLog
 import com.kingzcheung.xime.settings.SettingsPreferences
+import com.kingzcheung.xime.plugin.core.lua.ws.localCleartextOnly
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -41,6 +42,7 @@ class HttpHostApiImpl(
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        .localCleartextOnly()
         .addInterceptor { chain ->
             val request = chain.request()
             Log.d(TAG, "[$pluginId] >>> ${request.method} ${request.url}")

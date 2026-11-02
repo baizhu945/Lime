@@ -65,7 +65,8 @@ internal class ImeSchemaController(private val service: XimeInputMethodService) 
 
     internal suspend fun switchInputMethod(targetLanguage: InputLanguage? = null,
         useLanguageKeyPreference: Boolean = false,
-        languageSwitchMode: com.kingzcheung.xime.settings.LanguageSwitchMode? = null): Boolean {
+        languageSwitchMode: com.kingzcheung.xime.settings.LanguageSwitchMode? = null,
+        keepCurrentSchema: Boolean = false): Boolean {
         if (service.editorInputPolicy.locksNativeInput) return false
         val fromLanguage = currentLanguage()
         val currentSchema = service.rimeEngine.getCurrentSchema()
@@ -82,7 +83,7 @@ internal class ImeSchemaController(private val service: XimeInputMethodService) 
                 InputModes.languageOrder(service), available)
         else if (service.rimeEngine.isAsciiMode()) nativeLanguage else InputLanguage.ENGLISH
         if (target == null || target !in available) return false
-        val targetSchema = if (target == InputLanguage.ENGLISH) currentSchema else {
+        val targetSchema = if (keepCurrentSchema || target == InputLanguage.ENGLISH) currentSchema else {
             val localChoice = service.editorInputPolicy.schemaOverride?.takeIf { id ->
                 entries.any { it.schemaId == id && it.profile.language == target }
             }
@@ -154,9 +155,13 @@ internal class ImeSchemaController(private val service: XimeInputMethodService) 
             // 显式同步 uiState.isAsciiMode（权威源 = rime 引擎状态），
             // 不依赖 updateUI 链路异步回写，避免键盘 UI 与 rime 状态脱钩。
             val ascii = service.rimeEngine.isAsciiMode()
+            val schemaIdNow = service.rimeEngine.getCurrentSchema()
             FileLogger.i(XimeInputMethodService.TAG, "switchInputMethod: rime ascii=$ascii, ui before=${service.uiState.value.isAsciiMode}")
+            // 空格上的方案名和方案 id 同一帧写上。只改 ascii 时名字还是上一种语言，英文切日语会先闪「中文26键」。
+            val knownName = service.uiState.value.schemas.firstOrNull { it.schemaId == schemaIdNow }?.name
             service.uiState.value = service.uiState.value.copy(isAsciiMode = ascii,
-                currentSchemaId = service.rimeEngine.getCurrentSchema())
+                currentSchemaId = schemaIdNow,
+                schemaName = com.kingzcheung.xime.settings.ChineseSchemas.immediateSchemaName(schemaIdNow, knownName))
             val keepHandwriting = changesSchema && handwritingOpen()
             if (changesSchema) {
                 com.kingzcheung.xime.handwriting.HandwritingEngine.release()
@@ -644,7 +649,9 @@ internal class ImeSchemaController(private val service: XimeInputMethodService) 
                     service.uiState.value.schemas.firstOrNull { it.schemaId == schemaId && !service.editorInputPolicy.scoped }?.let {
                         com.kingzcheung.xime.settings.InputModes.selectProfile(service, it)
                     }
-                    service.uiState.value = service.uiState.value.copy(isAsciiMode = false, currentSchemaId = schemaId)
+                    val knownName = service.uiState.value.schemas.firstOrNull { it.schemaId == schemaId }?.name
+                    service.uiState.value = service.uiState.value.copy(isAsciiMode = false, currentSchemaId = schemaId,
+                        schemaName = com.kingzcheung.xime.settings.ChineseSchemas.immediateSchemaName(schemaId, knownName))
                     model.switchMain(com.kingzcheung.xime.keyboard.MainType.FULL)
                     model.dispatch(com.kingzcheung.xime.ui.keyboard.KeyboardDispatchAction.AsciiModeChanged(false, schemaId))
                     reopenHandwriting(keepHandwriting, targetLanguage)

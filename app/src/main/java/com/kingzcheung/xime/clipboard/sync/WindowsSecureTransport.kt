@@ -3,6 +3,7 @@ package com.kingzcheung.xime.clipboard.sync
 import com.kingzcheung.xime.plugin.core.api.ClipboardProfile
 import com.kingzcheung.xime.plugin.core.api.ClipboardSyncPlugin
 import com.kingzcheung.xime.plugin.core.model.PluginContext
+import com.kingzcheung.xime.plugin.core.lua.ws.localCleartextOnly
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.MediaType.Companion.toMediaType
@@ -66,6 +67,7 @@ class WindowsSecureTransport internal constructor(
             // 免得电脑已经换了凭据、这边却因为超时没收到，旧凭据从此 401。
             val pairing = path.startsWith("/api/pair")
             val client = OkHttpClient.Builder().proxy(java.net.Proxy.NO_PROXY).sslSocketFactory(tls.socketFactory, trust)
+                .localCleartextOnly()
                 .hostnameVerifier { _, session ->
                     runCatching { ClipboardProfile.sha256Hex(session.peerCertificates[0].encoded) == pin }.getOrDefault(false)
                 }.followRedirects(false).followSslRedirects(false)

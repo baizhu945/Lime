@@ -11,12 +11,13 @@ import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import com.kingzcheung.xime.plugin.core.lua.ws.localCleartextOnly
 import okhttp3.Response
 
 object CellDictionaryManager {
     private val client by lazy {
         OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
-            .callTimeout(60, TimeUnit.SECONDS).followSslRedirects(false).build()
+            .callTimeout(60, TimeUnit.SECONDS).followSslRedirects(false).localCleartextOnly().build()
     }
 
     fun store(context: Context) = CellDictionaryStore(File(context.filesDir, "cell-dictionaries"))

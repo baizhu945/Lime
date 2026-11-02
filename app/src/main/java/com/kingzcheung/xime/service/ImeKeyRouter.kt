@@ -27,9 +27,9 @@ import kotlinx.coroutines.withContext
 private fun isRimeIceCapitalSchema(id: String) =
     id == "rime_ice" || com.kingzcheung.xime.settings.CustomKeyboardLayouts.isCustom(id)
 
-internal class ImeKeyRouter(private val service: XimeInputMethodService) {
+internal class ImeKeyRouter(internal val service: XimeInputMethodService) {
     @Volatile internal var letterNeighbors: Pair<String, String> = "" to ""
-    private val hardwareNavigation = HardwareCandidateNavigation()
+    internal val hardwareNavigation = HardwareCandidateNavigation()
     private val hardwareSelectionRevision = androidx.compose.runtime.mutableIntStateOf(0)
     internal val usesDirectFieldInput: Boolean get() = service.editorInputPolicy.directInput &&
         !service.uiState.value.inputTarget.isInternal
@@ -39,6 +39,8 @@ internal class ImeKeyRouter(private val service: XimeInputMethodService) {
         val policy = service.editorInputPolicy
         when {
             key == "ime_switch" -> return policy.locksNativeInput
+            key == com.kingzcheung.xime.viewmodel.ASCII_CONTEXT_ON ||
+                key == com.kingzcheung.xime.viewmodel.ASCII_CONTEXT_OFF -> return false
             key in setOf("shift", "mode_change", "abc", "number", "common_symbol") -> return false
             key.startsWith("hardware_candidate_") -> {
                 if (event != null && isHardwareArrow(event.keyCode)) withEditor {
@@ -195,11 +197,11 @@ internal class ImeKeyRouter(private val service: XimeInputMethodService) {
         }
     }
 
-    private fun publishHardwareCandidateSelection() {
+    internal fun publishHardwareCandidateSelection() {
         hardwareSelectionRevision.intValue++
     }
 
-    private fun hardwareCandidateSnapshot(
+    internal fun hardwareCandidateSnapshot(
         state: CandidateState,
         english: Boolean,
         predictionPending: Boolean,
@@ -272,7 +274,7 @@ internal class ImeKeyRouter(private val service: XimeInputMethodService) {
         return commandOwner(admission).context()
     }
 
-    private suspend fun <T> withEditor(block: suspend CoroutineScope.() -> T): T =
+    internal suspend fun <T> withEditor(block: suspend CoroutineScope.() -> T): T =
         withContext(Dispatchers.Main) {
             InputCommandOwner.requireOwner().requireCurrent(service.inputReadiness, service.uiState.value.inputSessionId)
             block()
@@ -294,7 +296,7 @@ internal class ImeKeyRouter(private val service: XimeInputMethodService) {
      * 必须在 key-processing 线程调用：同步等插件至多 15ms；
      * 超时/失败/插件不干预（null）均回退原始候选（actions 为空 = 纯引擎语义）。
      */
-    private fun sendTransformedResult(
+    internal fun sendTransformedResult(
         result: com.kingzcheung.xime.rime.RimeProcessResult,
         afterUpdate: (suspend () -> Unit)? = null,
     ) {
@@ -1091,6 +1093,18 @@ internal class ImeKeyRouter(private val service: XimeInputMethodService) {
                     }
                     FileLogger.i(XimeInputMethodService.TAG, "ime_switch handled, total ${(System.nanoTime() - t0) / 1_000_000}ms (queue+rimeLock+main)")
                 }
+                com.kingzcheung.xime.viewmodel.ASCII_CONTEXT_ON,
+                com.kingzcheung.xime.viewmodel.ASCII_CONTEXT_OFF -> {
+                    // 符号页和主键盘各自记住中文还是英文。只切当前方案的 ascii，不按地球键的语言顺序循环。
+                    val schemaId = service.rimeEngine.getCurrentSchema()
+                    val native = com.kingzcheung.xime.settings.InputModes.languageOf(
+                        schemaId, service.uiState.value.schemas)
+                    val target = if (key == com.kingzcheung.xime.viewmodel.ASCII_CONTEXT_ON)
+                        com.kingzcheung.xime.settings.InputLanguage.ENGLISH else native
+                    if (target != com.kingzcheung.xime.settings.InputLanguage.UNSPECIFIED) {
+                        service.schemaController.switchInputMethod(targetLanguage = target, keepCurrentSchema = true)
+                    }
+                }
                 "abc" -> {
                     service.calculatorEngine.clear()
                     updateCalculatorCandidates()
@@ -1364,153 +1378,6 @@ internal class ImeKeyRouter(private val service: XimeInputMethodService) {
         }
     }
 
-    /** Returns false when the key should continue through ordinary input handling. */
-    private suspend fun processHardwareCandidateKey(event: KeyEvent, pageAtBoundary: Boolean = false): Boolean {
-        val key = when (event.keyCode) {
-            KeyEvent.KEYCODE_DPAD_LEFT -> HardwareCandidateKey.LEFT
-            KeyEvent.KEYCODE_DPAD_RIGHT -> HardwareCandidateKey.RIGHT
-            KeyEvent.KEYCODE_DPAD_UP -> HardwareCandidateKey.UP
-            KeyEvent.KEYCODE_DPAD_DOWN -> HardwareCandidateKey.DOWN
-            KeyEvent.KEYCODE_ESCAPE -> HardwareCandidateKey.CANCEL
-            KeyEvent.KEYCODE_SPACE -> HardwareCandidateKey.SPACE
-            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> HardwareCandidateKey.ENTER
-            else -> if (hardwareCandidateDigitIndex(event.keyCode, event.isShiftPressed) != null)
-                HardwareCandidateKey.DIGIT else return false
-        }
-        hardwareNavigation.startPress(key, repeat = event.repeatCount > 0)
-
-        // This read waits for the engine lock and never consumes commit text. In
-        // particular, a rapid letter followed by an arrow cannot see an old empty UI.
-        val composition = service.rimeEngine.readQueuedComposition()
-        if (composition != null &&
-            service.candidateState.value.engineRevision != composition.engineRevision) {
-            val transformed = service.candidateTransform.transform(composition.input, composition.preedit,
-                composition.candidates.toList(), composition.isAsciiMode)
-            val injections = if (isT9Schema(service.uiState.value.currentSchemaId)) {
-                service.candidateTransform.transformForT9(com.kingzcheung.xime.rime.RimeProcessResult(
-                    true, "", composition.input, composition.preedit, composition.candidates,
-                    composition.isAsciiMode, composition.hasNextPage, composition.hasPrevPage,
-                    engineRevision = composition.engineRevision,
-                )).orEmpty()
-            } else emptyList()
-            withEditor {
-                if (service.rimeEngine.isCandidateRevisionCurrent(composition.engineRevision)) {
-                    service.sessionController.applyComposition(
-                        transformed?.let { composition.copy(candidates = it.candidates.toTypedArray()) } ?: composition,
-                        transformed?.actions ?: emptyList(), injections,
-                    )
-                }
-            }
-        }
-        val snapshot = withEditor {
-            val ui = service.uiState.value
-            hardwareCandidateSnapshot(service.candidateState.value,
-                ui.isAsciiMode || ui.inputProfile.language.typesLettersDirectly,
-                service.predictionManager.hasPendingPrediction)
-        }
-        val engineHasInput = composition
-            ?.takeIf { service.rimeEngine.isCandidateRevisionCurrent(it.engineRevision) }
-            ?.let { it.input.isNotEmpty() || service.t9PartialSegments.isNotEmpty() }
-        val digitIndex = hardwareCandidateDigitIndex(event.keyCode, event.isShiftPressed)
-        // While pinyin is being composed, physical arrows move through the candidates (as on
-        // Samsung Keyboard and Gboard) instead of committing the raw letters and moving the caret.
-        val composingArrow = key in listOf(HardwareCandidateKey.LEFT, HardwareCandidateKey.RIGHT,
-            HardwareCandidateKey.UP, HardwareCandidateKey.DOWN) &&
-            !snapshot.english && snapshot.state.pendingEnglishText.isEmpty() &&
-            (engineHasInput == true || snapshot.state.isComposing) && snapshot.words.isNotEmpty()
-        if (!pageAtBoundary && composingArrow && (key == HardwareCandidateKey.LEFT || key == HardwareCandidateKey.RIGHT)) {
-            if (!isT9Schema(service.uiState.value.currentSchemaId)) {
-                // 逐个字母移动，到两端停住；Rime 自带的左右键按音节跳、到头还会绕回另一端。
-                val result = service.rimeEngine.moveCompositionCaret(if (key == HardwareCandidateKey.LEFT) -1 else 1)
-                if (result != null) {
-                    // 拼音条标出光标位置，与屏幕键盘编辑拼音时看到的一致；光标回到末尾时不标。
-                    val snap = service.rimeEngine.readPinyinEditSnapshot()
-                    val marked = markPreeditCaret(result.preeditText, snap.getOrNull(0).orEmpty(),
-                        snap.getOrNull(1)?.toIntOrNull() ?: -1, snap.getOrNull(2)?.toIntOrNull() ?: 0)
-                    sendTransformedResult(if (marked != null) result.copy(preeditText = marked) else result)
-                }
-            }
-            hardwareNavigation.retainPress(key)
-            return true
-        }
-        val decision = if (pageAtBoundary || composingArrow) hardwareNavigation.decide(key, snapshot, engineHasInput,
-            pageAtBoundary = true, digitIndex = digitIndex)
-        // 空格不读工具栏高亮，原因见 physicalCandidateDecision 的说明。
-        else physicalCandidateDecision(key, snapshot, engineHasInput, digitIndex)
-        if (com.kingzcheung.xime.BuildConfig.DEBUG) {
-            Log.d("HardwareNavigation", "key=$key decision=$decision engineInput=$engineHasInput " +
-                "words=${snapshot.words.size} compact=${service.uiState.value.isCompact} " +
-                "revision=${snapshot.state.engineRevision}")
-        }
-        if (decision != HardwareCandidateDecision.Host) hardwareNavigation.retainPress(key)
-        when (decision) {
-            HardwareCandidateDecision.MoveCursor -> {
-                if (commitHardwareLiteral("")) {
-                    withEditor { service.schemaController.moveHardwareCursor(event) }
-                }
-            }
-            HardwareCandidateDecision.LiteralSpace -> commitHardwareLiteral(" ")
-            HardwareCandidateDecision.CommitTyped -> commitHardwareLiteral("")
-            is HardwareCandidateDecision.Highlight -> withEditor { publishHardwareCandidateSelection() }
-            is HardwareCandidateDecision.Page -> {
-                if (snapshot.expanded) {
-                    withEditor {
-                        service.expandedPageScroll(decision.direction)
-                        publishHardwareCandidateSelection()
-                    }
-                } else {
-                    pageHardwareCandidates(snapshot.state, decision.direction)
-                    withEditor {
-                        publishHardwareCandidateSelection()
-                        service.updateUI()
-                    }
-                }
-            }
-            is HardwareCandidateDecision.Confirm -> {
-                if (decision.association) {
-                    withEditor {
-                        val current = hardwareCandidateSnapshot(service.candidateState.value, snapshot.english,
-                            service.predictionManager.hasPendingPrediction)
-                        if (snapshot.sameSource(current)) {
-                            selectAssociation(decision.index)
-                        }
-                    }
-                } else if (snapshot.expandedGlobalIndices != null) {
-                    selectCandidateGlobalAsync(snapshot.expandedGlobalIndices[decision.index], snapshot.state)
-                    withEditor { publishHardwareCandidateSelection() }
-                } else {
-                    selectCandidateAsync(snapshot.windowStart + decision.index, snapshot = snapshot.state)
-                    withEditor { publishHardwareCandidateSelection() }
-                }
-            }
-            HardwareCandidateDecision.Cancel -> {
-                // Japanese conversion is separate from Rime composition. Cancel it
-                // before clearing input; already committed English text is untouched.
-                service.japaneseInputController.handleKey("clear_composition")
-                clearInputStateForKeys()
-                withEditor {
-                    publishHardwareCandidateSelection()
-                    service.maybeCollapseCandidatePage()
-                }
-            }
-            // A touch candidate-arrow with no candidates has nothing to navigate.
-            HardwareCandidateDecision.Host -> Unit
-            HardwareCandidateDecision.Consume -> Unit
-            HardwareCandidateDecision.DefaultInput -> {
-                if (!snapshot.state.isComposing && snapshot.state.inputText.isEmpty()) {
-                    withEditor {
-                        service.predictionManager.invalidatePendingPredictions()
-                        service.candidateState.value = service.candidateState.value.copy(associationCandidates = emptyList())
-                        hardwareNavigation.clear()
-                        publishHardwareCandidateSelection()
-                    }
-                }
-                return false
-            }
-        }
-        return true
-    }
-
     /** Caps Lock while composing commits the letters as typed; the system still toggles the lock. */
     internal fun commitCompositionAsTyped() {
         postRimeJob {
@@ -1521,7 +1388,7 @@ internal class ImeKeyRouter(private val service: XimeInputMethodService) {
     }
 
     /** On the compact toolbar, page through its windows before turning the engine page. */
-    private fun pageHardwareCandidates(shown: CandidateState, direction: Int) {
+    internal fun pageHardwareCandidates(shown: CandidateState, direction: Int) {
         if (service.uiState.value.isCompact && hardwareNavigation.moveWindow(shown, direction)) return
         val paged = if (direction < 0) service.rimeEngine.hasPrevPage() && service.rimeEngine.pageUp()
             else service.rimeEngine.hasNextPage() && service.rimeEngine.pageDown()
@@ -1560,7 +1427,7 @@ internal class ImeKeyRouter(private val service: XimeInputMethodService) {
     }
 
     /** Finish unfinished raw input without choosing a word; clear only after acceptance. */
-    private suspend fun commitHardwareLiteral(suffix: String): Boolean {
+    internal suspend fun commitHardwareLiteral(suffix: String): Boolean {
         val state = service.candidateState.value
         val composition = service.rimeEngine.readQueuedComposition()
         val hasComposition = composition?.input?.isNotEmpty() == true || state.isComposing ||
@@ -2128,7 +1995,7 @@ internal class ImeKeyRouter(private val service: XimeInputMethodService) {
      * 显式清 preeditText（与提交路径"残留根治"一致），不依赖 updateUI 自愈；
      * 输入框模式清 composing 区；T9 方案重置左侧候选区（其他键盘无左栏，跳过）。
      */
-    private suspend fun clearInputStateForKeys() {
+    internal suspend fun clearInputStateForKeys() {
         service.predictionManager.invalidatePendingPredictions()
         service.calculatorEngine.clear()
         updateCalculatorCandidates()
@@ -2390,7 +2257,7 @@ internal class ImeKeyRouter(private val service: XimeInputMethodService) {
         }
     }
 
-    private suspend fun selectCandidateGlobalAsync(globalIndex: Int, snapshot: CandidateState) {
+    internal suspend fun selectCandidateGlobalAsync(globalIndex: Int, snapshot: CandidateState) {
         if (usesDirectFieldInput) return
             val expandedCandidate = snapshot.expandedCandidates.getOrNull(globalIndex) ?: return
             if (!snapshot.hasSameSelectionSource(service.candidateState.value)) return

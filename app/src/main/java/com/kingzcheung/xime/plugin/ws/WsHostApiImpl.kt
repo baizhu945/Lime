@@ -8,6 +8,7 @@ import com.kingzcheung.xime.plugin.core.lua.ws.NetworkPolicy
 import com.kingzcheung.xime.plugin.core.lua.ws.WsHostApi
 import com.kingzcheung.xime.plugin.core.lua.ws.WsHostListener
 import com.kingzcheung.xime.settings.SettingsPreferences
+import com.kingzcheung.xime.plugin.core.lua.ws.localCleartextOnly
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -43,6 +44,7 @@ class WsHostApiImpl(
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .pingInterval(20, TimeUnit.SECONDS)
+        .localCleartextOnly()
         .build()
 
     @Volatile
