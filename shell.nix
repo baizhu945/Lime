@@ -8,7 +8,7 @@
 
 let
   android = pkgs.androidenv.composeAndroidPackages {
-    platformVersions = [ "36" "37.2" ];
+    platformVersions = [ "37.0" ];
     buildToolsVersions = [ "36.0.0" ];
     includeNDK = true;
     ndkVersions = [ "29.0.14206865" ];
