@@ -177,7 +177,7 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
-            // tasks-native.gradle.kts extracts this same 1.28.0 runtime for C++ consumers.
+            // tasks-native.gradle.kts extracts the catalog version for C++ consumers.
             // The Java OCR binding contributes an identical copy plus onnxruntime4j_jni.
             pickFirsts.add("**/libonnxruntime.so")
             pickFirsts.add("**/libc++_shared.so")
@@ -304,7 +304,9 @@ dependencies {
     // ZXing for QR code generation
     implementation("com.google.zxing:core:3.5.4")
     // Bundled OCR works without Play Services or a first-use model download.
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.28.0")
+    implementation(libs.onnxruntime.android) {
+        version { strictly(libs.versions.onnxruntimeAndroid.get()) }
+    }
     implementation("org.opencv:opencv:4.12.0")
     implementation("androidx.camera:camera-camera2:1.6.2")
     implementation("androidx.camera:camera-lifecycle:1.6.2")
