@@ -325,7 +325,7 @@ dependencies {
     ksp(libs.androidx.room3.compiler)
 
     // Sora Code Editor for YAML viewing/editing
-    implementation(platform("io.github.rosemoe:editor-bom:0.24.6"))
+    implementation(platform("io.github.rosemoe:editor-bom:0.24.7"))
     implementation("io.github.rosemoe:editor")
     implementation("io.github.rosemoe:language-textmate")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
