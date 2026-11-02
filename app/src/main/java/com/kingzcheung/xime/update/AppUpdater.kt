@@ -22,6 +22,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import com.kingzcheung.xime.plugin.core.lua.ws.CleartextTraffic
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -70,6 +71,12 @@ object AppUpdater {
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .followRedirects(true)
+        .addNetworkInterceptor { chain ->
+            val url = chain.request().url.toString()
+            if (!AppUpdateCatalog.downloadAllowed(url)) throw IOException("更新只能从 GitHub 下载")
+            CleartextTraffic.blockReason(chain.request().url.scheme, chain.request().url.host)?.let { throw IOException(it) }
+            chain.proceed(chain.request())
+        }
         .build()
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -225,7 +232,7 @@ object AppUpdater {
     }
 
     private fun digestMatches(file: File, sha256: String?): Boolean {
-        if (sha256.isNullOrBlank()) return true
+        if (sha256.isNullOrBlank()) return false
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->
             val buffer = ByteArray(256 * 1024)

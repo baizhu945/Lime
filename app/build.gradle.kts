@@ -62,7 +62,7 @@ android {
     sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/rime-manifest").get().asFile)
     sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/speech-assets").get().asFile)
     sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/builtin-sync-assets").get().asFile)
-    compileSdk = 36
+    compileSdk = 37
 
     // JVM 单测中未 mock 的 Android 框架方法（如 android.util.Log）返回默认值而非抛异常，
     // 使服务层状态机（如语音收尾流程）可直接实例化测试
@@ -80,8 +80,8 @@ android {
         // 按发布批次定号：兼容修复升 PATCH，兼容功能升 MINOR 并归零 PATCH。
         // 不兼容变更升 MAJOR；日常编辑不逐次升号。完整规则见 docs/packaging.md。
         // versionCode 是独立递增的交付序号；同批普通版与内置版共用。
-        versionCode = 20261387
-        versionName = "1.15.35"
+        versionCode = 20261388
+        versionName = "1.15.36"
 
 
         // Isolated Compose rendering on a local x86 emulator; ordinary device tests keep the full app.
@@ -177,7 +177,7 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
-            // tasks-native.gradle.kts extracts this same 1.28.0 runtime for C++ consumers.
+            // tasks-native.gradle.kts extracts the catalog version for C++ consumers.
             // The Java OCR binding contributes an identical copy plus onnxruntime4j_jni.
             pickFirsts.add("**/libonnxruntime.so")
             pickFirsts.add("**/libc++_shared.so")
@@ -255,7 +255,7 @@ dependencies {
     implementation(libs.material)
 
     // Kotlin stdlib - CRITICAL for plugin compatibility
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.4.20")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.4.21")
     implementation(libs.kotlinx.coroutines.core)
 
     // Jetpack Compose
@@ -304,7 +304,9 @@ dependencies {
     // ZXing for QR code generation
     implementation("com.google.zxing:core:3.5.4")
     // Bundled OCR works without Play Services or a first-use model download.
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.28.0")
+    implementation(libs.onnxruntime.android) {
+        version { strictly(libs.versions.onnxruntimeAndroid.get()) }
+    }
     implementation("org.opencv:opencv:4.12.0")
     implementation("androidx.camera:camera-camera2:1.6.2")
     implementation("androidx.camera:camera-lifecycle:1.6.2")
@@ -329,7 +331,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.core)
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
-    testImplementation("org.mockito:mockito-core:5.23.0")
+    testImplementation("org.mockito:mockito-core:5.24.0")
     testImplementation("org.mockito.kotlin:mockito-kotlin:6.3.0")
     // JVM 单测使用真实 org.json 实现（android.jar 内为抛异常的 stub）
     testImplementation("org.json:json:20240303")

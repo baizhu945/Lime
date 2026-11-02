@@ -1,5 +1,6 @@
 package com.kingzcheung.xime.update
 
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -75,7 +76,9 @@ object AppUpdateCatalog {
                 val match = apkName.find(name) ?: return@mapNotNull null
                 if ((match.groupValues[1] == "-full") != full) return@mapNotNull null
                 val url = asset.text("browser_download_url") ?: return@mapNotNull null
+                if (!downloadAllowed(url)) return@mapNotNull null
                 val sha = asset.text("digest")?.takeIf { it.startsWith("sha256:") }?.removePrefix("sha256:")?.lowercase()
+                if (sha.isNullOrBlank()) return@mapNotNull null
                 match.groupValues[2] to AppReleaseAsset(name, url, asset.number("size") ?: 0L, sha)
             }
         val chosen = (abis + "universal").firstNotNullOfOrNull { abi -> assets.firstOrNull { it.first == abi }?.second }
@@ -92,6 +95,14 @@ object AppUpdateCatalog {
         runCatching { this[key]?.jsonPrimitive?.longOrNull }.getOrNull()
 
     /** 下载目录里留下的安装包名对应的版本；用来清掉已经装上的旧包。 */
+    /** 一键下载只接受 GitHub 的 HTTPS 地址。重定向到别的主机时同样拒绝。 */
+    fun downloadAllowed(url: String): Boolean {
+        val parsed = url.toHttpUrlOrNull() ?: return false
+        if (parsed.scheme != "https") return false
+        val host = parsed.host.lowercase()
+        return host == "github.com" || host == "api.github.com" || host.endsWith(".githubusercontent.com")
+    }
+
     fun versionOfApk(fileName: String): String? =
         Regex("""^Lime-(\d+(?:\.\d+)*)""").find(fileName)?.groupValues?.get(1)
 }

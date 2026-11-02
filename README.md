@@ -25,7 +25,7 @@ Lime 是一个 Android 中文 / 英文 / 日文输入法。
 
 ## 构建
 
-需要 JDK 17+、Android SDK 36、NDK `29.0.14206865`。本仓库在 NixOS 上用 `nix-shell` 提供工具链：
+需要 JDK 17+、Android SDK 平台 37（`platforms;android-37.0`）、NDK `29.0.14206865`。本仓库在 NixOS 上用 `nix-shell` 提供工具链：
 
 ```bash
 # 完整四个 ABI 的 Debug 包

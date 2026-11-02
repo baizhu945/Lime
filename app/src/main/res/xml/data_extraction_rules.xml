@@ -16,6 +16,8 @@
         <exclude domain="sharedpref" path="clipboard_board.xml" />
         <exclude domain="sharedpref" path="clipboard_images.xml" />
         <exclude domain="sharedpref" path="windows_device_pairing.xml" />
+        <exclude domain="sharedpref" path="online_speech_api.xml" />
+        <exclude domain="file" path="rime" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="speaker" />
@@ -28,5 +30,7 @@
         <exclude domain="sharedpref" path="clipboard_board.xml" />
         <exclude domain="sharedpref" path="clipboard_images.xml" />
         <exclude domain="sharedpref" path="windows_device_pairing.xml" />
+        <exclude domain="sharedpref" path="online_speech_api.xml" />
+        <exclude domain="file" path="rime" />
     </device-transfer>
 </data-extraction-rules>

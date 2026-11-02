@@ -2,6 +2,7 @@ package com.kingzcheung.xime.speech
 
 import android.content.Context
 import com.kingzcheung.xime.settings.InputLanguage
+import com.kingzcheung.xime.plugin.core.lua.ws.localCleartextOnly
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -33,7 +34,7 @@ object OnlineSpeechApi {
 
     private val client by lazy {
         OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS).writeTimeout(30, TimeUnit.SECONDS).build()
+            .readTimeout(30, TimeUnit.SECONDS).writeTimeout(30, TimeUnit.SECONDS).localCleartextOnly().build()
     }
 
     /** 可空：测试里的假 Context 可能没有这个设置文件，此时按未填写处理。 */

@@ -250,6 +250,12 @@ object DeviceHost {
     private suspend fun accept(socket: ServerSocket) {
         while (currentCoroutineContext().isActive) {
             val client = try { socket.accept() as SSLSocket } catch (_: Exception) { break }
+            val remote = client.inetAddress
+            if (remote == null || !com.kingzcheung.xime.plugin.core.lua.ws.CleartextTraffic.isLocalAddress(remote)) {
+                Log.w(TAG, "rejected clipboard connection from a non-local address")
+                runCatching { client.close() }
+                continue
+            }
             scope.launch {
                 client.use {
                     runCatching {

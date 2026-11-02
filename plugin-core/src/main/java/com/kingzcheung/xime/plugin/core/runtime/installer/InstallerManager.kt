@@ -372,7 +372,7 @@ class InstallerManager(
                 versionName = pluginConfig.version,
                 path = entryFile.absolutePath,
                 type = pluginConfig.type,
-                enabled = existingPlugin?.enabled ?: true,
+                enabled = existingPlugin?.enabled ?: (source != PluginSource.FILE),
                 installTime = existingPlugin?.installTime ?: System.currentTimeMillis(),
                 source = source,
                 minHostVersion = pluginConfig.minHostVersion,

@@ -220,7 +220,8 @@ object SetupGuide {
             if (input.downloadWubi) {
                 val scheme = com.kingzcheung.xime.settings.CuratedRimeSchemes.merge(emptyList()).first { it.id == SetupGuidePlanner.WUBI }
                 val download = if (online) com.kingzcheung.xime.settings.XimeIndexSource.downloadScheme(app, scheme) else null
-                val install = if (download?.success == true) com.kingzcheung.xime.settings.XimeIndexSource.installFromMarket(app, scheme) else null
+                val install = if (download?.success == true) com.kingzcheung.xime.settings.XimeIndexSource.installFromMarket(
+                    app, scheme, allowScripts = true) else null
                 if (install?.success == true) {
                     com.kingzcheung.xime.settings.MarketVersionStore.setSchemeVersion(app, scheme.id, scheme.currentVersion)
                     wubiReady = true

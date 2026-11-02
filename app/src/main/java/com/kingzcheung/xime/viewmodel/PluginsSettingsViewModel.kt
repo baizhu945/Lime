@@ -38,6 +38,8 @@ class PluginsSettingsViewModel(application: Application) : AndroidViewModel(appl
 
     private val _importMessage = MutableStateFlow<String?>(null)
     val importMessage: StateFlow<String?> = _importMessage.asStateFlow()
+    private val _pendingPlugin = MutableStateFlow<Pair<Uri, String>?>(null)
+    val pendingPlugin: StateFlow<Pair<Uri, String>?> = _pendingPlugin.asStateFlow()
 
     init {
         refreshPlugins()
@@ -50,11 +52,20 @@ class PluginsSettingsViewModel(application: Application) : AndroidViewModel(appl
                 _importMessage.value = "请选择有效的插件文件"
                 return@launch
             }
-            when (val result = ImportManager.import(context, uri)) {
+            _pendingPlugin.value = uri to displayName
+        }
+    }
+
+    fun confirmPendingPlugin() {
+        val pending = _pendingPlugin.value ?: return
+        _pendingPlugin.value = null
+        viewModelScope.launch {
+            when (val result = ImportManager.import(context, pending.first, installPlugin = true)) {
                 is ImportManager.ImportResult.Plugin -> {
-                    PluginManager.loadEnabledPlugins()
+                    if (result.pluginInfo?.enabled == true) PluginManager.loadEnabledPlugins()
                     refreshPlugins()
-                    _importMessage.value = "插件「${result.pluginInfo?.name ?: ""}」安装成功"
+                    _importMessage.value = if (result.pluginInfo?.enabled == true) "插件「${result.pluginInfo?.name ?: ""}」已更新"
+                        else "插件「${result.pluginInfo?.name ?: pending.second}」已安装，默认关闭。打开后才会收到输入内容"
                 }
                 is ImportManager.ImportResult.Failed -> {
                     _importMessage.value = "安装失败：${result.reason}"
@@ -65,6 +76,8 @@ class PluginsSettingsViewModel(application: Application) : AndroidViewModel(appl
             }
         }
     }
+
+    fun cancelPendingPlugin() { _pendingPlugin.value = null }
 
     fun consumeImportMessage() {
         _importMessage.value = null

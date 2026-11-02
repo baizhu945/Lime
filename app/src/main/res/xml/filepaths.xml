@@ -4,5 +4,8 @@
     <cache-path name="emoji_cache" path="emoji_cache/" />
     <cache-path name="clipboard_images" path="clipboard_images/" />
     <cache-path name="updates" path="updates/" />
-    <files-path name="files" path="." />
+    <files-path name="logs" path="logs/" />
+    <files-path name="exports" path="exports/" />
+    <files-path name="rime" path="rime/" />
+    <files-path name="handwriting_training" path="handwriting_training/" />
 </paths>

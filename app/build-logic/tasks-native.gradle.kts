@@ -1,10 +1,10 @@
-import java.text.SimpleDateFormat
-import java.util.Date
+import org.gradle.api.artifacts.VersionCatalogsExtension
 import org.gradle.api.tasks.PathSensitivity
 
 // 使用官方 Maven 预编译 onnxruntime-android AAR（内置 CPU + NNAPI EP），
 // 不再从源码自行编译（自行编译需 30-60 分钟且依赖网络/NDK 稳定性）。
-val onnxVersion = "1.28.0"
+val onnxVersion = extensions.getByType<VersionCatalogsExtension>()
+    .named("libs").findVersion("onnxruntimeAndroid").get().requiredVersion
 val onnxAarUrl = "https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/${onnxVersion}/onnxruntime-android-${onnxVersion}.aar"
 // 头文件不在 AAR 内，需从对应版本源码 raw 取（仅需 C API + provider factory 头）
 val onnxHeadersBase = "https://raw.githubusercontent.com/microsoft/onnxruntime/v${onnxVersion}/include/onnxruntime"
@@ -99,6 +99,7 @@ val downloadOnnx by tasks.registering {
     val jniLibsDir = file("src/main/jniLibs")
     val nnapiMarker = file("$buildDir/onnxruntime-nnapi-marker")
 
+    inputs.property("onnxVersion", onnxVersion)
     outputs.dir(cppDir)
     outputs.dir(jniLibsDir)
     outputs.file(nnapiMarker)
@@ -106,26 +107,22 @@ val downloadOnnx by tasks.registering {
     doLast {
         val abis = listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
 
-        // 已全部就绪则跳过
-        val allSoPresent = abis.all {
-            file("${jniLibsDir.absolutePath}/$it/libonnxruntime.so").exists() &&
-            file("${cppDir.absolutePath}/lib/$it/libonnxruntime.so").exists()
-        }
-        val headersPresent = file("$cppDir/include/onnxruntime_c_api.h").exists()
-        if (allSoPresent && headersPresent) {
-            println("ONNX Runtime (official AAR) already deployed for all ABIs, skipping")
-            return@doLast
-        }
+        // 每次任务执行都从干净暂存区重新获取，不能相信旧 marker 或旧文件。
+        // 失败时移除 marker，使下一次构建必须重试。
+        check(!nnapiMarker.exists() || nnapiMarker.delete()) { "Cannot remove ONNX marker: $nnapiMarker" }
+        val staging = File(temporaryDir, "onnx-staging")
+        check(!staging.exists() || staging.deleteRecursively()) { "Cannot clean ONNX staging: $staging" }
+        check(staging.mkdirs()) { "Cannot create ONNX staging: $staging" }
 
         // 1. 下载官方 AAR（含 4 ABI 的 libonnxruntime.so，内置 CPU + NNAPI EP）
-        val aar = File(buildDir, "onnxruntime-android-${onnxVersion}.aar")
+        val aar = File(staging, "onnxruntime-android-${onnxVersion}.aar")
         if (!downloadWithMirrors(listOf(onnxAarUrl), aar, buildDir, "onnxruntime-android AAR")) {
             throw GradleException("Failed to download ONNX Runtime Android AAR: $onnxAarUrl")
         }
         println("AAR downloaded: ${aar.length()} bytes")
 
         // 2. 解压 AAR（zip），提取 jni/<abi>/libonnxruntime.so
-        val aarDir = File(buildDir, "onnxruntime-aar")
+        val aarDir = File(staging, "aar")
         try {
             copy {
                 from(zipTree(aar))
@@ -137,18 +134,12 @@ val downloadOnnx by tasks.registering {
 
         for (abi in abis) {
             val src = File(aarDir, "jni/$abi/libonnxruntime.so")
-            if (!src.exists()) throw GradleException("AAR missing jni/$abi/libonnxruntime.so")
-            val abiLib = File(cppDir, "lib/$abi")
-            val abiJni = File(jniLibsDir, abi)
-            abiLib.mkdirs(); abiJni.mkdirs()
-            src.copyTo(File(abiLib, "libonnxruntime.so"), overwrite = true)
-            src.copyTo(File(abiJni, "libonnxruntime.so"), overwrite = true)
-            println("Deployed libonnxruntime.so [$abi] (${src.length()} bytes)")
+            if (!src.isFile || src.length() == 0L) throw GradleException("AAR missing jni/$abi/libonnxruntime.so")
         }
 
-        // 下载 v1.28 core/session/ 目录下全部头文件（c_api.h 依赖 ep_c_api.h、
+        // 下载 core/session/ 目录下所需头文件（c_api.h 依赖 ep_c_api.h、
         // error_code.h 等，需完整覆盖以通过编译），统一提升到 include 顶层供 #include 直接命中。
-        val dstHeaders = File(cppDir, "include")
+        val dstHeaders = File(staging, "include")
         dstHeaders.mkdirs()
         val headersToFetch = listOf(
             "core/session/environment.h",
@@ -169,24 +160,29 @@ val downloadOnnx by tasks.registering {
             "core/session/onnxruntime_run_options_config_keys.h",
             "core/session/onnxruntime_session_options_config_keys.h",
         )
-        // 旧源码编译残留的 v1.28 头文件会与官方 v1.27 .so 不匹配（ORT_API_VERSION 不同），
-        // 导致 GetApi(28) 失败。部署前清理 include 目录，确保头文件与 AAR 版本一致。
-        dstHeaders.listFiles()?.forEach { old ->
-            if (old.isFile) old.delete()
-        }
         for (rel in headersToFetch) {
             val target = java.io.File(dstHeaders, rel.substringAfterLast("/"))
             val url = "$onnxHeadersBase/$rel"
             if (downloadWithMirrors(githubUrls(url), target, buildDir, "onnxruntime header $rel")) {
                 println("Header ok: ${target.name}")
             } else {
-                System.err.println("WARNING: failed to fetch header $rel")
+                throw GradleException("Failed to fetch ONNX Runtime header $rel: $url")
             }
         }
 
-        // 4. Marker
+        // 全部下载并校验后才部署；任何复制失败都不会写入成功 marker。
+        val deployedHeaders = File(cppDir, "include")
+        check(!deployedHeaders.exists() || deployedHeaders.deleteRecursively()) { "Cannot clean ONNX headers: $deployedHeaders" }
+        dstHeaders.copyRecursively(deployedHeaders, overwrite = true)
+        for (abi in abis) {
+            val src = File(aarDir, "jni/$abi/libonnxruntime.so")
+            for (dir in listOf(File(cppDir, "lib/$abi"), File(jniLibsDir, abi))) {
+                check(dir.isDirectory || dir.mkdirs()) { "Cannot create $dir" }
+                src.copyTo(File(dir, "libonnxruntime.so"), overwrite = true)
+            }
+        }
         nnapiMarker.parentFile.mkdirs()
-        nnapiMarker.writeText("ONNX Runtime v${onnxVersion} (official AAR, CPU+NNAPI) deployed on ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date())}")
+        nnapiMarker.writeText(onnxVersion)
         println("ONNX Runtime deployed to: ${abis.joinToString()}")
     }
 }

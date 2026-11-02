@@ -183,4 +183,16 @@ object ChineseSchemas {
         "pinyin_14jian" -> "中文14键"
         else -> original
     }
+
+    /**
+     * 切换方案当帧就要显示的空格键名称。已知列表里的名字优先；没有时用内置名，
+     * 避免空格先留着上一种语言的名字（英文切日语时闪一下「中文26键」）。
+     */
+    fun immediateSchemaName(schemaId: String, knownName: String? = null): String {
+        val named = displayName(schemaId, knownName.orEmpty())
+        if (named.isNotBlank()) return named
+        val profile = InputProfiles.describe(schemaId)
+        if (profile.language == InputLanguage.UNSPECIFIED || profile.language == InputLanguage.ENGLISH) return schemaId
+        return profile.language.displayName + profile.layout.displayName
+    }
 }

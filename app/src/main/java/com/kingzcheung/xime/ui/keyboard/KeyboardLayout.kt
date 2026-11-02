@@ -135,11 +135,14 @@ fun KeyboardLayout(
             eligible = letterLayout == null && !controlPrefs.splitKeyboardEnabled &&
                 controlPrefs.qwertyCommaKey &&
                 // Xime 的控制行没有单独的句号键：句号在逗号键的上滑/长按里，故不受句号键开关限制。
-                uiState.inputProfile.layout == com.kingzcheung.xime.settings.InputLayout.QWERTY &&
+                (uiState.inputProfile.layout == com.kingzcheung.xime.settings.InputLayout.QWERTY ||
+                    uiState.inputProfile.layout.id == "qwerty_japanese") &&
                 uiState.inputProfile.scheme in setOf(com.kingzcheung.xime.settings.InputScheme.PINYIN,
-                    com.kingzcheung.xime.settings.InputScheme.DIRECT) &&
+                    com.kingzcheung.xime.settings.InputScheme.DIRECT,
+                    com.kingzcheung.xime.settings.InputScheme.ROMAJI) &&
                 uiState.inputProfile.language in setOf(com.kingzcheung.xime.settings.InputLanguage.CHINESE,
-                    com.kingzcheung.xime.settings.InputLanguage.ENGLISH) &&
+                    com.kingzcheung.xime.settings.InputLanguage.ENGLISH,
+                    com.kingzcheung.xime.settings.InputLanguage.JAPANESE) &&
                 !uiState.isVoiceMode,
             bindings = { KeysConfigHelper.getKeyGesture(it, isAsciiMode) },
         )

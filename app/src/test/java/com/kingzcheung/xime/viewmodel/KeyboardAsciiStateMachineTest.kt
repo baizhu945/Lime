@@ -60,6 +60,18 @@ class KeyboardAsciiStateMachineTest {
         assertNull(machine.targetFor(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = false))
         machine.saveMemory(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = true)
         assertNull(machine.targetFor(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = true))
+        machine.saveMemory(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = false)
+        assertNull(machine.targetFor(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = true))
+    }
+
+    @Test
+    fun `number panel memory from another language does not request a switch`() {
+        // 中文里打开过数字页后切到英文，再点 ?123 不能因为这份记忆去改语言。
+        machine.saveMemory(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = false)
+        assertNull(machine.targetFor(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = true))
+        machine.saveMemory(AsciiKeyboardContext.MAIN, engineAscii = true)
+        machine.saveMemory(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = true)
+        assertNull(machine.targetFor(AsciiKeyboardContext.MAIN, engineAscii = true))
     }
 
     @Test

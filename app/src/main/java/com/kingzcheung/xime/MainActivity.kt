@@ -52,6 +52,9 @@ import java.io.File
 
 class MainActivity : ComponentActivity() {
     private var settingsNavigationRequest by mutableStateOf<SettingsNavigationRequest?>(null)
+    private var pendingShare by mutableStateOf<PendingShare?>(null)
+
+    private data class PendingShare(val uri: android.net.Uri, val title: String, val body: String)
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -206,6 +209,22 @@ class MainActivity : ComponentActivity() {
                 }
                 val scrimHeight = if (navBarHeight > 0.dp) navBarHeight else 32.dp
 
+                pendingShare?.let { pending ->
+                    com.kingzcheung.xime.ui.settings.ImportApprovalDialog(
+                        title = pending.title,
+                        body = pending.body,
+                        confirmLabel = "导入",
+                        onConfirm = {
+                            val uri = pending.uri
+                            pendingShare = null
+                            importShared(uri)
+                        },
+                        onDismiss = {
+                            pendingShare = null
+                            advanceShareQueue()
+                        },
+                    )
+                }
                 Box(modifier = Modifier.fillMaxSize()) {
                     com.kingzcheung.xime.ui.settings.SettingsWidthLimit {
                     if (showWizard) {
@@ -267,60 +286,83 @@ class MainActivity : ComponentActivity() {
     
     private fun handleSharedIntent(intent: Intent?) {
         if (intent == null) return
-        when (intent.action) {
-            Intent.ACTION_SEND -> {
-                val uri = intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
-                val mime = intent.type
-                if (uri != null) {
-                    if (mime?.startsWith("image/") == true) {
-                        importThemeImage(uri, mime)
-                    } else {
-                        importSchema(uri)
-                    }
-                }
-            }
-            Intent.ACTION_SEND_MULTIPLE -> {
-                val uris = intent.getParcelableArrayListExtra<android.net.Uri>(Intent.EXTRA_STREAM)
-                if (uris != null) {
-                    for (uri in uris) {
-                        importSchema(uri)
-                    }
+        val uris = when (intent.action) {
+            Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM))
+            Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra<android.net.Uri>(Intent.EXTRA_STREAM).orEmpty()
+            else -> return
+        }
+        // 别的应用塞进来的文件先问过再写。一次只确认队列里的第一个，确认或取消后再看下一个。
+        shareQueue = uris
+        if (pendingShare == null) advanceShareQueue()
+    }
+
+    private var shareQueue: List<android.net.Uri> = emptyList()
+
+    private fun advanceShareQueue() {
+        val uri = shareQueue.firstOrNull() ?: return
+        shareQueue = shareQueue.drop(1)
+        val mimeImage = intent?.type?.startsWith("image/") == true && shareQueue.isEmpty() && pendingShare == null
+        prewarmScope.launch {
+            val peeked = ImportManager.preview(this@MainActivity, uri)
+            val preview = (peeked as? ImportManager.ImportResult.NeedsScriptConfirmation)?.let(ImportManager::previewOf)
+            val text = preview?.confirmationText(fromShare = true)
+            withContext(Dispatchers.Main) {
+                if (preview == null || text == null) {
+                    val reason = (peeked as? ImportManager.ImportResult.Failed)?.reason ?: "无法读取分享的文件"
+                    Toast.makeText(this@MainActivity, reason, Toast.LENGTH_LONG).show()
+                    advanceShareQueue()
+                } else if (mimeImage && preview.image) {
+                    pendingShare = PendingShare(uri, "导入背景图", text)
+                } else {
+                    pendingShare = PendingShare(
+                        uri,
+                        if (preview.plugin) "安装插件" else if (preview.scripts.isNotEmpty()) "安装方案脚本" else "导入文件",
+                        text,
+                    )
                 }
             }
         }
     }
-    
-    private fun importSchema(uri: android.net.Uri) {
+
+    private fun importShared(uri: android.net.Uri) {
+        if (intent?.type?.startsWith("image/") == true && shareQueue.isEmpty()) {
+            // 单张图片仍走原来的背景图入口；多文件里的图片按方案导入规则处理。
+        }
         prewarmScope.launch {
-            when (val result = ImportManager.import(this@MainActivity, uri)) {
+            val mime = contentResolver.getType(uri)
+            if (mime?.startsWith("image/") == true) {
+                withContext(Dispatchers.Main) { importThemeImage(uri, mime); advanceShareQueue() }
+                return@launch
+            }
+            when (val result = ImportManager.import(this@MainActivity, uri, allowScripts = true, installPlugin = true)) {
                 is ImportManager.ImportResult.Content -> {
                     launch(Dispatchers.Main) {
-                        // 应用方案更改和同名文件确认都在「已安装的方案」页。
                         val msg = if (result.pendingPackageId != null) "${result.message}：到「已安装的方案」页确认"
                             else if (result.installedDirect) result.message.replace("点「应用方案更改」", "到「已安装的方案」点「应用方案更改」")
                             else result.message
                         Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+                        advanceShareQueue()
                     }
                 }
                 is ImportManager.ImportResult.Plugin -> {
-                    com.kingzcheung.xime.plugin.core.runtime.PluginManager.loadEnabledPlugins()
                     launch(Dispatchers.Main) {
                         Toast.makeText(
                             this@MainActivity,
-                            "插件「${result.pluginInfo?.name}」安装成功",
+                            "插件「${result.pluginInfo?.name}」已安装，默认关闭。在插件页打开后才会运行",
                             Toast.LENGTH_LONG
                         ).show()
+                        advanceShareQueue()
                     }
                 }
                 is ImportManager.ImportResult.Failed -> {
                     launch(Dispatchers.Main) {
                         Toast.makeText(this@MainActivity, "导入失败：${result.reason}", Toast.LENGTH_LONG).show()
+                        advanceShareQueue()
                     }
                 }
-                is ImportManager.ImportResult.Unsupported -> {
-                    launch(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "不支持的文件类型", Toast.LENGTH_LONG).show()
-                    }
+                else -> launch(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "导入失败", Toast.LENGTH_LONG).show()
+                    advanceShareQueue()
                 }
             }
         }
