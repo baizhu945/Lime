@@ -41,7 +41,9 @@ class SchemaManagerImportTest {
     @Test
     fun `protects xime yaml and metadata from import`() {
         assertTrue(SchemaManager.isProtectedImportName("xime.yaml"))
-        assertFalse(SchemaManager.isProtectedImportName("default.custom.yaml"))
+        assertTrue(SchemaManager.isProtectedImportName("default.custom.yaml"))
+        assertTrue(SchemaManager.isProtectedImportName("lua/rime.lua"))
+        assertTrue(SchemaManager.isSchemaScript("lua/date.lua"))
         assertFalse(SchemaManager.isProtectedImportName("xime.custom.yaml"))
         assertTrue(SchemaManager.isProtectedImportName(".registry.json"))
         assertFalse(SchemaManager.isProtectedImportName(".manifests/my_scheme.json"))

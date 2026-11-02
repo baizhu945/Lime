@@ -446,6 +446,8 @@ object SchemaManifestManager {
         val base = name.substringAfterLast('/')
         return base == "default.yaml" ||
                base == "xime.yaml" ||
+               base == "default.custom.yaml" ||
+               base.equals("rime.lua", ignoreCase = true) ||
                name.startsWith("build/")
     }
 

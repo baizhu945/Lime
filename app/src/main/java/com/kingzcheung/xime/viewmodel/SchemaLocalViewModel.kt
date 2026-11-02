@@ -44,6 +44,8 @@ data class SchemaLocalUiState(
     val conflictPackageId: String? = null,
     val conflictingSchemeIds: List<String> = emptyList(),
     val conflictingFiles: List<FileConflictInfo> = emptyList(),
+    val scriptPackageId: String? = null,
+    val scriptPaths: List<String> = emptyList(),
 )
 
 class SchemaLocalViewModel(application: Application) : AndroidViewModel(application) {
@@ -97,6 +99,32 @@ class SchemaLocalViewModel(application: Application) : AndroidViewModel(applicat
         LocalPackageItem(packageId, displayName.ifBlank { packageId }, "", downloaded = true, installed = false))
 
     private var conflictItem: LocalPackageItem? = null
+    private var scriptItem: LocalPackageItem? = null
+    private val scriptsApproved = mutableSetOf<String>()
+
+    fun noteScriptPrompt(packageId: String, displayName: String, scripts: List<String>) {
+        scriptItem = LocalPackageItem(packageId, displayName.ifBlank { packageId }, "", downloaded = true, installed = false)
+        _uiState.update { it.copy(scriptPackageId = packageId, scriptPaths = scripts) }
+    }
+
+    fun confirmScripts() {
+        val item = scriptItem?.takeIf { it.packageId == _uiState.value.scriptPackageId } ?: return
+        scriptsApproved += item.packageId
+        scriptItem = null
+        _uiState.update { it.copy(scriptPackageId = null, scriptPaths = emptyList()) }
+        install(item, replaceConflictingFiles = false)
+    }
+
+    fun cancelScripts() {
+        val id = _uiState.value.scriptPackageId
+        scriptItem = null
+        _uiState.update { it.copy(scriptPackageId = null, scriptPaths = emptyList()) }
+        if (id == null) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { SchemaManager.getMarketDir(context, id).deleteRecursively() }
+            loadLocalPackages()
+        }
+    }
 
     private fun install(item: LocalPackageItem, replaceConflictingFiles: Boolean) {
         if (_uiState.value.installingId != null) return
@@ -107,6 +135,7 @@ class SchemaLocalViewModel(application: Application) : AndroidViewModel(applicat
                     context = context, packageId = item.packageId,
                     displayName = item.displayName, version = item.version,
                     fromMarket = !item.isImport, replaceConflictingFiles = replaceConflictingFiles,
+                    allowScripts = item.packageId in scriptsApproved,
                 )
             } catch (e: Exception) {
                 android.util.Log.e("SchemaLocalViewModel", "installPackage exception", e)
@@ -114,6 +143,7 @@ class SchemaLocalViewModel(application: Application) : AndroidViewModel(applicat
             }
             _uiState.update { it.copy(installingId = null, conflictingFiles = emptyList(), conflictingSchemeIds = emptyList()) }
             when {
+                result.scriptPaths.isNotEmpty() -> noteScriptPrompt(item.packageId, item.displayName, result.scriptPaths)
                 result.success -> showToast(buildString {
                     append("已安装「${item.displayName}」，点「应用方案更改」生效")
                     if (result.parseFailures.isNotEmpty()) append("\n" + result.parseFailures.joinToString("\n"))

@@ -494,16 +494,27 @@ class LuaScriptRuntime(
             override fun onCall(c: org.luaj.vm2.LuaClosure?, args: Varargs?, stack: Array<LuaValue>?) {}
             override fun onReturn() {}
         })
-        g.get("package").get("loaded").set("debug", LuaValue.NIL)
+        val loaded = g.get("package").get("loaded")
+        listOf("debug", "io", "os", "luajava").forEach { loaded.set(it, LuaValue.NIL) }
+        val pkg = g.get("package")
+        pkg.set("loadlib", LuaValue.NIL)
+        pkg.set("searchers", LuaTable())
+        pkg.set("loaders", LuaTable())
 
         // 危险库剥离：io/os（文件与系统调用）、luajava（Java 反射）、loadfile/dofile（任意文件加载）、
-        // debug（getregistry/getmetatable 可篡改宿主注入表与注册表，扩大攻击面）
+        // debug（getregistry/getmetatable 可篡改宿主注入表与注册表，扩大攻击面）。
+        // load 只接受源码文本，二进制块可以绕开后面摘掉的全局变量。
         g.set("os", LuaValue.NIL)
         g.set("io", LuaValue.NIL)
         g.set("luajava", LuaValue.NIL)
         g.set("loadfile", LuaValue.NIL)
         g.set("dofile", LuaValue.NIL)
         g.set("debug", LuaValue.NIL)
+        g.set("load", luaFunction { args ->
+            val chunk = args.arg1().checkstring()
+            if (chunk.length() > 0 && chunk.charAt(0) == 0x1b) throw LuaError("不允许加载二进制代码")
+            g.load(chunk.tojstring(), "=(plugin)")
+        })
 
         g.set("print", luaFunction { args ->
             api.log(args.tojstring())

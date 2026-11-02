@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
+import com.kingzcheung.xime.plugin.core.lua.ws.localCleartextOnly
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -50,6 +51,7 @@ class SseHostApiImpl(
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        .localCleartextOnly()
         .build()
 
     private val sessions = ConcurrentHashMap<Int, Session>()

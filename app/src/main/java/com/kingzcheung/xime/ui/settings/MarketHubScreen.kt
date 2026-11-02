@@ -204,7 +204,7 @@ fun MarketHubContent(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SchemesMarketTab(
+internal fun SchemesMarketTab(
     onNavigateToDetail: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -222,6 +222,15 @@ private fun SchemesMarketTab(
     }
     LaunchedEffect(uiState.isLoading) {
         if (!uiState.isLoading) isRefreshing = false
+    }
+    if (uiState.scriptApprovalId != null) {
+        ImportApprovalDialog(
+            title = "安装方案脚本",
+            body = "这个方案包含输入法脚本：\n${uiState.scriptPaths.take(8).joinToString("\n")}\n脚本在输入法进程里运行，可以读写文件。确认后才会安装。",
+            confirmLabel = "安装脚本",
+            onConfirm = { viewModel.confirmMarketScripts() },
+            onDismiss = { viewModel.cancelMarketScripts() },
+        )
     }
 
     PullToRefreshBox(
@@ -357,7 +366,7 @@ private fun SchemesMarketTab(
 }
 
 @Composable
-private fun SchemeTrailingButton(
+internal fun SchemeTrailingButton(
     item: MarketSchemeItem,
     uiState: SchemaMarketUiState,
     onDownload: () -> Unit,
@@ -430,7 +439,7 @@ private fun SchemeTrailingButton(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ModelsMarketTab(
+internal fun ModelsMarketTab(
     onNavigateToDetail: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -580,7 +589,7 @@ private fun ModelsMarketTab(
 }
 
 @Composable
-private fun ModelTrailingButton(
+internal fun ModelTrailingButton(
     item: ModelItemState,
     onDownload: () -> Unit,
 ) {
@@ -661,7 +670,7 @@ private fun ModelTrailingButton(
  * 标题/描述 + 右侧操作区；底部 meta 行 + 版本选择。
  */
 @Composable
-private fun MarketStoreCard(
+internal fun MarketStoreCard(
     icon: ImageVector,
     iconContainerColor: Color,
     iconContentColor: Color,
@@ -763,7 +772,7 @@ private fun MarketStoreCard(
 
 /** 版本选择：单版本直接展示文本，多版本提供下拉。 */
 @Composable
-private fun MarketVersionSelector(
+internal fun MarketVersionSelector(
     versions: List<String>,
     selectedVersion: String,
     onSelectVersion: (String) -> Unit,
@@ -814,7 +823,7 @@ private fun MarketVersionSelector(
 
 /** 横向滚动的分类 FilterChip 行（二级分类导航）。 */
 @Composable
-private fun CategoryChips(
+internal fun CategoryChips(
     categories: List<String>,
     selected: String?,
     onSelect: (String) -> Unit,
@@ -839,13 +848,13 @@ private fun CategoryChips(
 /** 居中容器：空态/加载/错误占位。 */
 /** 扩展各页里「已安装」「可安装」两段的小标题。 */
 @Composable
-private fun MarketSectionLabel(label: String) {
+internal fun MarketSectionLabel(label: String) {
     Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 2.dp).testTag("market-section:$label"))
 }
 
 @Composable
-private fun MarketCenterBox(
+internal fun MarketCenterBox(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
@@ -861,7 +870,7 @@ private fun MarketCenterBox(
 
 /** 详情页标签 chip。 */
 @Composable
-private fun MarketTag(text: String) {
+internal fun MarketTag(text: String) {
     Surface(
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
@@ -877,7 +886,7 @@ private fun MarketTag(text: String) {
 
 /** 详情页元信息行（key: value）。 */
 @Composable
-private fun DetailMetaRow(label: String, value: String) {
+internal fun DetailMetaRow(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top,
@@ -894,891 +903,5 @@ private fun DetailMetaRow(label: String, value: String) {
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
-    }
-}
-
-/* ------------------------------- 方案详情页 ------------------------------- */
-
-/** 方案详情页。 */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun MarketSchemeDetailContent(
-    schemeId: String,
-    onBack: () -> Unit,
-) {
-    val context = LocalContext.current
-    val viewModel: SchemaMarketViewModel = viewModel()
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-
-    LaunchedEffect(uiState.toastMessage) {
-        uiState.toastMessage?.let { message ->
-            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-            viewModel.clearToast()
-        }
-    }
-
-    val item = uiState.schemes.firstOrNull { it.scheme.id == schemeId }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("方案详情") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-            )
-        },
-    ) { padding ->
-        when {
-            uiState.isLoading && item == null -> MarketCenterBox {
-                CircularProgressIndicator()
-            }
-
-            item == null -> MarketCenterBox {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "未找到该方案",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = { viewModel.loadSchemes() }) { Text("重新加载") }
-                }
-            }
-
-            else -> SchemeDetailBody(
-                item = item,
-                uiState = uiState,
-                viewModel = viewModel,
-                modifier = Modifier.padding(padding),
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SchemeDetailBody(
-    item: MarketSchemeItem,
-    uiState: SchemaMarketUiState,
-    viewModel: SchemaMarketViewModel,
-    modifier: Modifier = Modifier,
-) {
-    val scheme = item.scheme
-    val (iconContainer, iconContent) = schemeCategoryColors(scheme.tags.firstOrNull())
-    val selectedVersion = uiState.selectedVersions[scheme.id] ?: scheme.currentVersion
-    val selectedVersionObj = scheme.versions.firstOrNull { it.version == selectedVersion }
-
-    val listState = rememberLazyListState()
-    LazyColumn(
-        state = listState,
-        modifier = modifier.settingsGutterScroll(listState).fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(iconContainer),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        schemeCategoryIcon(scheme.tags.firstOrNull()),
-                        contentDescription = null,
-                        tint = iconContent,
-                        modifier = Modifier.size(36.dp),
-                    )
-                }
-                Spacer(Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        scheme.name.ifEmpty { scheme.id },
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    if (scheme.author.isNotEmpty()) {
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            scheme.author,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
-
-        if (scheme.description.isNotEmpty()) {
-            item {
-                Text(
-                    scheme.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        if (scheme.tags.isNotEmpty()) {
-            item {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    scheme.tags.forEach { tag -> MarketTag(tag) }
-                }
-            }
-        }
-
-        if (scheme.dependencies.isNotEmpty()) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        "依赖",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        scheme.dependencies.forEach { dep -> MarketTag(dep) }
-                    }
-                }
-            }
-        }
-
-        if (scheme.warning.isNotEmpty()) {
-            item {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
-                ) {
-                    Text(
-                        scheme.warning,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
-                }
-            }
-        }
-
-        item {
-            Text(
-                "版本历史",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-
-        if (scheme.versions.isEmpty()) {
-            item {
-                Text(
-                    "暂无版本信息",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-            }
-        } else {
-            items(scheme.versions, key = { it.version }) { v ->
-                SchemeVersionCard(
-                    version = v,
-                    selected = v.version == selectedVersion,
-                    onClick = { viewModel.selectVersion(scheme.id, v.version) },
-                    trailing = {
-                        SchemeVersionDownloadButton(
-                            item = item,
-                            uiState = uiState,
-                            version = v.version,
-                            onDownload = { viewModel.downloadScheme(item, v.version) },
-                        )
-                    },
-                )
-            }
-        }
-
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (scheme.appVersion.isNotEmpty()) {
-                    DetailMetaRow("APP 版本要求", scheme.appVersion)
-                }
-                if (scheme.license.isNotEmpty()) {
-                    DetailMetaRow("许可证", scheme.license)
-                }
-                if (scheme.homepage.isNotEmpty()) {
-                    DetailMetaRow("主页", scheme.homepage)
-                }
-            }
-        }
-
-        item {
-            Spacer(Modifier.height(8.dp))
-        }
-    }
-}
-
-/** 版本卡片内嵌下载按钮（Play Store 风格）。 */
-@Composable
-private fun SchemeVersionDownloadButton(
-    item: MarketSchemeItem,
-    uiState: SchemaMarketUiState,
-    version: String,
-    onDownload: () -> Unit,
-) {
-    val scheme = item.scheme
-    when {
-        uiState.downloadingId == scheme.id -> {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    "${(uiState.downloadProgress * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
-
-        !item.compatible -> OutlinedButton(
-            onClick = {},
-            enabled = false,
-            shape = RoundedCornerShape(12.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-        ) {
-            Text("需 App ≥ ${item.minAppVersion}", style = MaterialTheme.typography.labelSmall)
-        }
-
-        scheme.id in uiState.downloadedIds -> OutlinedButton(
-            onClick = onDownload,
-            shape = RoundedCornerShape(12.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-        ) {
-            Text("重新下载", style = MaterialTheme.typography.labelSmall)
-        }
-
-        else -> Button(
-            onClick = onDownload,
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ),
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-        ) {
-            Text("下载", style = MaterialTheme.typography.labelSmall)
-        }
-    }
-}
-
-@Composable
-private fun SchemeVersionCard(
-    version: SchemeVersion,
-    selected: Boolean,
-    onClick: () -> Unit,
-    trailing: @Composable () -> Unit = {},
-) {
-    val containerColor = if (selected) {
-        MaterialTheme.colorScheme.primaryContainer
-    } else {
-        MaterialTheme.colorScheme.surfaceContainerLow
-    }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onClick() }
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "${version.version}",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                    else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                if (selected) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = "当前版本",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                trailing()
-            }
-            if (version.date.isNotEmpty()) {
-                Text(
-                    version.date,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (version.changelog.isNotEmpty()) {
-                Text(
-                    version.changelog,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            val totalBytes = version.downloadUrls.sumOf { dl ->
-                dl.size?.removeSuffix(" MB")?.trim()?.toDoubleOrNull()
-                    ?.let { (it * 1024.0 * 1024.0).toLong() } ?: 0L
-            }
-            if (totalBytes > 0) {
-                Text(
-                    "${"%.1f".format(totalBytes / (1024.0 * 1024.0))} MB",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-            }
-        }
-    }
-}
-
-/* ------------------------------- 模型详情页 ------------------------------- */
-
-/** 模型详情页。 */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun MarketModelDetailContent(
-    modelId: String,
-    onBack: () -> Unit,
-) {
-    val context = LocalContext.current
-    val viewModel: ModelManagementViewModel = viewModel()
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-
-    LaunchedEffect(uiState.toastMessage) {
-        uiState.toastMessage?.let { message ->
-            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-            viewModel.clearToast()
-        }
-    }
-
-    val item = uiState.models.firstOrNull { it.model.id == modelId }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("模型详情") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-            )
-        },
-    ) { padding ->
-        when {
-            uiState.isLoading && item == null -> MarketCenterBox {
-                CircularProgressIndicator()
-            }
-
-            item == null -> MarketCenterBox {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "未找到该模型",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = { viewModel.refresh() }) { Text("重新加载") }
-                }
-            }
-
-            else -> ModelDetailBody(
-                item = item,
-                uiState = uiState,
-                viewModel = viewModel,
-                modifier = Modifier.padding(padding),
-            )
-        }
-    }
-}
-
-@Composable
-private fun ModelDetailBody(
-    item: ModelItemState,
-    uiState: ModelManagementUiState,
-    viewModel: ModelManagementViewModel,
-    modifier: Modifier = Modifier,
-) {
-    val model = item.model
-    val (iconContainer, iconContent) = modelCategoryColors(model.category)
-    val selectedVersion = uiState.selectedVersions[model.id]
-        ?: model.downloadableVersions.firstOrNull()?.version.orEmpty()
-    val selectedVersionObj = model.downloadableVersions.firstOrNull { it.version == selectedVersion }
-
-    val listState = rememberLazyListState()
-    LazyColumn(
-        state = listState,
-        modifier = modifier.settingsGutterScroll(listState).fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(iconContainer),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        modelCategoryIcon(model.category),
-                        contentDescription = null,
-                        tint = iconContent,
-                        modifier = Modifier.size(36.dp),
-                    )
-                }
-                Spacer(Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        model.name,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        modelCategoryLabel(model.category),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-
-        if (model.description.isNotEmpty()) {
-            item {
-                Text(
-                    model.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        item {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        Icons.Default.Info,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "使用本地模型是有代价的，它可能会占用内存和 CPU，导致手机发热，请斟酌使用。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                    )
-                }
-            }
-        }
-
-        if (selectedVersionObj != null && selectedVersionObj.size.isNotEmpty()) {
-            item {
-                DetailMetaRow("大小", selectedVersionObj.size)
-            }
-        } else if (model.size.isNotEmpty()) {
-            item {
-                DetailMetaRow("大小", model.size)
-            }
-        }
-
-        item {
-            Text(
-                "版本历史",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-
-        (item.downloadState as? ModelDownloadState.Error)?.let { failure ->
-            item {
-                Text(
-                    failure.message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-
-        if (model.downloadableVersions.isEmpty()) {
-            item {
-                Text(
-                    "暂无版本信息",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-            }
-        } else {
-            items(model.downloadableVersions, key = { it.version }) { v ->
-                ModelVersionCard(
-                    version = v,
-                    selected = v.version == selectedVersion,
-                    onClick = { viewModel.selectVersion(model.id, v.version) },
-                    trailing = {
-                        ModelVersionDownloadButton(
-                            item = item,
-                            version = v,
-                            onDownload = { viewModel.downloadModel(model.id, v) },
-                        )
-                    },
-                )
-            }
-        }
-
-        item {
-            Spacer(Modifier.height(8.dp))
-        }
-    }
-}
-
-/** 模型版本卡片内嵌下载按钮（Play Store 风格）。 */
-@Composable
-private fun ModelVersionDownloadButton(
-    item: ModelItemState,
-    version: ModelVersion,
-    onDownload: () -> Unit,
-) {
-    val downloadState = item.downloadState
-    when {
-        downloadState is ModelDownloadState.Downloading -> {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    "${(downloadState.progress * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
-
-        downloadState is ModelDownloadState.Error -> {
-            TextButton(onClick = onDownload) {
-                Text("重试", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-            }
-        }
-
-        item.isDownloaded -> Text(
-            "已安装",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
-        )
-
-        else -> Button(
-            onClick = onDownload,
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ),
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-        ) {
-            Text("下载", style = MaterialTheme.typography.labelSmall)
-        }
-    }
-}
-
-@Composable
-private fun ModelVersionCard(
-    version: ModelVersion,
-    selected: Boolean,
-    onClick: () -> Unit,
-    trailing: @Composable () -> Unit = {},
-) {
-    val containerColor = if (selected) {
-        MaterialTheme.colorScheme.primaryContainer
-    } else {
-        MaterialTheme.colorScheme.surfaceContainerLow
-    }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onClick() }
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "${version.version}",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                    else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                if (selected) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = "当前版本",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                trailing()
-            }
-            if (version.date.isNotEmpty()) {
-                Text(
-                    version.date,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (version.changelog.isNotEmpty()) {
-                Text(
-                    version.changelog,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (version.size.isNotEmpty()) {
-                Text(
-                    version.size,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-            }
-        }
-    }
-}
-
-/* ------------------------------- 图标映射 ------------------------------- */
-
-private fun schemeCategoryIcon(tag: String?): ImageVector = Icons.Default.AutoAwesome
-
-/** 方案分类色块：统一用 primaryContainer，随主题变化。 */
-@Composable
-private fun schemeCategoryColors(tag: String?): Pair<Color, Color> {
-    val scheme = MaterialTheme.colorScheme
-    return scheme.primaryContainer to scheme.onPrimaryContainer
-}
-
-/** 模型分类色块：按类别用 M3 分层容器色。 */
-@Composable
-private fun modelCategoryColors(category: ModelCategory): Pair<Color, Color> {
-    val scheme = MaterialTheme.colorScheme
-    return when (category) {
-        ModelCategory.CANDIDATE -> scheme.primaryContainer to scheme.onPrimaryContainer
-        ModelCategory.PREDICTION ->
-            scheme.primaryContainer to scheme.onPrimaryContainer
-        ModelCategory.HANDWRITING ->
-            scheme.secondaryContainer to scheme.onSecondaryContainer
-        ModelCategory.ASR, ModelCategory.SPEAKER ->
-            scheme.tertiaryContainer to scheme.onTertiaryContainer
-        ModelCategory.OTHER ->
-            scheme.surfaceContainerHighest to scheme.onSurfaceVariant
-    }
-}
-
-private fun modelCategoryIcon(category: ModelCategory): ImageVector = when (category) {
-    ModelCategory.CANDIDATE -> Icons.Default.AutoAwesome
-    ModelCategory.PREDICTION -> Icons.Default.AutoAwesome
-    ModelCategory.ASR, ModelCategory.SPEAKER -> Icons.Default.GraphicEq
-    ModelCategory.HANDWRITING -> Icons.Outlined.Gesture
-    ModelCategory.OTHER -> Icons.Default.AutoAwesome
-}
-
-/** 插件分类图标（pluginType 用 PluginCategory 的 id：emoji/speech/prediction）。 */
-private fun pluginCategoryIcon(pluginType: String): ImageVector = when (pluginType) {
-    "emoji" -> Icons.Default.SentimentSatisfiedAlt
-    "speech" -> Icons.Default.GraphicEq
-    "prediction" -> Icons.Default.AutoAwesome
-    "clipboard_sync" -> Icons.Default.Sync
-    "tool" -> Icons.Default.AutoFixHigh
-    else -> Icons.Default.Extension
-}
-
-/** 插件分类色块。 */
-@Composable
-private fun pluginCategoryColors(pluginType: String): Pair<Color, Color> {
-    val scheme = MaterialTheme.colorScheme
-    return when (pluginType) {
-        "emoji" -> scheme.tertiaryContainer to scheme.onTertiaryContainer
-        "speech" -> scheme.primaryContainer to scheme.onPrimaryContainer
-        "prediction" -> scheme.secondaryContainer to scheme.onSecondaryContainer
-        else -> scheme.surfaceContainerHighest to scheme.onSurfaceVariant
-    }
-}
-
-private fun pluginCategoryLabel(pluginType: String): String = when (pluginType) {
-    "emoji" -> "表情"
-    "speech" -> "语音转文本"
-    "prediction" -> "智能预测"
-    "clipboard_sync" -> "剪贴板同步"
-    "tool" -> "工具"
-    else -> "其他"
-}
-
-internal fun modelCategoryLabel(category: ModelCategory): String = when (category) {
-    ModelCategory.CANDIDATE -> "候选增强"
-    ModelCategory.PREDICTION -> "联想"
-    ModelCategory.ASR -> "语音"
-    ModelCategory.HANDWRITING -> "手写"
-    ModelCategory.SPEAKER -> "声纹"
-    ModelCategory.OTHER -> "其他"
-}
-
-internal fun modelFormatSize(bytes: Long): String {
-    return when {
-        bytes < 1024 -> "$bytes B"
-        bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-        else -> "${"%.1f".format(bytes.toDouble() / (1024 * 1024))} MB"
-    }
-}
-
-/* ---------------------------- 插件详情页 ---------------------------- */
-
-/** 已安装插件的详情：基本信息与网络权限。插件不再有商店，只从文件或浏览器导入。 */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun PluginDetailContent(
-    pluginId: String,
-    onBack: () -> Unit,
-) {
-    val context = LocalContext.current
-    val plugin = remember(pluginId) { PluginManager.getAllInstallPlugins().find { it.id == pluginId } }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("插件详情") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-            )
-        },
-    ) { padding ->
-        if (plugin == null) {
-            MarketCenterBox {
-                Text(
-                    "未找到该插件",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            return@Scaffold
-        }
-        val pluginType = plugin.category.id
-        val (iconContainer, iconContent) = pluginCategoryColors(pluginType)
-        val networkHosts = remember(plugin.id) {
-            (plugin.declaredHosts +
-                ExtensionManager.getConfiguredNetworkHosts(context, plugin.id) +
-                SettingsPreferences.getPluginPendingHosts(context, plugin.id)).distinct()
-        }
-        val listState = rememberLazyListState()
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.settingsGutterScroll(listState).fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(iconContainer),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            pluginCategoryIcon(pluginType),
-                            contentDescription = null,
-                            tint = iconContent,
-                            modifier = Modifier.size(36.dp),
-                        )
-                    }
-                    Spacer(Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            plugin.name.ifEmpty { plugin.id },
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            pluginCategoryLabel(pluginType).ifEmpty { "插件" },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-            if (plugin.description.isNotEmpty()) {
-                item {
-                    Text(
-                        plugin.description,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            if (plugin.versionName.isNotEmpty()) {
-                item { DetailMetaRow("版本", plugin.versionName) }
-            }
-            if (networkHosts.isNotEmpty()) {
-                item {
-                    Text(
-                        "网络权限",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                item {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            NetworkAccessSection(
-                                pluginId = plugin.id,
-                                pluginName = plugin.name.ifEmpty { plugin.id },
-                                hosts = networkHosts,
-                            )
-                        }
-                    }
-                }
-            }
-        }
     }
 }

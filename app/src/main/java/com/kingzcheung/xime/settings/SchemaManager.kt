@@ -16,6 +16,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
+import com.kingzcheung.xime.plugin.core.lua.ws.localCleartextOnly
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
@@ -95,10 +96,13 @@ object SchemaManager {
     private const val CUSTOM_YAML = "default.custom.yaml"
     internal val yaml = Yaml(configuration = YamlConfiguration(strictMode = false, anchorsAndAliases = com.charleskorn.kaml.AnchorsAndAliases.Permitted(maxAliasCount = UInt.MAX_VALUE)))
 
+    const val SCRIPT_APPROVAL = "这个方案包含脚本。脚本会在输入法进程里运行并可以读写文件，确认后才会安装。"
+
     private val downloadClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .followRedirects(true)
+        .localCleartextOnly()
         .build()
 
     fun getRimeDir(context: Context): File =
@@ -246,6 +250,7 @@ object SchemaManager {
         val unresolvedDeps: List<String> = emptyList(),
         val failureReason: String? = null,
         val parseFailures: List<String> = emptyList(),
+        val scriptPaths: List<String> = emptyList(),
     )
 
     /**
@@ -262,6 +267,7 @@ object SchemaManager {
         resolveDepUrl: (String) -> String? = { null },
         switchEnabled: Boolean = true,
         replaceConflictingFiles: Boolean = false,
+        allowScripts: Boolean = true,
     ): InstallFromDirResult = withContext(Dispatchers.IO) {
       SchemaManifestManager.packageMutex.withLock {
         val staged = File(context.cacheDir, "schema-install-${java.util.UUID.randomUUID()}")
@@ -276,6 +282,11 @@ object SchemaManager {
             if (targetFiles.isEmpty()) {
                 FileLogger.w(TAG, "installPackageFromMarketDir: no target files in $packageId")
                 return@withContext InstallFromDirResult(success = false, failureReason = "归档中没有文件")
+            }
+            val scripts = targetFiles.filter { isSchemaScript(it) }
+            if (scripts.isNotEmpty() && !allowScripts) {
+                FileLogger.w(TAG, "installPackageFromMarketDir: scripts need approval: $scripts")
+                return@withContext InstallFromDirResult(success = false, failureReason = SCRIPT_APPROVAL, scriptPaths = scripts)
             }
             FileLogger.i(TAG, "installPackageFromMarketDir: found ${targetFiles.size} target files for $packageId")
 
@@ -388,6 +399,13 @@ object SchemaManager {
         return entryNames.map { it.removePrefix(baseDir) }
             .filterNot { isProtectedImportName(it) }
     }
+
+    /** 会在 librime-lua 里执行的脚本。rime.lua 本身已被 [isProtectedImportName] 排除。 */
+    fun isSchemaScript(name: String): Boolean =
+        name.substringAfterLast('/').endsWith(".lua", ignoreCase = true)
+
+    internal fun scriptPaths(archive: File): List<String> =
+        runCatching { listArchiveTargetFiles(archive).filter { isSchemaScript(it) } }.getOrDefault(emptyList())
 
     /** 在 market/{schemeId}/ 中查找已下载的文件。 */
     fun findMarketFile(context: Context, schemeId: String): File? {
@@ -575,6 +593,8 @@ object SchemaManager {
         val base = name.substringAfterLast('/')
         return base == "default.yaml" ||
                base == "xime.yaml" ||
+               base == "default.custom.yaml" ||
+               base.equals("rime.lua", ignoreCase = true) ||
                base == "custom_phrase.txt" ||
                name.startsWith(".registry")
     }
@@ -1037,6 +1057,7 @@ object SchemaManager {
         displayName: String,
         inputStream: java.io.InputStream,
         autoEnable: Boolean = true,
+        allowScripts: Boolean = true,
     ): ImportResult = withContext(Dispatchers.IO) {
         val name = sanitizeDisplayName(displayName)
         if (isFont(name)) {
@@ -1077,7 +1098,7 @@ object SchemaManager {
                 pkgDir.mkdirs()
                 val archiveFile = File(pkgDir, name)
                 inputStream.use { input ->
-                    archiveFile.outputStream().use { output -> input.copyTo(output) }
+                    archiveFile.outputStream().use { output -> input.copyLimited(output, 0) }
                 }
                 FileLogger.i(TAG, "Imported $name -> $importId (not installed yet)")
                 ImportResult(true, packageId = importId)
@@ -1091,9 +1112,13 @@ object SchemaManager {
             val rimeDir = getRimeDir(context)
             try {
                 rimeDir.mkdirs()
+                if (isProtectedImportName(name) || (isSchemaScript(name) && !allowScripts)) {
+                    inputStream.close()
+                    return@withContext ImportResult(false)
+                }
                 val target = File(rimeDir, name)
                 inputStream.use { input ->
-                    target.outputStream().use { output -> input.copyTo(output) }
+                    target.outputStream().use { output -> input.copyLimited(output, 0) }
                 }
                 // 如果是 .schema.yaml 文件，自动启用
                 if (autoEnable && name.endsWith(".schema.yaml")) {
@@ -1279,6 +1304,7 @@ object SchemaManager {
                             output.write(buf, 0, n)
                             md?.update(buf, 0, n)
                             downloadedBytes += n
+                            ArchiveSafety.rejectCompressed(downloadedBytes)
                             if (totalBytes > 0) onProgress(downloadedBytes, totalBytes)
                             n = input.read(buf)
                         }
@@ -1368,6 +1394,7 @@ object SchemaManager {
                     .connectTimeout(30, TimeUnit.SECONDS)
                     .readTimeout(120, TimeUnit.SECONDS)
                     .followRedirects(true)
+                    .localCleartextOnly()
                     .build()
                 val sha256Ok = client.newCall(Request.Builder().url(url).build()).execute().use { response ->
                     if (!response.isSuccessful) {
@@ -1386,6 +1413,7 @@ object SchemaManager {
                                 output.write(buf, 0, n)
                                 md.update(buf, 0, n)
                                 downloadedBytes += n
+                                ArchiveSafety.rejectCompressed(downloadedBytes)
                                 if (totalBytes > 0) onProgress(downloadedBytes, totalBytes)
                                 n = input.read(buf)
                             }
@@ -1433,6 +1461,7 @@ object SchemaManager {
 
     private fun importZipFromFile(zipFile: File, targetDir: File): Boolean {
         return try {
+            zipFile.rejectIfCompressedTooLarge()
             // 第一趟：收集文件名以检测共同根目录（排除 Apple Double）
             val entryNames = mutableListOf<String>()
             ZipFile(zipFile).use { zip ->
@@ -1449,11 +1478,14 @@ object SchemaManager {
             }
 
             // 第二趟：解压
-            var count = 0
+            var entries = 0
+            var extracted = 0
+            var uncompressed = 0L
             ZipFile(zipFile).use { zip ->
                 zip.entries().asSequence().forEach { entry ->
                     val originalName = entry.name
                     if (entry.isDirectory || isAppleDouble(originalName)) return@forEach
+                    ArchiveSafety.noteEntry(++entries, uncompressed)
                     val name = originalName.removePrefix(baseDir)
                     val file = if (isProtectedImportName(name)) null else safeChild(targetDir, name)
                     if (file == null) {
@@ -1461,15 +1493,15 @@ object SchemaManager {
                     } else {
                         file.parentFile?.mkdirs()
                         zip.getInputStream(entry).use { input ->
-                            FileOutputStream(file).use { output -> input.copyTo(output) }
+                            FileOutputStream(file).use { output -> uncompressed = input.copyLimited(output, uncompressed) }
                         }
-                        count++
+                        extracted++
                         FileLogger.d(TAG, "Extracted zip entry: $name")
                     }
                 }
             }
-            FileLogger.i(TAG, "Extracted $count files from zip stream")
-            count > 0
+            FileLogger.i(TAG, "Extracted $extracted files from zip stream")
+            extracted > 0
         } catch (e: Exception) {
             FileLogger.e(TAG, "Failed to extract zip file", e)
             false
@@ -1494,6 +1526,7 @@ object SchemaManager {
 
     private fun importTarGzFromFile(tarGzFile: File, targetDir: File): Boolean {
         return try {
+            tarGzFile.rejectIfCompressedTooLarge()
             // 第一趟：收集文件名以检测共同根目录（排除 Apple Double）
             val entryNames = mutableListOf<String>()
             TarArchiveInputStream(GzipCompressorInputStream(tarGzFile.inputStream().buffered())).use { tarIn ->
@@ -1512,7 +1545,9 @@ object SchemaManager {
             }
 
             // 第二趟：解压
-            var count = 0
+            var entries = 0
+            var extracted = 0
+            var uncompressed = 0L
             TarArchiveInputStream(GzipCompressorInputStream(tarGzFile.inputStream().buffered())).use { tarIn ->
                 var entry = tarIn.nextEntry
                 while (entry != null) {
@@ -1521,19 +1556,20 @@ object SchemaManager {
                         entry = tarIn.nextEntry
                         continue
                     }
+                    ArchiveSafety.noteEntry(++entries, uncompressed)
                     val name = originalName.removePrefix(baseDir)
                     val file = if (isProtectedImportName(name)) null else safeChild(targetDir, name)
                     if (file == null) {
                     } else {
                         file.parentFile?.mkdirs()
-                        FileOutputStream(file).use { output -> tarIn.copyTo(output) }
-                        count++
+                        FileOutputStream(file).use { output -> uncompressed = tarIn.copyLimited(output, uncompressed) }
+                        extracted++
                     }
                     entry = tarIn.nextEntry
                 }
             }
-            Log.i(TAG, "Extracted $count files from tar.gz")
-            count > 0
+            Log.i(TAG, "Extracted $extracted files from tar.gz")
+            extracted > 0
         } catch (e: Exception) {
             Log.e(TAG, "Failed to extract tar.gz", e)
             false

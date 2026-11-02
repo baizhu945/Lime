@@ -109,6 +109,26 @@ fun SchemaSettingsContent(
             result?.pendingPackageId?.let { localViewModel.installImported(it, result.pendingName) }
         }
     }
+    var pendingPlugin by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingPluginName by remember { mutableStateOf("") }
+    var pendingLooseScript by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingLooseScriptName by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        viewModel.scriptPrompt.collect { prompt ->
+            val packageId = prompt.packageId
+            if (packageId != null) localViewModel.noteScriptPrompt(packageId, prompt.displayName, prompt.scripts)
+            else if (prompt.uri != null) {
+                pendingLooseScript = prompt.uri
+                pendingLooseScriptName = prompt.scripts.joinToString("\n").ifBlank { prompt.displayName }
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
+        viewModel.pluginPrompt.collect { prompt ->
+            pendingPlugin = prompt.uri
+            pendingPluginName = prompt.displayName
+        }
+    }
     // 方案包装好或卸掉后，上面的方案列表跟着刷新。
     LaunchedEffect(localUiState.installingId, localUiState.packages) {
         if (localUiState.installingId == null) viewModel.refresh()
@@ -215,6 +235,39 @@ fun SchemaSettingsContent(
         )
     }
 
+    if (pendingLooseScript != null) {
+        ImportApprovalDialog(
+            title = "安装方案脚本",
+            body = "要安装脚本「$pendingLooseScriptName」吗？脚本在输入法进程里运行，可以读写文件。",
+            confirmLabel = "安装脚本",
+            onConfirm = {
+                pendingLooseScript?.let { viewModel.confirmLooseScript(it) }
+                pendingLooseScript = null
+            },
+            onDismiss = { pendingLooseScript = null },
+        )
+    }
+    if (pendingPlugin != null) {
+        ImportApprovalDialog(
+            title = "安装插件",
+            body = "安装插件「$pendingPluginName」？\n安装后默认关闭，不会看到你的输入。在插件页打开之后，它才能收到上屏文字。",
+            confirmLabel = "安装并保持关闭",
+            onConfirm = {
+                pendingPlugin?.let { viewModel.confirmPluginInstall(it) }
+                pendingPlugin = null
+            },
+            onDismiss = { pendingPlugin = null },
+        )
+    }
+    if (localUiState.scriptPackageId != null) {
+        ImportApprovalDialog(
+            title = "安装方案脚本",
+            body = "这个方案包含输入法脚本：\n${localUiState.scriptPaths.take(8).joinToString("\n")}\n脚本在输入法进程里运行，可以读写文件。",
+            confirmLabel = "安装脚本",
+            onConfirm = { localViewModel.confirmScripts() },
+            onDismiss = { localViewModel.cancelScripts() },
+        )
+    }
     if (localUiState.conflictPackageId != null) {
         AlertDialog(
             onDismissRequest = { localViewModel.cancelConflictInstall() },

@@ -150,7 +150,7 @@ class RimeEngine {
         fun isModuleRegistered(moduleName: String): Boolean {
             val engine = instance ?: return false
             if (!engine.isInitialized) return false
-            return engine.nativeIsModuleRegistered(moduleName)
+            return engine.tryLocked(false) { engine.nativeIsModuleRegistered(moduleName) }
         }
 
         fun setDeploymentCallback(callback: (isDeploying: Boolean, message: String) -> Unit) {
@@ -244,9 +244,14 @@ class RimeEngine {
                         candidateRevision.incrementAndGet()
                         this.userDataDir = userDataDir
                         this.sharedDataDir = sharedDataDir
-                        nativeInstallSignalHandler(userDataDir)
-                        notifyDeploymentStatus(true, "正在加载输入法引擎...")
-                        nativeInitialize(userDataDir, sharedDataDir)
+                        rimeLock.lock()
+                        try {
+                            nativeInstallSignalHandler(userDataDir)
+                            notifyDeploymentStatus(true, "正在加载输入法引擎...")
+                            nativeInitialize(userDataDir, sharedDataDir)
+                        } finally {
+                            rimeLock.unlock()
+                        }
                         mergedAlphabet = null
                         isInitialized = true
 
@@ -271,55 +276,43 @@ class RimeEngine {
 
     fun ensureSession(timeoutMs: Long = 60000L): Boolean {
         if (!isInitialized) return false
-
-        // Quick check without lock — native calls are thread-safe reads
-        if (nativeHasSession() && getAvailableSchemas().isNotEmpty()) return true
-
-        // 等待编译完成（不持有 rimeLock，避免阻塞主线程 UI 操作）
-        var waited = 0L
-        while (nativeIsMaintaining() && waited < timeoutMs) {
+        val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
+        while (true) {
+            // 只在原生调用期间持锁。等词库编译时把锁放开，输入和部署才不会互相卡住。
+            val ready = locked {
+                if (nativeIsMaintaining()) return@locked null
+                if (!nativeHasSession()) nativeCreateSession()
+                !nativeGetAvailableSchemas().isNullOrEmpty()
+            }
+            if (ready == true) return true
+            val left = deadline - android.os.SystemClock.elapsedRealtime()
+            if (left <= 0) break
             try {
-                Thread.sleep(1000)
+                Thread.sleep(minOf(1000L, left))
             } catch (_: InterruptedException) {
                 return false
             }
-            waited += 1000
         }
-
-        locked {
-            waited = 0L
-            while (waited < timeoutMs) {
-                if (!nativeHasSession()) {
-                    nativeCreateSession()
-                }
-                if (getAvailableSchemas().isNotEmpty()) {
-                    return true
-                }
-                try {
-                    Thread.sleep(1000)
-                } catch (_: InterruptedException) {
-                    return false
-                }
-                waited += 1000
-            }
-            FileLogger.w(TAG, "ensureSession: schemas not available after ${timeoutMs}ms, deployment may still be running")
-            return false
-        }
+        FileLogger.w(TAG, "ensureSession: schemas not available after ${timeoutMs}ms, deployment may still be running")
+        return false
     }
 
     fun isMaintaining(): Boolean {
-        return nativeIsMaintaining()
+        if (!isInitialized) return false
+        // 拿不到锁就当作正在维护：调用方会跳过这次切换，而不是无锁闯进 librime。
+        return tryLocked(true) { nativeIsMaintaining() }
     }
 
     /** 引擎是否繁忙（维护中或 rimeLock 被占用）：非阻塞探测，供 UI 立即反馈使用。 */
     fun isEngineBusy(): Boolean {
-        return nativeIsMaintaining() || rimeLock.isLocked
+        if (rimeLock.isLocked) return true
+        return isMaintaining()
     }
 
     fun getCurrentSchema(): String {
-        if (!nativeHasSession()) return ""
+        if (!isInitialized) return ""
         return tryLocked("") {
-            nativeGetCurrentSchema() ?: ""
+            if (!nativeHasSession()) "" else nativeGetCurrentSchema().orEmpty()
         }
     }
 
@@ -555,9 +548,8 @@ class RimeEngine {
     }
 
     fun clearComposition() {
-        if (!nativeHasSession()) return
         tryMutating(Unit) {
-            nativeClearComposition()
+            if (nativeHasSession()) nativeClearComposition()
         }
     }
 
@@ -575,8 +567,8 @@ class RimeEngine {
 
     /** [endQueuedComposition] for Main-thread callers: skipped, like [clearComposition], while the engine is busy. */
     fun endComposition(t9: Boolean) {
-        if (!nativeHasSession()) return
         tryMutating(Unit) {
+            if (!nativeHasSession()) return@tryMutating
             if (t9 && isInitialized) nativeT9ClearComposition(1)
             nativeClearComposition()
         }
@@ -792,8 +784,8 @@ class RimeEngine {
     }
 
     fun getOption(option: String): Boolean {
-        if (!nativeHasSession()) return false
-        return nativeGetOption(option)
+        if (!isInitialized) return false
+        return tryLocked(false) { nativeHasSession() && nativeGetOption(option) }
     }
 
     fun setPageSize(schemaId: String, pageSize: Int) {
@@ -895,19 +887,20 @@ class RimeEngine {
     }
 
     fun getAvailableSchemas(): Array<String> {
-        return nativeGetAvailableSchemas() ?: emptyArray()
+        if (!isInitialized) return emptyArray()
+        return tryLocked(emptyArray()) { nativeGetAvailableSchemas() ?: emptyArray() }
     }
 
     /** 读取方案配置字符串项（librime 解析，含 custom.yaml patch 合并后的最终值）。 */
     fun getSchemaString(schemaId: String, key: String): String? {
         if (!isInitialized) return null
-        return nativeGetSchemaString(schemaId, key)
+        return tryLocked(null) { nativeGetSchemaString(schemaId, key) }
     }
 
     /** 读取方案配置列表项（librime 解析，含 custom.yaml patch 合并后的最终值）。 */
     fun getSchemaList(schemaId: String, key: String): List<String> {
         if (!isInitialized) return emptyList()
-        return nativeGetSchemaList(schemaId, key)?.toList() ?: emptyList()
+        return tryLocked(emptyList()) { nativeGetSchemaList(schemaId, key)?.toList() ?: emptyList() }
     }
 
     /** 读取方案自带 translator.packs 中声明的个人词库名。 */
@@ -935,25 +928,29 @@ class RimeEngine {
     /** 读取 user.yaml 用户状态字符串（如 var/previously_selected_schema）。 */
     fun getUserConfigString(key: String): String? {
         if (!isInitialized) return null
-        return nativeGetUserConfigString(key)
+        return tryLocked(null) { nativeGetUserConfigString(key) }
     }
 
     /** 读取 user.yaml 用户状态布尔值（如 var/option/ascii_mode）。 */
     fun getUserConfigBool(key: String): Boolean {
         if (!isInitialized) return false
-        return nativeGetUserConfigBool(key)
+        return tryLocked(false) { nativeGetUserConfigBool(key) }
     }
 
     /** 写 user.yaml 用户状态字符串（auto_save，自动落盘）。 */
     fun setUserConfigString(key: String, value: String) {
         if (!isInitialized) return
-        nativeSetUserConfigString(key, value)
+        if (!tryLocked(false) { nativeSetUserConfigString(key, value) }) {
+            FileLogger.w(TAG, "setUserConfigString skipped, engine busy: $key")
+        }
     }
 
     /** 写 user.yaml 用户状态布尔值（auto_save，自动落盘）。 */
     fun setUserConfigBool(key: String, value: Boolean) {
         if (!isInitialized) return
-        nativeSetUserConfigBool(key, value)
+        if (!tryLocked(false) { nativeSetUserConfigBool(key, value) }) {
+            FileLogger.w(TAG, "setUserConfigBool skipped, engine busy: $key")
+        }
     }
 
     /** 运行时切换 JNI verbose 日志（仅 Debug 构建生效，Release 为空操作）。 */
@@ -1450,12 +1447,12 @@ class RimeEngine {
 
     fun deploySchema(schemaId: String): Boolean {
         if (!isInitialized) return false
-        return nativeDeploySchema(schemaId)
+        return mutateLocked { nativeDeploySchema(schemaId) }
     }
 
     fun updateLastBuildTime() {
         if (!isInitialized) return
-        nativeUpdateLastBuildTime()
+        locked { nativeUpdateLastBuildTime() }
     }
 }
 

@@ -11,6 +11,7 @@ import com.kingzcheung.xime.settings.KeysConfigHelper
 import com.kingzcheung.xime.util.FileLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.kingzcheung.xime.plugin.core.lua.ws.localCleartextOnly
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
@@ -24,6 +25,7 @@ object ModelIndexLoader {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
+        .localCleartextOnly()
         .build()
 
     private val yaml = Yaml(configuration = YamlConfiguration(strictMode = false))

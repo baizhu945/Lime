@@ -1,7 +1,0 @@
-{
-  "git.repositoryScanMaxDepth": 1,
-  "git.autoRepositoryDetection": "openEditors",
-  "git.detectSubmodules": false,
-  "git.ignoreSubmodules": true,
-  "java.configuration.updateBuildConfiguration": "automatic"
-}

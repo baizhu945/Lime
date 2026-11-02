@@ -5,6 +5,7 @@ import android.util.Log
 import com.kingzcheung.xime.settings.KeysConfigHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.kingzcheung.xime.plugin.core.lua.ws.localCleartextOnly
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -21,6 +22,7 @@ data class InstallResult(
     val failureReason: String? = null,
     /** null=未提供sha256, true=校验通过, false=校验不通过 */
     val sha256Status: Sha256Status = null,
+    val scriptPaths: List<String> = emptyList(),
 )
 
 /** 方案列表拉取结果（含命中的来源主机名，供 UI 显示「从哪个端点拉的」）。 */
@@ -48,6 +50,7 @@ object XimeIndexSource {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .followRedirects(true)
+        .localCleartextOnly()
         .build()
 
     private val DownloadItem.fileName: String
@@ -188,6 +191,7 @@ object XimeIndexSource {
         scheme: MarketScheme,
         resolveDepUrl: (String) -> String? = { null },
         switchEnabled: Boolean = true,
+        allowScripts: Boolean = false,
     ): InstallResult = withContext(Dispatchers.IO) {
         if (!SchemaManager.isSchemeDownloaded(context, scheme.id)) {
             return@withContext InstallResult(false, failureReason = "压缩包不存在，请先下载")
@@ -201,7 +205,11 @@ object XimeIndexSource {
             dependencies = scheme.dependencies,
             resolveDepUrl = resolveDepUrl,
             switchEnabled = switchEnabled,
+            allowScripts = allowScripts,
         )
+        if (!result.success && result.scriptPaths.isNotEmpty()) {
+            return@withContext InstallResult(false, failureReason = result.failureReason, scriptPaths = result.scriptPaths)
+        }
         if (!result.success) {
             val reason = result.failureReason ?: result.conflicts.joinToString("、") { c ->
                 "${c.fileName}（已被 ${c.claimedBy.joinToString("、")} 使用）"

@@ -23,6 +23,7 @@ object NetworkPolicy {
         authorizedHosts: Set<String>,
         customHosts: Set<String> = emptySet()
     ): String? {
+        CleartextTraffic.blockReason(url)?.let { return it }
         val host = extractHost(url) ?: return "无法解析 URL: $url"
         if (host in trustedHosts) return null
 
