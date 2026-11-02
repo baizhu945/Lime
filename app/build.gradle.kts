@@ -80,8 +80,8 @@ android {
         // 按发布批次定号：兼容修复升 PATCH，兼容功能升 MINOR 并归零 PATCH。
         // 不兼容变更升 MAJOR；日常编辑不逐次升号。完整规则见 docs/packaging.md。
         // versionCode 是独立递增的交付序号；同批普通版与内置版共用。
-        versionCode = 20261388
-        versionName = "1.15.36"
+        versionCode = 20261389
+        versionName = "1.15.37"
 
 
         // Isolated Compose rendering on a local x86 emulator; ordinary device tests keep the full app.
@@ -104,6 +104,12 @@ android {
     }
 
     signingConfigs {
+        // minSdk 28 时 AGP 默认只签 v2。荣耀/vivo 的安装器只认 META-INF 里的 v1 证书，
+        // 缺了就报「该安装包未包含任何证书」。调试包也补上 v1。
+        getByName("debug") {
+            enableV1Signing = true
+            enableV2Signing = true
+        }
         create("release") {
             if (keystorePropertiesFile.exists()) {
                 // 优先使用 storeFile（已存在的 keystore 文件）；否则解码 keyBase64。

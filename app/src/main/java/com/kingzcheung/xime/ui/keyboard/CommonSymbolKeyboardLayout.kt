@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import com.kingzcheung.xime.keyboard.KeyboardDimensions
 import androidx.compose.ui.unit.dp
@@ -123,6 +124,7 @@ fun CommonSymbolKeyboardLayout(
     CompositionLocalProvider(LocalKeyCornerRadius provides keyCornerRadius) {
     Box(
         modifier = bodyModifier
+            .testTag("common-symbol-panel")
             .fillMaxWidth()
             .fillMaxHeight()
             .onGloballyPositioned { coordinates ->
@@ -300,7 +302,7 @@ fun CommonSymbolKeyboardLayout(
                                 onClick = { onKeyPress("abc") },
                                 backgroundColor = specialKeyBackgroundColor,
                                 textColor = specialKeyTextColor,
-                                modifier = Modifier.weight(1.2f),
+                                modifier = Modifier.weight(1.2f).testTag("common-symbol-return"),
                                 onPress = { onKeyPressDown?.invoke("abc") },
                                 shadowEnabled = shadowEnabled,
                                 shadowElevation = shadowElevation,
@@ -484,7 +486,7 @@ internal fun CommonSymbolLandscapeContent(
                         onClick = { onKeyPress("abc") },
                         backgroundColor = specialKeyBackgroundColor,
                         textColor = specialKeyTextColor,
-                        modifier = Modifier.weight(1.2f),
+                        modifier = Modifier.weight(1.2f).testTag("common-symbol-return"),
                         onPress = { onKeyPressDown?.invoke("abc") },
                         shadowEnabled = shadowEnabled,
                         shadowElevation = shadowElevation,

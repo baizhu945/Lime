@@ -6,90 +6,75 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class KeyboardAsciiStateMachineTest {
-
     private val machine = KeyboardAsciiStateMachine()
+    private val main = AsciiKeyboardContext.MAIN
+    private val symbol = AsciiKeyboardContext.SYMBOL_PANEL
+    private val number = AsciiKeyboardContext.NUMBER_PANEL
 
     @Test
-    fun `first attach to symbol panel defaults to english`() {
-        assertEquals(true, machine.targetFor(AsciiKeyboardContext.SYMBOL_PANEL, engineAscii = false))
-        assertNull(machine.targetFor(AsciiKeyboardContext.SYMBOL_PANEL, engineAscii = true))
+    fun `first and repeated symbol entry follows main language`() {
+        for (entryLanguage in listOf(false, true)) {
+            machine.saveMemory(main, entryLanguage)
+            assertNull(machine.targetFor(symbol, entryLanguage))
+            // 手动切换后退出，再从主键盘以入口语言进入。
+            machine.saveMemory(symbol, !entryLanguage)
+            assertEquals(entryLanguage, machine.targetFor(main, !entryLanguage))
+            machine.saveMemory(main, entryLanguage)
+            assertNull(machine.targetFor(symbol, entryLanguage))
+        }
+        // 上次符号页为英文也不能覆盖这次主键盘的中文。
+        machine.saveMemory(symbol, true)
+        machine.saveMemory(main, false)
+        assertNull(machine.targetFor(symbol, false))
     }
 
     @Test
-    fun `symbol panel memory persists across sessions`() {
-        // 首次进入符号面板：引擎中文，目标应为英文
-        assertEquals(true, machine.targetFor(AsciiKeyboardContext.SYMBOL_PANEL, engineAscii = false))
-        // 面板内切回中文
-        machine.saveMemory(AsciiKeyboardContext.SYMBOL_PANEL, engineAscii = false)
-        // 再次进入：记忆为中文，无需切换
-        assertNull(machine.targetFor(AsciiKeyboardContext.SYMBOL_PANEL, engineAscii = false))
-        // 引擎为英文时需切回中文记忆
-        assertEquals(false, machine.targetFor(AsciiKeyboardContext.SYMBOL_PANEL, engineAscii = true))
+    fun `main keyboard restores entry language after panel switch`() {
+        for (entryLanguage in listOf(false, true)) {
+            machine.saveMemory(main, entryLanguage)
+            assertNull(machine.targetFor(symbol, entryLanguage))
+            machine.saveMemory(symbol, !entryLanguage)
+            assertEquals(entryLanguage, machine.targetFor(main, !entryLanguage))
+            assertNull(machine.targetFor(main, entryLanguage))
+        }
     }
 
     @Test
-    fun `exit panel restores main keyboard memory`() {
-        // 主键盘中文，进入符号面板（保存主键盘记忆）
-        machine.saveMemory(AsciiKeyboardContext.MAIN, engineAscii = false)
-        assertEquals(true, machine.targetFor(AsciiKeyboardContext.SYMBOL_PANEL, engineAscii = false))
-        // 面板内切英文
-        machine.saveMemory(AsciiKeyboardContext.SYMBOL_PANEL, engineAscii = true)
-        // 退出面板：目标为主键盘记忆（中文）
-        assertEquals(false, machine.targetFor(AsciiKeyboardContext.MAIN, engineAscii = true))
+    fun `switching panels follows current language and preserves main memory`() {
+        for (entryLanguage in listOf(false, true)) {
+            machine.saveMemory(main, entryLanguage)
+            assertNull(machine.targetFor(symbol, entryLanguage))
+            machine.saveMemory(symbol, !entryLanguage)
+            assertNull(machine.targetFor(number, !entryLanguage))
+            machine.saveMemory(number, !entryLanguage)
+            assertNull(machine.targetFor(symbol, !entryLanguage))
+            machine.saveMemory(symbol, !entryLanguage)
+            assertEquals(entryLanguage, machine.targetFor(main, !entryLanguage))
+        }
     }
 
     @Test
-    fun `panel switch does not affect main keyboard memory`() {
-        machine.saveMemory(AsciiKeyboardContext.MAIN, engineAscii = false)
-        // 面板内多次切换
-        machine.saveMemory(AsciiKeyboardContext.SYMBOL_PANEL, engineAscii = true)
-        machine.saveMemory(AsciiKeyboardContext.SYMBOL_PANEL, engineAscii = false)
-        // 主键盘记忆仍为中文
-        assertEquals(false, machine.targetFor(AsciiKeyboardContext.MAIN, engineAscii = true))
+    fun `number panel follows engine regardless of previous language`() {
+        machine.saveMemory(number, false)
+        assertNull(machine.targetFor(number, true))
+        machine.saveMemory(number, true)
+        assertNull(machine.targetFor(number, false))
+        for (language in listOf(false, true)) {
+            machine.saveMemory(main, language)
+            assertNull(machine.targetFor(number, language))
+            machine.saveMemory(number, language)
+            assertNull(machine.targetFor(main, language))
+        }
     }
 
     @Test
-    fun `main keyboard follows engine when memory unset`() {
-        assertNull(machine.targetFor(AsciiKeyboardContext.MAIN, engineAscii = true))
-        assertNull(machine.targetFor(AsciiKeyboardContext.MAIN, engineAscii = false))
-    }
-
-    @Test
-    fun `number panel follows engine`() {
-        assertNull(machine.targetFor(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = true))
-        assertNull(machine.targetFor(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = false))
-        machine.saveMemory(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = true)
-        assertNull(machine.targetFor(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = true))
-        machine.saveMemory(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = false)
-        assertNull(machine.targetFor(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = true))
-    }
-
-    @Test
-    fun `number panel memory from another language does not request a switch`() {
-        // 中文里打开过数字页后切到英文，再点 ?123 不能因为这份记忆去改语言。
-        machine.saveMemory(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = false)
-        assertNull(machine.targetFor(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = true))
-        machine.saveMemory(AsciiKeyboardContext.MAIN, engineAscii = true)
-        machine.saveMemory(AsciiKeyboardContext.NUMBER_PANEL, engineAscii = true)
-        assertNull(machine.targetFor(AsciiKeyboardContext.MAIN, engineAscii = true))
-    }
-
-    @Test
-    fun `reset clears all memories`() {
-        machine.saveMemory(AsciiKeyboardContext.MAIN, engineAscii = false)
-        machine.saveMemory(AsciiKeyboardContext.SYMBOL_PANEL, engineAscii = true)
+    fun `unset and reset main memory follow engine`() {
+        assertNull(machine.targetFor(main, true))
+        assertNull(machine.targetFor(main, false))
+        machine.saveMemory(main, false)
+        machine.saveMemory(symbol, true)
         machine.reset()
-        assertNull(machine.targetFor(AsciiKeyboardContext.MAIN, engineAscii = true))
-        assertEquals(true, machine.targetFor(AsciiKeyboardContext.SYMBOL_PANEL, engineAscii = false))
-    }
-
-    @Test
-    fun `english main keyboard restored after symbol panel`() {
-        // 主键盘英文
-        machine.saveMemory(AsciiKeyboardContext.MAIN, engineAscii = true)
-        // 符号面板内切中文
-        machine.saveMemory(AsciiKeyboardContext.SYMBOL_PANEL, engineAscii = false)
-        // 退出：恢复英文
-        assertEquals(true, machine.targetFor(AsciiKeyboardContext.MAIN, engineAscii = false))
+        assertNull(machine.targetFor(main, true))
+        assertNull(machine.targetFor(symbol, false))
     }
 }
