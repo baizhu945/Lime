@@ -31,7 +31,8 @@ object AppUpdateCatalog {
     const val RELEASES_API = "https://api.github.com/repos/baizhu945/Lime/releases?per_page=30"
     const val RELEASES_PAGE = "https://github.com/baizhu945/Lime/releases"
 
-    private val androidTag = Regex("""^v?(\d+\.\d+\.\d+)$""")
+    // 2.00 这类两段版本号也是正式版；早期只认三段，导致 v2.00 被当成非 Android 发布。
+    private val androidTag = Regex("""^v?(\d+(?:\.\d+)+)$""")
     // CyIME-1.14.156-arm64-v8a.apk / CyIME-1.14.156-full-arm64-v8a.apk（1.14.72 里的完整版文件名是 1.14.73）。
     private val apkName = Regex("""^Lime-\d+(?:\.\d+)*(-full)?-(.+)\.apk$""")
     private val json = Json { ignoreUnknownKeys = true }
@@ -79,7 +80,9 @@ object AppUpdateCatalog {
                 if (!downloadAllowed(url)) return@mapNotNull null
                 val sha = asset.text("digest")?.takeIf { it.startsWith("sha256:") }?.removePrefix("sha256:")?.lowercase()
                 if (sha.isNullOrBlank()) return@mapNotNull null
-                match.groupValues[2] to AppReleaseAsset(name, url, asset.number("size") ?: 0L, sha)
+                // 发布包常带 -signed 后缀（Lime-2.00.1-arm64-v8a-signed.apk），架构只取前面的 ABI。
+                match.groupValues[2].removeSuffix("-signed") to
+                    AppReleaseAsset(name, url, asset.number("size") ?: 0L, sha)
             }
         val chosen = (abis + "universal").firstNotNullOfOrNull { abi -> assets.firstOrNull { it.first == abi }?.second }
         return AppRelease(version, tag, page, chosen)

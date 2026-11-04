@@ -81,6 +81,22 @@ class AppUpdateCatalogTest {
     }
 
     @Test
+    fun twoPartVersionTagsAreAndroidReleases() {
+        val list = "[" + release("v2.00", asset("Lime-2.00-arm64-v8a-signed.apk", 233707825)) + "]"
+        val latest = AppUpdateCatalog.latest(list, false, listOf("arm64-v8a"))!!
+        assertEquals("2.00", latest.version)
+        assertEquals("Lime-2.00-arm64-v8a-signed.apk", latest.asset!!.name)
+        assertTrue(AppUpdateCatalog.isNewer("2.00", "1.15.37"))
+    }
+
+    @Test
+    fun signedApkNameMatchesTheArm64Asset() {
+        val list = "[" + release("v2.00.01", asset("Lime-2.00.01-arm64-v8a-signed.apk")) + "]"
+        val latest = AppUpdateCatalog.latest(list, false, listOf("arm64-v8a"))!!
+        assertEquals("Lime-2.00.01-arm64-v8a-signed.apk", latest.asset!!.name)
+    }
+
+    @Test
     fun versionsCompareNumerically() {
         assertTrue(AppUpdateCatalog.isNewer("1.14.156", "1.14.95"))
         assertTrue(AppUpdateCatalog.isNewer("1.15.0", "1.14.156"))
