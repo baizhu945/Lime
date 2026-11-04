@@ -109,6 +109,8 @@ android {
         getByName("debug") {
             enableV1Signing = true
             enableV2Signing = true
+            // OriginOS / 部分国内安装器要求 v3；只签 v1+v2 会提示“未包含任何证书”。
+            enableV3Signing = true
         }
         create("release") {
             if (keystorePropertiesFile.exists()) {
@@ -132,6 +134,7 @@ android {
             // 缺了就报「安装包缺乏开发者证书」并拒绝安装。同一把密钥补签 v1，不影响已装用户覆盖升级。
             enableV1Signing = true
             enableV2Signing = true
+            enableV3Signing = true
         }
     }
 
