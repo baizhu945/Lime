@@ -1,5 +1,6 @@
 package com.kingzcheung.xime.ui.keyboard
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
@@ -51,6 +52,9 @@ internal data class KeyGestureActions(
      * enters nothing.
      */
     val freeDirection: Boolean = false,
+    val onTapAt: ((Offset) -> Unit)? = null,
+    /** 概率字母区：按下时的触点，用来在密度面上画出这次采样的分布。 */
+    val onPressAt: ((Offset) -> Unit)? = null,
 )
 
 /**
@@ -78,6 +82,7 @@ internal suspend fun PointerInputScope.detectExclusiveKeyGestures(
         val horizontalThreshold = actions.horizontalThresholdDp.dp.toPx()
         down.consume()
         actions.onPress()
+        actions.onPressAt?.invoke(down.position)
         actions.onPreview(SwipeState(isPressed = true, pressedText = actions.text))
         var longPressed = false
         var moved = false
@@ -172,7 +177,10 @@ internal suspend fun PointerInputScope.detectExclusiveKeyGestures(
                         downSwipe -> actions.onDown?.invoke(actions.downText.orEmpty())
                         left -> actions.onLeft?.invoke()
                         right -> actions.onRight?.invoke()
-                        !crossedSwipeThreshold && (actions.freeDirection || abs(dx) < horizontalCancelThreshold) -> actions.onTap()
+                        !crossedSwipeThreshold && (actions.freeDirection || abs(dx) < horizontalCancelThreshold) -> {
+                            actions.onTapAt?.invoke(down.position)
+                            actions.onTap()
+                        }
                     }
                     break
                 }

@@ -1289,6 +1289,11 @@ public:
         if (std::string(existing) != value) rime->set_property(session_id_, "cyime_neighbors", value);
     }
 
+    void setSpatialMap(const char* value) {
+        if (!rime || !session_id_) return;
+        rime->set_property(session_id_, "cyime_spatial", value ? value : "");
+    }
+
     // 组词前已上屏的文字（"\x1e" + 文字），九键词组模型用作第一个词的上文；空串表示未知。
     void setT9LeftContext(const std::string& value) {
         if (!rime || !session_id_) return;
@@ -2627,6 +2632,13 @@ Java_com_kingzcheung_xime_rime_RimeEngine_nativeSetNeighborMap(JNIEnv* env, jobj
     if (!encoded) return;
     Rime::Instance().setNeighborMap(encoded);
     env->ReleaseStringUTFChars(value, encoded);
+}
+
+JNIEXPORT void JNICALL
+Java_com_kingzcheung_xime_rime_RimeEngine_nativeSetSpatialMap(JNIEnv* env, jobject, jstring value) {
+    const char* encoded = value ? env->GetStringUTFChars(value, nullptr) : nullptr;
+    Rime::Instance().setSpatialMap(encoded ? encoded : "");
+    if (value && encoded) env->ReleaseStringUTFChars(value, encoded);
 }
 
 // 组词前已上屏的文字；null 表示未知（不提供上文）。

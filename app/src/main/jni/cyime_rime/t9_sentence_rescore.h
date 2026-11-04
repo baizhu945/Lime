@@ -22,6 +22,11 @@ void T9RescoreSentences(const T9ScriptQuery& q, const T9NgramModel* ngram, bool 
                         const an<Sentence>& exact_sentence, const an<Sentence>& rime_best,
                         deque<an<Sentence>>* sentences);
 
+// After rescoring and any later sentence replacement: move a cheap spatial correction in front when
+// its word-model score, plus the touch penalty, beats the current first sentence.
+void T9PromoteSpatial(const T9ScriptQuery& q, const T9NgramModel* ngram, bool ngram_sentence_start, Poet* poet,
+                      deque<an<Sentence>>* sentences);
+
 }  // namespace rime
 
 #endif  // CYIME_T9_SENTENCE_RESCORE_H_

@@ -353,6 +353,9 @@ class RimeEngine {
     /** Called on the serial input executor; properties affect the next native query only. */
     internal fun setNeighborMap(encoded: String) = locked { nativeSetNeighborMap(encoded) }
 
+    /** Per-character neighbour penalties for the spelling about to be decoded. Empty disables them. */
+    internal fun setSpatialMap(encoded: String) = locked { nativeSetSpatialMap(encoded) }
+
     fun getProcessResult(processed: Boolean): RimeProcessResult {
         if (!isInitialized) return RimeProcessResult(false, "", "", "", emptyArray(), false, false, false)
         // 必须持 rimeLock：nativeGetProcessResult 内部 RimeGetContext → Menu::Prepare
@@ -1069,6 +1072,7 @@ class RimeEngine {
     private external fun nativeIsAsciiMode(): Boolean
     private external fun nativeSetOption(option: String, value: Boolean)
     private external fun nativeSetNeighborMap(encoded: String)
+    private external fun nativeSetSpatialMap(encoded: String)
     private external fun nativeSetT9LeftContext(text: String?)
     private external fun nativeGetOption(option: String): Boolean
     private external fun nativeSwitchSchema(schemaId: String): Boolean

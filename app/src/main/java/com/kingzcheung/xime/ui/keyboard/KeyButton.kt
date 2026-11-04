@@ -32,6 +32,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import com.kingzcheung.xime.keyboard.SpatialCosts
+import com.kingzcheung.xime.keyboard.SpatialTaps
 import com.kingzcheung.xime.settings.ButtonLayout
 import com.kingzcheung.xime.util.CharInfo
 import androidx.compose.ui.Modifier
@@ -48,6 +50,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -343,9 +346,14 @@ fun SwipeableKeyButton(
     shadowEnabled: Boolean = true,
     shadowElevation: Dp = 1.dp,
     shadowShapeRadius: Dp = 8.dp,
+    /** 概率字母区：主字母由 ProbabilityBackdrop 画，键面只留角标手势；点按发概率最高的字母。 */
+    fieldMode: Boolean = false,
+    /** 概率字母区里点按上屏的字母（由触点分布取最大密度得到）。 */
+    onLetterTap: ((String) -> Unit)? = null,
 ) {
     val customLayout = LocalCustomLayout.current
     val letterGeometry = LocalLetterGeometry.current
+    val probabilityField = LocalProbabilityField.current
     val customAccent = LocalCustomAccent.current
     // 玻璃下键帽是按主题文字方向重新提亮/压暗的半透明材质，不是这里算出的底色；
     // 强调色文字要按玻璃键面（与普通文字同一方向的表面）取对比，否则会算成黑字压黑键。
@@ -354,6 +362,11 @@ fun SwipeableKeyButton(
     val resolvedColors = customLayoutKeyColors(customLayout, text, backgroundColor, textColor, customAccent, glassLabelSurface)
     val resolvedBackground = resolvedColors.first
     val resolvedText = resolvedColors.second
+    // 概率字母区：主字母画在共享的概率面上，键自身只保留角标文字与手势。
+    val mainLabelColor = if (fieldMode) Color.Transparent else resolvedText
+    // 概率字母区只留密度面：角标文字仍参与手势和无障碍语义，但不压在概率面上。
+    val hintGlass = LocalKeyboardInputPreferences.current.frostedGlass
+    val hintColor: (Float) -> Color = { alpha -> if (fieldMode) Color.Transparent else keyHintColor(resolvedText, hintGlass, alpha) }
     val symbolInputMode = LocalKeyboardInputPreferences.current.symbolInputMode
     val inputPreferences = LocalKeyboardInputPreferences.current
     val letters = fourteenKeyLetters(letterGroup, LocalFourteenKeyLayout.current &&
@@ -362,6 +375,24 @@ fun SwipeableKeyButton(
     var flickPreview by remember { mutableStateOf<KeyFlickPreview?>(null) }
     var longPressShown by remember { mutableStateOf(false) }
     var buttonBounds by remember { mutableStateOf(Rect.Zero) }
+    var hitBox by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var tapPick by remember { mutableStateOf<Char?>(null) }
+    val recordTap = { local: Offset ->
+        tapPick = null
+        val coords = hitBox
+        val geometry = letterGeometry
+        val letter = (letterGroup ?: text).lowercase().singleOrNull()?.takeIf { it in 'a'..'z' }
+        if (letter != null && coords != null && geometry != null && coords.isAttached) {
+            val root = coords.localToRoot(local)
+            val keys = geometry.snapshot()
+            // 概率字母区：触点是采样，不是“按到了哪个键”；发密度最高的字母，其余字母作为
+            // 相对概率交给解码器。普通键盘仍按键帽字母发送。
+            val picked = if (probabilityField != null) SpatialCosts.pick(root.x, root.y, keys) else null
+            val committed = picked ?: letter
+            tapPick = committed
+            SpatialTaps.offer(committed, root.x, root.y, keys)
+        }
+    }
 
     val view = LocalView.current
     val density = LocalDensity.current
@@ -376,18 +407,34 @@ fun SwipeableKeyButton(
     // 14 键快捷键键面出来前双字母键还没拆开：按点在左半还是右半决定是哪个字母，和拆开后的位置一样（用户 10-31）。
     val ctrlTapFraction = remember { floatArrayOf(0.5f) }
     val fourteenKeyLayout = LocalFourteenKeyLayout.current
+    val recordPressAt = { local: Offset ->
+        val coords = hitBox
+        if (probabilityField != null && coords != null && coords.isAttached) {
+            probabilityField.press(coords.localToRoot(local))
+        }
+    }
     val tapOrCtrl: () -> Unit = {
-        val letters = letterGroup ?: text
-        val pick = if (fourteenKeyLayout && letters.length == 2 && ctrlTargets?.ctrl == true)
-            letters[if (ctrlTapFraction[0] < 0.5f) 0 else 1].toString() else letters
-        if (ctrlTargets?.ctrlTap(pick) != true) onClick()
+        val fieldPick = tapPick
+        if (probabilityField != null && onLetterTap != null && fieldPick != null) {
+            tapPick = null
+            val committed = fieldPick.toString()
+            probabilityField.release()
+            if (ctrlTargets?.ctrlTap(committed) != true) onLetterTap(committed)
+        } else {
+            val letters = letterGroup ?: text
+            val pick = if (fourteenKeyLayout && letters.length == 2 && ctrlTargets?.ctrl == true)
+                letters[if (ctrlTapFraction[0] < 0.5f) 0 else 1].toString() else letters
+            if (ctrlTargets?.ctrlTap(pick) != true) onClick()
+        }
     }
     val gestureActions = if (flick != null) KeyGestureActions(
         // 拂动：方向固定对应字母，不随角标方向反转；数字等改为长按。
         text = text,
         onTap = tapOrCtrl,
+        onTapAt = recordTap,
+        onPressAt = recordPressAt,
         onPress = { isPressed = true; onPress?.invoke() },
-        onRelease = { isPressed = false; onRelease?.invoke() },
+        onRelease = { isPressed = false; probabilityField?.release(); onRelease?.invoke() },
         onPreview = { flickPreview = it.keyFlick; longPressShown = it.isLongPress; onSwipeStateChange?.invoke(it, buttonBounds) },
         inlineVerticalPreview = true,
         inlineHorizontalPreview = true,
@@ -409,8 +456,10 @@ fun SwipeableKeyButton(
     ) else KeyGestureActions(
         text = text,
         onTap = tapOrCtrl,
+        onTapAt = recordTap,
+        onPressAt = recordPressAt,
         onPress = { isPressed = true; onPress?.invoke() },
-        onRelease = { isPressed = false; onRelease?.invoke() },
+        onRelease = { isPressed = false; probabilityField?.release(); onRelease?.invoke() },
         onPreview = { flickPreview = it.keyFlick; onSwipeStateChange?.invoke(it, buttonBounds) },
         inlineVerticalPreview = true,
         upText = swipeText,
@@ -540,15 +589,19 @@ fun SwipeableKeyButton(
                     ctrlTapFraction[0] = if (size.width > 0) down.position.x / size.width else 0.5f
                 }
             } else Modifier)
+            .onGloballyPositioned { hitBox = it }
             .pointerInput(Unit) { detectExclusiveKeyGestures { currentActions } }
             .padding(edgeContentPadding)
             .onGloballyPositioned { coordinates ->
                 buttonBounds = coordinates.boundsInRoot()
                 letterGeometry?.place(text, buttonBounds)
+                val key = (letterGroup ?: text).lowercase().singleOrNull()?.takeIf { it in 'a'..'z' }
+                if (key != null) probabilityField?.register(key, buttonBounds)
             }
             .padding(scaledKeyVisualPadding())
             .then(if (hexagonal) Modifier.honeycombCap() else Modifier)
-            .keyGlow(Modifier.then(shadowModifier)
+            // 概率字母区没有键帽：连按下的圆角描边也去掉，只留密度面自己的触点光晕。
+            .then(if (fieldMode) Modifier else Modifier.keyGlow(Modifier.then(shadowModifier)
             .clip(keyClipShape)
             .background(frostedKeyColor(
                 resolvedBackground, if (frostedGlass.enabled) textColor else resolvedText, frostedGlass,
@@ -557,7 +610,7 @@ fun SwipeableKeyButton(
                 else resolvedBackground,
                 pressed = isPressed || shiftHovered, highlighted = isHighlighted,
                 opacityScale = glassFunctionKeyScale(resolvedBackground),
-            )).keyHeldHighlight(isPressed || shiftHovered))
+            )).keyHeldHighlight(isPressed || shiftHovered)))
             .then(if (hexagonal) Modifier.honeycombLabelArea() else Modifier),
         contentAlignment = if (layoutMode == ButtonLayout.COMPACT) Alignment.TopStart else Alignment.Center
     ) {
@@ -606,7 +659,7 @@ fun SwipeableKeyButton(
                     } else {
                         Text(
                             text = customLayoutLabel(customLayout, punctuationKeyLabel(text), glassLabelSurface ?: resolvedBackground, customAccent, textColor),
-                            color = resolvedText,
+                            color = mainLabelColor,
                             fontSize = labelSize.sp,
                             fontWeight = if (text.length > 2) FontWeight.Medium else FontWeight.Normal,
                             textAlign = TextAlign.Start,
@@ -631,7 +684,7 @@ fun SwipeableKeyButton(
                             val displayText = if (swipeUpHint.length <= 2) swipeUpHint else swipeUpHint.take(2)
                             Text(
                                 text = punctuationKeyLabel(displayText),
-                                color = keyHintColor(resolvedText, frostedGlass, 0.6f),
+                                color = hintColor(0.6f),
                                 fontSize = effectiveSwipeFontSize,
                                 fontWeight = FontWeight.Medium,
                                 textAlign = TextAlign.End,
@@ -653,7 +706,7 @@ fun SwipeableKeyButton(
                                 val displayText = if (swipeDownHint.length <= 12) swipeDownHint else swipeDownHint.take(12)
                                 Text(
                                     text = punctuationKeyLabel(displayText),
-                                    color = keyHintColor(resolvedText, frostedGlass, 0.7f),
+                                    color = hintColor(0.7f),
                                     fontSize = adjustedFontSize,
                                     fontWeight = FontWeight.Medium,
                                     textAlign = TextAlign.Right,
@@ -684,7 +737,7 @@ fun SwipeableKeyButton(
                             .then(if (dpCornerLayout != null) Modifier
                                 .height((dpCornerLayout.letterSp * 1.2f * density.fontScale).dp)
                                 .clipToBounds().wrapContentHeight(unbounded = true) else Modifier),
-                        color = resolvedText,
+                        color = mainLabelColor,
                         fontSize = (dpCornerLayout?.letterSp ?: labelSize).sp,
                         lineHeight = ((dpCornerLayout?.letterSp ?: labelSize) * 1.2f).sp,
                         fontWeight = if (text.length > 2) FontWeight.Medium else FontWeight.Normal,
@@ -701,7 +754,7 @@ fun SwipeableKeyButton(
                     val displayText = if (keyLabel.length <= 4) keyLabel else keyLabel.take(4)
                     Text(
                         text = punctuationKeyLabel(displayText),
-                        color = keyHintColor(resolvedText, frostedGlass, 0.6f),
+                        color = hintColor(0.6f),
                         fontSize = effectiveSwipeFontSize,
                         lineHeight = (effectiveSwipeFontSize.value * 1.2f).sp,
                         fontWeight = FontWeight.Medium,
@@ -716,7 +769,7 @@ fun SwipeableKeyButton(
                     val displayText = if (swipeDownKeyLabel.length <= 4) swipeDownKeyLabel else swipeDownKeyLabel.take(4)
                     Text(
                         text = punctuationKeyLabel(displayText),
-                        color = keyHintColor(resolvedText, frostedGlass, 0.5f),
+                        color = hintColor(0.5f),
                         fontSize = effectiveSwipeFontSize,
                         lineHeight = (effectiveSwipeFontSize.value * 1.2f).sp,
                         fontWeight = FontWeight.Normal,
@@ -730,7 +783,7 @@ fun SwipeableKeyButton(
                 if (badgeText != null && !(flickPreview?.fromTop == true && flickPreview?.text == badgeText)) {
                     Text(
                         text = badgeText,
-                        color = keyHintColor(resolvedText, frostedGlass, 0.5f),
+                        color = hintColor(0.5f),
                         fontSize = (10f * hintScale).sp,
                         fontWeight = FontWeight.Normal,
                         textAlign = TextAlign.End,
@@ -745,13 +798,13 @@ fun SwipeableKeyButton(
             if (dpCornerLayout != null) DoublePinyinCornerFace(doublePinyinHint, dpCornerLayout,
                 upCorner = dpUpCorner?.takeIf { flickPreview?.fromTop != true },
                 downCorner = dpDownCorner?.takeIf { flickPreview?.fromTop != false },
-                initialColor = keyHintColor(resolvedText, frostedGlass, 0.7f),
-                finalsColor = keyHintColor(resolvedText, frostedGlass, 0.6f),
-                upColor = keyHintColor(resolvedText, frostedGlass, 0.6f),
-                downColor = keyHintColor(resolvedText, frostedGlass, 0.5f), fontFamily = keyLabelFontFamily)
+                initialColor = hintColor(0.7f),
+                finalsColor = hintColor(0.6f),
+                upColor = hintColor(0.6f),
+                downColor = hintColor(0.5f), fontFamily = keyLabelFontFamily)
             if (dpHint != null) DoublePinyinKeyHintFace(dpHint, dpFinals, effectiveSwipeFontSize,
-                initialColor = keyHintColor(resolvedText, frostedGlass, 0.7f),
-                finalsColor = keyHintColor(resolvedText, frostedGlass, 0.6f), fontFamily = keyLabelFontFamily)
+                initialColor = hintColor(0.7f),
+                finalsColor = hintColor(0.6f), fontFamily = keyLabelFontFamily)
         }
         if (ctrlLetter != null) Box(Modifier.matchParentSize().graphicsLayer { alpha = ctrlFade.value }) {
             CtrlShortcutFace(ctrlLetter, resolvedText, frostedGlass, labelSize,

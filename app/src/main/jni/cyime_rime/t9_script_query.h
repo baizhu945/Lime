@@ -24,10 +24,23 @@ struct T9ScriptQuery {
   bool enable_correction;
   const void* script_syllabifier;
   bool (*is_correction)(const void* script_syllabifier, const Code& code, size_t code_length, size_t start);
+  bool (*cheap_spatial)(const void* script_syllabifier, const Code& code, size_t code_length, size_t start,
+                        double* penalty);
+  bool (*spatial_penalty)(const void* script_syllabifier, const Code& code, size_t code_length, size_t start,
+                          double* penalty);
+  // The app measured this composition's touches, so correction credibility is P(letter | touch) log-odds.
+  bool spatial_active;
 
   // ScriptSyllabifier::IsCorrection.
   bool IsCorrection(const Code& code, size_t code_length, size_t from = 0) const {
     return is_correction(script_syllabifier, code, code_length, from);
+  }
+  bool CheapSpatial(const Code& code, size_t code_length, double* penalty, size_t from = 0) const {
+    return cheap_spatial && cheap_spatial(script_syllabifier, code, code_length, from, penalty);
+  }
+  // Sum of every correction edge's touch log-odds on the path (all of them, however weak).
+  bool SpatialPenalty(const Code& code, size_t code_length, double* penalty, size_t from = 0) const {
+    return spatial_penalty && spatial_penalty(script_syllabifier, code, code_length, from, penalty);
   }
 };
 

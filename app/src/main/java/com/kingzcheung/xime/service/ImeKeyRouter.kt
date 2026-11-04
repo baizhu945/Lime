@@ -5,6 +5,8 @@ import android.view.KeyEvent
 import android.view.inputmethod.EditorInfo
 import com.kingzcheung.xime.association.AssociationManager
 import com.kingzcheung.xime.keyboard.OverlayRoute
+import com.kingzcheung.xime.keyboard.SpatialInputLog
+import com.kingzcheung.xime.keyboard.SpatialTaps
 import com.kingzcheung.xime.rime.RimeCandidate
 import com.kingzcheung.xime.rime.resolveRimeCandidateIndex
 import com.kingzcheung.xime.settings.SettingsPreferences
@@ -29,6 +31,7 @@ private fun isRimeIceCapitalSchema(id: String) =
 
 internal class ImeKeyRouter(internal val service: XimeInputMethodService) {
     @Volatile internal var letterNeighbors: Pair<String, String> = "" to ""
+    private val spatialInput = SpatialInputLog()
     internal val hardwareNavigation = HardwareCandidateNavigation()
     private val hardwareSelectionRevision = androidx.compose.runtime.mutableIntStateOf(0)
     internal val usesDirectFieldInput: Boolean get() = service.editorInputPolicy.directInput &&
@@ -301,6 +304,9 @@ internal class ImeKeyRouter(internal val service: XimeInputMethodService) {
         afterUpdate: (suspend () -> Unit)? = null,
     ) {
         // 日语罗马音的显示归一化收口在 updateUIWithResult（刷新路径同样生效），此处不再单独加工
+        service.rimeEngine.setSpatialMap(spatialInput.afterInput(result.inputText))
+        // The property written above matches the spelling just stored. The next letter's
+        // prediction is published immediately before that key is processed.
         val transformed = service.candidateTransform.transformFor(result)
         KeyLatencyProbe.posted(result.inputText.length)
         publishUi {
@@ -311,6 +317,21 @@ internal class ImeKeyRouter(internal val service: XimeInputMethodService) {
             )
             if (afterUpdate != null) afterUpdate()
         }
+    }
+
+    /**
+     * Measured touch penalties for one spelling letter. Neighbour correction is already on by
+     * default; an empty sample (glide, hardware, a tap before the keys are measured) keeps the
+     * flat penalty. The property has to be in place before [RimeEngine.processQueuedKeyAndGetResult].
+     */
+    private fun publishSpatialTap(key: String) {
+        val letter = key.lowercase().singleOrNull()?.takeIf { it in 'a'..'z' } ?: return
+        val neighbors = letterNeighbors
+        if (neighbors.second.isEmpty() || neighbors.first != service.uiState.value.currentSchemaId) {
+            SpatialTaps.poll(letter)
+            return
+        }
+        service.rimeEngine.setSpatialMap(spatialInput.beforeAppend(letter, SpatialTaps.poll(letter) ?: emptyMap()))
     }
 
     /** 英文选词后自动补的空格（默认关），只管紧接着的一个键，见 [EnglishAutoSpace]。 */
@@ -566,6 +587,7 @@ internal class ImeKeyRouter(internal val service: XimeInputMethodService) {
                         if ((isLetter || semicolonCode && hasComposing) && isChineseMode) {
                             // 中文模式：字母进 Rime 拼音组合，候选栏选词后经 commitText 重定向进面板输入框
                             val keyCode = if (mergedKey) service.rimeEngine.mergedLetterKeyCode(key[0]) else key.lowercase()[0].code
+                            publishSpatialTap(key)
                             val result = service.rimeEngine.processKeyAndGetResult(keyCode, 0)
                             if (result.processed) {
                                 sendTransformedResult(result)
@@ -760,8 +782,13 @@ internal class ImeKeyRouter(internal val service: XimeInputMethodService) {
             // Literal English input has no decoder work and must not wait for its lock.
             // 邻键纠错只对触屏有意义：物理键盘按键是精确的，不做邻键纠错。
             val geometry = letterNeighbors
-            service.rimeEngine.setNeighborMap(
-                if (hardwareEvent == null && geometry.first == service.uiState.value.currentSchemaId) geometry.second else "")
+            val neighborMap = if (hardwareEvent == null && geometry.first == service.uiState.value.currentSchemaId) geometry.second else ""
+            service.rimeEngine.setNeighborMap(neighborMap)
+            if (neighborMap.isEmpty()) {
+                spatialInput.clear()
+                SpatialTaps.clear()
+                service.rimeEngine.setSpatialMap("")
+            }
             // 设置页的候选开关（中英混输、繁体输出、时间日期、表情、符号名、生僻字）：设置一变已由
             // XimeInputMethodService 的设置监听立刻写进引擎；Rime 选项随会话重建而清零，按键前再补一次。
             // 只在变了时写，免得每键触发选项通知；九键数字键也走这里。
@@ -1233,6 +1260,7 @@ internal class ImeKeyRouter(internal val service: XimeInputMethodService) {
                                 commitHardwareLiteral(char)
                                 return@command
                             }
+                            publishSpatialTap(key)
                             val result = if (capitalsInRime) service.rimeEngine.processQueuedKeyAndGetResult(char.uppercase()[0].code, 0)
                                 else service.rimeEngine.processQueuedKeyAndGetResult(keyCode, mask)
                             if (result.processed) {
