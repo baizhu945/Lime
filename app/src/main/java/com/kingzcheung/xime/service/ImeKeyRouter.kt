@@ -1374,6 +1374,8 @@ internal class ImeKeyRouter(internal val service: XimeInputMethodService) {
                             inputText = capturedInputText,
                             candidates = filteredTexts,
                             candidateComments = filteredComments,
+                            correctedCandidates = if (capturedIsAscii) emptyMap() else displayCandidates
+                                .filter { it.correction.isNotEmpty() }.associate { it.text to it.correction },
                             isComposing = capturedInputText.isNotEmpty(),
                             associationCandidates = if (secret || ((capturedIsAscii || !service.isChineseMode) && pendingEnglish.isEmpty())) emptyList() else service.candidateState.value.associationCandidates,
                             isShowingRecentClipboard = false,

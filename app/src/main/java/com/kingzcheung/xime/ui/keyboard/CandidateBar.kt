@@ -916,23 +916,6 @@ internal fun candidatePrimaryTextStyle(
 internal val LocalLearnedCandidates = androidx.compose.runtime.compositionLocalOf<Set<String>> { emptySet() }
 internal val LocalCorrectedCandidates = androidx.compose.runtime.compositionLocalOf<Map<String, String>> { emptyMap() }
 
-private val CorrectionRed = Color(0xFFE53935)
-
-/** 纠错候选的拼音只显示改正后的读音（所打字母已在输入框里），改动的字母标红：补上的、换成的、对调的；多打的不再显示。 */
-internal fun correctionAnnotatedString(marks: String, plain: Color): androidx.compose.ui.text.AnnotatedString =
-    androidx.compose.ui.text.buildAnnotatedString {
-        val keep = androidx.compose.ui.text.SpanStyle(color = plain)
-        val changed = androidx.compose.ui.text.SpanStyle(color = CorrectionRed)
-        for (mark in com.kingzcheung.xime.rime.CorrectionMarks.parse(marks)) when (mark) {
-            is com.kingzcheung.xime.rime.CorrectionMark.Keep -> withStyle(keep) { append(mark.letter) }
-            is com.kingzcheung.xime.rime.CorrectionMark.Extra -> Unit
-            is com.kingzcheung.xime.rime.CorrectionMark.Missing -> withStyle(changed) { append(mark.letter) }
-            is com.kingzcheung.xime.rime.CorrectionMark.Replace -> withStyle(changed) { append(mark.correct) }
-            is com.kingzcheung.xime.rime.CorrectionMark.Swap -> withStyle(changed) { append(mark.correct) }
-            com.kingzcheung.xime.rime.CorrectionMark.Gap -> withStyle(keep) { append(' ') }
-        }
-    }
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CandidateItem(
@@ -953,7 +936,7 @@ fun CandidateItem(
     textShadow: androidx.compose.ui.graphics.Shadow? = null,
     /** 用户以前打过的词：文字右上角画一个小编辑图标。 */
     learned: Boolean = false,
-    /** 纠错来的候选：引擎给的逐音节纠正，代替拼音注释标出怎么改的。 */
+    /** 自动纠错来的候选。词后不再显示改正拼音，有这段时注释里的读音也不占位。 */
     correction: String = "",
     /** Shift 拖动指着别的候选时由候选栏统一画底色，这里先不画，保证只亮一个。 */
     selectionFill: Boolean = true,
@@ -1005,12 +988,11 @@ fun CandidateItem(
                     .testTag("candidate-learned:$index"),
             )
         }
-        if (correction.isNotEmpty() || comment.isNotEmpty()) {
+        if (correction.isEmpty() && comment.isNotEmpty()) {
             Spacer(modifier = Modifier.width(3.dp))
             val commentColor = if (isSelected) selectedTextColor.copy(alpha = if (opaqueComment) 1f else 0.6f) else textColor.copy(alpha = if (opaqueComment) 1f else 0.5f)
             Text(
-                text = if (correction.isNotEmpty()) correctionAnnotatedString(correction, commentColor)
-                    else androidx.compose.ui.text.AnnotatedString(comment),
+                text = androidx.compose.ui.text.AnnotatedString(comment),
                 modifier = Modifier.candidateBaseline(fontSize),
                 color = commentColor,
                 fontSize = (fontSize.value * 11f / 19f).sp,
@@ -1027,9 +1009,9 @@ fun CandidateItem(
 internal fun learnedMarkSize(fontSize: androidx.compose.ui.unit.TextUnit): androidx.compose.ui.unit.TextUnit =
     (fontSize.value * 0.45f).sp
 
-/** 候选后面那段小字：有纠错显示纠错，否则显示注释（和 [CandidateItem] 一致）。 */
+/** 候选后面那段小字。自动纠错不再附带改正拼音，宽度按没有这段来算（和 [CandidateItem] 一致）。 */
 internal fun candidateSecondaryText(comment: String, correction: String): AnnotatedString =
-    if (correction.isNotEmpty()) correctionAnnotatedString(correction, Color.Unspecified) else AnnotatedString(comment)
+    if (correction.isNotEmpty()) AnnotatedString("") else AnnotatedString(comment)
 
 /** 候选两侧的默认留白。 */
 internal val CANDIDATE_ITEM_PADDING = 4.dp
@@ -1376,7 +1358,8 @@ internal fun FixedCandidateStrip(
         val all = candidates + associations
         val focused = highlightIndex.takeIf { it in candidates.indices } ?: 0
         val viewport = remember(candidates, shownComments) { CandidateStripViewport() }
-        // 小图标、纠错和画出来的一样算进宽度，否则放不下的最后一个候选也算「显示了」，「下一项」移到它时被栏边切掉。
+        // 小图标和画出来的一样算进宽度，否则放不下的最后一个候选也算「显示了」，「下一项」移到它时被栏边切掉。
+        // 自动纠错的拼音不画，宽度里也不留。
         val learnedCandidates = LocalLearnedCandidates.current
         val correctedCandidates = LocalCorrectedCandidates.current
         val window = remember(viewport, all, shownComments, focused, fontSize, density, measurer, inheritedTextStyle, showNumberLabels, itemSpacing, itemPadding, constraints.maxWidth, AppFonts.candidateFontFamily, AppFonts.commentFontFamily, localGap, learnedCandidates, correctedCandidates) {
