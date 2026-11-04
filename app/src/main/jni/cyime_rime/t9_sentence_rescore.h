@@ -14,9 +14,10 @@ namespace rime {
 
 class Sentence;
 
-// Leaves one sentence in `sentences`: the word model's choice among Rime's n-best made without
-// corrected words, followed by Rime's best when that one is a correction. `sentence_graph` is the
-// word graph the n-best came from; without it no second n-best is made.
+// Leaves the chosen sentence first. Without a touch model that is the word model's choice among
+// Rime's n-best made without corrected words, followed by Rime's best when that one is a correction.
+// With a touch model the typed sentence stays first unless a spatially plausible slip beats it.
+// `sentence_graph` is the word graph the n-best came from; without it no second sentence is made.
 void T9RescoreSentences(const T9ScriptQuery& q, const T9NgramModel* ngram, bool ngram_sentence_start, Poet* poet,
                         const WordGraph* sentence_graph, int max_sentences, double cutoff,
                         const an<Sentence>& exact_sentence, const an<Sentence>& rime_best,

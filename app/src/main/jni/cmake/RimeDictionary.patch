@@ -1832,7 +1832,7 @@ index 459f31da..9ae464c0 100644
  
  }  // namespace rime
 diff --git a/src/rime/gear/script_translator.cc b/src/rime/gear/script_translator.cc
-index 99e45117..e2f69ac4 100644
+index 99e45117..f5341a33 100644
 --- a/src/rime/gear/script_translator.cc
 +++ b/src/rime/gear/script_translator.cc
 @@ -25,6 +25,12 @@
@@ -2381,17 +2381,24 @@ index 99e45117..e2f69ac4 100644
    };
  
    bool has_reliable_phrase =
-@@ -540,13 +859,20 @@ bool ScriptTranslation::Evaluate(Dictionary* dict, UserDictionary* user_dict) {
+@@ -540,13 +859,27 @@ bool ScriptTranslation::Evaluate(Dictionary* dict, UserDictionary* user_dict) {
        !is_correction_match(*user_phrase_iter_, consumed);
  
    bool has_at_least_two_syllables = syllable_graph.edges.size() >= 2;
 +  // A cheap touch correction that reads the whole input is the reading the measured touch
 +  // supports. Without this, a sentence reaching the same letters through an abbreviation
 +  // (xian + h→hao: 先好) is listed first, ahead of the corrected word the finger meant (想).
-+  const bool spatial_correction_phrase = syllabifier_->SpatialActive() && phrase_ &&
-+      phrase_iter_ != phrase_->rend() && phrase_iter_->first == consumed &&
-+      !phrase_iter_->second.exhausted() &&
-+      syllabifier_->IsCorrection(phrase_iter_->second.Peek()->code, consumed);
++  // A longer phrase only takes that place when the slip is almost between the two keys.
++  // Ordinary finger scatter on a long composition keeps the sentence of the typed letters.
++  bool spatial_correction_phrase = false;
++  if (syllabifier_->SpatialActive() && phrase_ && phrase_iter_ != phrase_->rend() &&
++      phrase_iter_->first == consumed && !phrase_iter_->second.exhausted() &&
++      syllabifier_->IsCorrection(phrase_iter_->second.Peek()->code, consumed)) {
++    double spatial_penalty = 0;
++    const bool cheap_whole = syllabifier_->CheapSpatial(
++        phrase_iter_->second.Peek()->code, consumed, 0, &spatial_penalty);
++    spatial_correction_phrase = cheap_whole && (consumed <= 8 || spatial_penalty > -0.75);
++  }
    DLOG(INFO) << "consumed: " << consumed
               << ", has_reliable_phrase: " << has_reliable_phrase
               << ", has_reliable_user_phrase: " << has_reliable_user_phrase
@@ -2403,7 +2410,7 @@ index 99e45117..e2f69ac4 100644
      if (max_sentences_ > 1)
        sentences_ = MakeSentences(dict, user_dict);
      else if (max_sentences_) {
-@@ -558,6 +884,42 @@ bool ScriptTranslation::Evaluate(Dictionary* dict, UserDictionary* user_dict) {
+@@ -558,6 +891,42 @@ bool ScriptTranslation::Evaluate(Dictionary* dict, UserDictionary* user_dict) {
      }
    }
  
@@ -2411,8 +2418,8 @@ index 99e45117..e2f69ac4 100644
 +  // A corrected learned phrase can win the general sentence beam even when
 +  // every typed syllable is valid. Reserve the original-spelling sentence;
 +  // keep corrected alternatives, so correction remains available for typos.
-+  // The typed-spelling sentence only keeps a reserved first place without a touch model; with one,
-+  // the word model plus the measured touch probabilities decide, wherever that sentence lands.
++  // Without a touch model that sentence stays first. With one, rescoring anchors on it
++  // and replaces it only for a plausible slip (t9_sentence_rescore.cc).
 +  if (exact_sentence_ && !syllabifier_->SpatialActive()) {
 +    sentences_.erase(std::remove_if(sentences_.begin(), sentences_.end(),
 +        [&](const auto& sentence) { return sentence->text() == exact_sentence_->text(); }),
@@ -2446,7 +2453,7 @@ index 99e45117..e2f69ac4 100644
    return !CheckEmpty();
  }
  
-@@ -672,6 +1034,11 @@ iter_incremented:
+@@ -672,6 +1041,11 @@ iter_incremented:
              bool user_is_correction = syllabifier_->IsCorrection(
                  uter.Peek()->code, phrase_code_length);
              if (user_is_correction) {
@@ -2458,7 +2465,7 @@ index 99e45117..e2f69ac4 100644
                // 因對糾錯候選施加了較大懲罰, 通常結果爲 系統原文 > 用戶糾錯
                // 兩者皆糾錯時, 用戶詞的動態權重有助達成 用戶糾錯 > 系統糾錯
                return uter.Peek()->weight >= iter.Peek()->weight;
-@@ -725,7 +1092,7 @@ iter_incremented:
+@@ -725,7 +1099,7 @@ iter_incremented:
  }
  
  bool ScriptTranslation::CheckEmpty() {
@@ -2467,7 +2474,7 @@ index 99e45117..e2f69ac4 100644
                  (!user_phrase_ || user_phrase_iter_ == user_phrase_->rend()));
    return exhausted();
  }
-@@ -733,15 +1100,56 @@ bool ScriptTranslation::CheckEmpty() {
+@@ -733,15 +1107,56 @@ bool ScriptTranslation::CheckEmpty() {
  template <class QueryResult>
  void ScriptTranslation::EnrollEntries(
      map<int, DictEntryList>& entries_by_end_pos,
@@ -2526,7 +2533,7 @@ index 99e45117..e2f69ac4 100644
        }
      }
    }
-@@ -761,16 +1169,66 @@ static bool has_completion_edge(const SyllableGraph& graph) {
+@@ -761,16 +1176,66 @@ static bool has_completion_edge(const SyllableGraph& graph) {
  }
  
  // 九键输入特征：纯数字串（用于限定增量回退诊断日志的输出范围）
@@ -2595,7 +2602,7 @@ index 99e45117..e2f69ac4 100644
  bool ScriptTranslator::TryBeginIncremental(const string& input,
                                             UserDictionary* user_dict,
                                             size_t* old_interpreted) {
-@@ -806,7 +1264,7 @@ bool ScriptTranslator::TryBeginIncremental(const string& input,
+@@ -806,7 +1271,7 @@ bool ScriptTranslator::TryBeginIncremental(const string& input,
    if (miss) {
      // 仅诊断九键场景的回退（字母输入每键都会 miss，不打扰）；
      // glog 不进 logcat，用 android log 直出（tag 与 [TIMING] 一致）
@@ -2604,7 +2611,7 @@ index 99e45117..e2f69ac4 100644
        T9_INC_LOG("T9 incremental MISS (%s): '%s'", miss, input.c_str());
      return false;
    }
-@@ -841,6 +1299,34 @@ void ScriptTranslator::CommitIncremental(const string& input,
+@@ -841,6 +1306,34 @@ void ScriptTranslator::CommitIncremental(const string& input,
      inc->lattice.reset();
  }
  
@@ -2639,7 +2646,7 @@ index 99e45117..e2f69ac4 100644
  an<Sentence> ScriptTranslation::MakeSentence(Dictionary* dict,
                                               UserDictionary* user_dict) {
    const auto& syllable_graph = syllabifier_->syllable_graph();
-@@ -851,10 +1337,11 @@ an<Sentence> ScriptTranslation::MakeSentence(Dictionary* dict,
+@@ -851,10 +1344,11 @@ an<Sentence> ScriptTranslation::MakeSentence(Dictionary* dict,
    auto* inc = translator_->incremental_state();
    size_t old_interpreted = 0;
    const bool use_incremental =
@@ -2653,7 +2660,7 @@ index 99e45117..e2f69ac4 100644
  
    if (use_incremental) {
      DLOG(INFO) << "T9 incremental MakeSentence: " << old_interpreted
-@@ -883,6 +1370,7 @@ an<Sentence> ScriptTranslation::MakeSentence(Dictionary* dict,
+@@ -883,6 +1377,7 @@ an<Sentence> ScriptTranslation::MakeSentence(Dictionary* dict,
    }
  
    WordGraph graph = PrepareForMakingSentence(dict, user_dict);
@@ -2661,7 +2668,7 @@ index 99e45117..e2f69ac4 100644
    an<Sentence> sentence;
    if (inc) {
      if (cacheable) {
-@@ -915,10 +1403,11 @@ deque<an<Sentence>> ScriptTranslation::MakeSentences(
+@@ -915,10 +1410,11 @@ deque<an<Sentence>> ScriptTranslation::MakeSentences(
    auto* inc = translator_->incremental_state();
    size_t old_interpreted = 0;
    const bool use_incremental =
@@ -2675,7 +2682,7 @@ index 99e45117..e2f69ac4 100644
  
    if (use_incremental) {
      // 多句 Poet 算法的 states 列表没有增量接口，但它在缓存图上整体
-@@ -929,6 +1418,7 @@ deque<an<Sentence>> ScriptTranslation::MakeSentences(
+@@ -929,6 +1425,7 @@ deque<an<Sentence>> ScriptTranslation::MakeSentences(
      auto sentences = poet_->MakeSentences(
          inc->graph, interpreted, preceding,
          max_sentences_, sentence_cutoff_threshold_);
@@ -2683,7 +2690,7 @@ index 99e45117..e2f69ac4 100644
      for (auto& sentence : sentences) {
        sentence->Offset(start_);
        sentence->set_syllabifier(syllabifier_);
-@@ -939,6 +1429,7 @@ deque<an<Sentence>> ScriptTranslation::MakeSentences(
+@@ -939,6 +1436,7 @@ deque<an<Sentence>> ScriptTranslation::MakeSentences(
    }
  
    WordGraph graph = PrepareForMakingSentence(dict, user_dict);
@@ -2691,7 +2698,7 @@ index 99e45117..e2f69ac4 100644
    if (inc && cacheable)
      inc->graph = std::move(graph);
    if (inc)
-@@ -947,6 +1438,12 @@ deque<an<Sentence>> ScriptTranslation::MakeSentences(
+@@ -947,6 +1445,12 @@ deque<an<Sentence>> ScriptTranslation::MakeSentences(
    auto sentences = poet_->MakeSentences(
        inc && cacheable ? inc->graph : graph, interpreted, preceding,
        max_sentences_, sentence_cutoff_threshold_);
@@ -2704,7 +2711,7 @@ index 99e45117..e2f69ac4 100644
    for (auto& sentence : sentences) {
      sentence->Offset(start_);
      sentence->set_syllabifier(syllabifier_);
-@@ -1011,24 +1508,42 @@ WordGraph ScriptTranslation::PrepareForMakingSentence(
+@@ -1011,24 +1515,42 @@ WordGraph ScriptTranslation::PrepareForMakingSentence(
      UserDictionary* user_dict) {
    const int kMaxSyllablesForUserPhraseQuery = 5;
    const auto& syllable_graph = syllabifier_->syllable_graph();
