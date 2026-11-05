@@ -1492,7 +1492,9 @@ Java_com_kingzcheung_xime_rime_RimeEngine_nativeInitialize(
     jstring shared_data_dir
 ) {
     const char* user_dir = env->GetStringUTFChars(user_data_dir, nullptr);
+    if (!user_dir) return;
     const char* shared_dir = env->GetStringUTFChars(shared_data_dir, nullptr);
+    if (!shared_dir) { env->ReleaseStringUTFChars(user_data_dir, user_dir); return; }
     
     LOGI("Initializing Rime engine with user_dir=%s, shared_dir=%s", user_dir, shared_dir);
     Rime::Instance().startup(user_dir, shared_dir);
@@ -2131,6 +2133,7 @@ Java_com_kingzcheung_xime_rime_RimeEngine_nativeSwitchSchema(
     jstring schema_id
 ) {
     const char* schema = env->GetStringUTFChars(schema_id, nullptr);
+    if (!schema) return JNI_FALSE;
     bool result = Rime::Instance().switchSchema(schema);
     env->ReleaseStringUTFChars(schema_id, schema);
     return result ? JNI_TRUE : JNI_FALSE;
@@ -2452,6 +2455,7 @@ Java_com_kingzcheung_xime_rime_RimeEngine_nativeEnsureT9SchemaPatches(
     jstring schema_id
 ) {
     const char* schema = env->GetStringUTFChars(schema_id, nullptr);
+    if (!schema) return JNI_FALSE;
     jboolean result = DoEnsureT9SchemaPatches(env, schema,
         Rime::Instance().get_user_data_dir(),
         Rime::Instance().get_shared_data_dir());

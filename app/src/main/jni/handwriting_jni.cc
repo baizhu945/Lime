@@ -131,6 +131,7 @@ Java_com_kingzcheung_xime_handwriting_HandwritingNativeEngine_nativeInitialize(
     }
 
     const char* modelPathStr = env->GetStringUTFChars(model_path, nullptr);
+    if (!modelPathStr) return JNI_FALSE;
     LOGI("Initializing Handwriting ONNX model: %s", modelPathStr);
 
     OrtStatus* status = nullptr;
@@ -209,10 +210,18 @@ Java_com_kingzcheung_xime_handwriting_HandwritingNativeEngine_nativePredict(
     if (top_k <= 0) top_k = 10;
 
     jsize stroke_len = env->GetArrayLength(stroke_data);
-    jfloat* stroke_elems = env->GetFloatArrayElements(stroke_data, nullptr);
-
     jsize mask_len = env->GetArrayLength(mask_data);
+    if (stroke_len != FIXED_LEN * FEAT_DIM || mask_len != FIXED_LEN) {
+        LOGE("Invalid stroke/mask len: %d/%d", stroke_len, mask_len);
+        return nullptr;
+    }
+    jfloat* stroke_elems = env->GetFloatArrayElements(stroke_data, nullptr);
     jbyte* mask_elems = env->GetByteArrayElements(mask_data, nullptr);
+    if (!stroke_elems || !mask_elems) {
+        if (stroke_elems) env->ReleaseFloatArrayElements(stroke_data, stroke_elems, JNI_ABORT);
+        if (mask_elems) env->ReleaseByteArrayElements(mask_data, mask_elems, JNI_ABORT);
+        return nullptr;
+    }
 
     int64_t input_shape[3] = {1, FIXED_LEN, FEAT_DIM};
     int64_t mask_shape[2] = {1, FIXED_LEN};

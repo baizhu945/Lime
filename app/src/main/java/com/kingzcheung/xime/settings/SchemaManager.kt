@@ -94,7 +94,7 @@ object SchemaManager {
     private const val TAG = "SchemaManager"
     internal const val ASSET_INSTALL_MARKER = ".cyime-assets-installing"
     private const val CUSTOM_YAML = "default.custom.yaml"
-    internal val yaml = Yaml(configuration = YamlConfiguration(strictMode = false, anchorsAndAliases = com.charleskorn.kaml.AnchorsAndAliases.Permitted(maxAliasCount = UInt.MAX_VALUE)))
+    internal val yaml = Yaml(configuration = YamlConfiguration(strictMode = false, anchorsAndAliases = com.charleskorn.kaml.AnchorsAndAliases.Permitted(maxAliasCount = 1000u)))
 
     const val SCRIPT_APPROVAL = "这个方案包含脚本。脚本会在输入法进程里运行并可以读写文件，确认后才会安装。"
 
@@ -1384,6 +1384,10 @@ object SchemaManager {
         archiveName: String? = null,
         onProgress: (Long, Long) -> Unit = { _, _ -> },
     ): Boolean = withContext(Dispatchers.IO) {
+        if (expectedSha256.isNullOrBlank()) {
+            Log.e(TAG, "Remote import rejected: missing sha256: $url")
+            return@withContext false
+        }
         try {
             val fileName = archiveName ?: url.substringAfterLast("/").takeIf { it.isNotBlank() }
                 ?: "download"

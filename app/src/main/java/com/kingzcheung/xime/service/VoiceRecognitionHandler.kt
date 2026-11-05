@@ -269,7 +269,7 @@ class VoiceRecognitionHandler(
         }
         val ic = getInputConnection()
         val partial = lastPartialText
-        Log.d(TAG, "commitPendingOnRelease: ic=${ic != null}, partial='$partial', suppress=$suppressDuplicateFinal")
+        if (android.util.Log.isLoggable(TAG, android.util.Log.DEBUG)) Log.d(TAG, "commitPendingOnRelease: ic=${ic != null}, partial_len=${partial.length}, suppress=$suppressDuplicateFinal")
         if (ic == null) return
         if (partial.isEmpty()) return
         val finalText = partial
@@ -326,7 +326,7 @@ class VoiceRecognitionHandler(
 
     private fun handleSpeechResult(text: String) {
         if (!acceptsInputSession()) return
-        Log.d(TAG, "Speech result (final): $text")
+        if (android.util.Log.isLoggable(TAG, android.util.Log.DEBUG)) Log.d(TAG, "Speech result (final): len=${text.length}")
 
         if (toolbarSession && (sessionAbandoned || suppressDuplicateFinal)) return
         val wasFinishing = finishing
@@ -410,7 +410,7 @@ class VoiceRecognitionHandler(
             }
             ic.commitText(finalText, 1)
         }
-        Log.d(TAG, "commitFinal: final='$finalText', partial='$partial'")
+        if (android.util.Log.isLoggable(TAG, android.util.Log.DEBUG)) Log.d(TAG, "commitFinal: final_len=${finalText.length}, partial_len=${partial.length}")
     }
     
     // 引擎逐句返回时，只在下一句真正开始后插入一个分隔空格；句尾不留空格。
@@ -439,7 +439,7 @@ class VoiceRecognitionHandler(
         val cleanText = (normalizationLanguage ?: getState().inputProfile.language).let { normalizeVoiceText(text, it, keepVoiceMarks(inputLanguage ?: it), voiceMarks()) }
         if (cleanText == lastPartialText) return
         lastPartialText = cleanText
-        Log.d(TAG, "Speech result (partial): $cleanText")
+        if (android.util.Log.isLoggable(TAG, android.util.Log.DEBUG)) Log.d(TAG, "Speech result (partial): len=${cleanText.length}")
 
         val ic = getInputConnection()
         if (ic != null) {

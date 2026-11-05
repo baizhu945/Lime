@@ -14,6 +14,7 @@ internal class InputStallWatchdog(
     private val worker: () -> Thread?,
 ) {
     private var job: Job? = null
+    @Volatile private var lastReportedAt = 0L
 
     fun start() {
         if (job?.isActive == true) return
@@ -22,12 +23,12 @@ internal class InputStallWatchdog(
                 val answered = AtomicBoolean()
                 val requested = SystemClock.uptimeMillis()
                 if (!main.post { answered.set(true) }) break
-                var reported = false
                 while (isActive && !answered.get()) {
                     delay(250)
                     val elapsed = SystemClock.uptimeMillis() - requested
-                    if (!answered.get() && !reported && elapsed >= 1000) {
-                        reported = true
+                    val now = SystemClock.uptimeMillis()
+                    if (!answered.get() && elapsed >= 1000 && now - lastReportedAt >= 10_000) {
+                        lastReportedAt = now
                         fun stack(thread: Thread?) = thread?.stackTrace?.take(24)?.joinToString("\n") ?: "unavailable"
                         FileLogger.w("InputLatency", "main_unresponsive_ms=$elapsed\nmain:\n${stack(Looper.getMainLooper().thread)}\ninput_worker:\n${stack(worker())}")
                     }

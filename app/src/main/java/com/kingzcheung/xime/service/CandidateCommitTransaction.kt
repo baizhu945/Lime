@@ -6,8 +6,13 @@ internal suspend fun PendingCandidateCommit.deliver(
     rejected: suspend (PendingCandidateCommit) -> Unit,
     accepted: suspend (PendingCandidateCommit) -> Unit,
 ): TextCommitResult {
-    check(InputCommandOwner.requireOwner() === owner) { "Commit must retain its original command owner" }
-    owner.validate()
+    if (InputCommandOwner.current.get() !== owner) {
+        com.kingzcheung.xime.util.FileLogger.w("CandidateCommit", "deliver skipped: owner mismatch")
+        return TextCommitResult.REJECTED
+    }
+    try { owner.validate() } catch (c: kotlinx.coroutines.CancellationException) { throw c } catch (_: Exception) {
+        return TextCommitResult.REJECTED
+    }
     val result = submit(text)
     if (result.accepted) accepted(this) else rejected(this)
     return result

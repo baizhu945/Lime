@@ -222,6 +222,6 @@ internal class CandidateTransformCoordinator(private val service: XimeInputMetho
      *  isLoggable 未开启时立即返回（唯一开销是一次 int 读+比较，~1ns）。 */
     private fun logTransform(mode: String, pluginId: String?, input: String, state: String, count: Int) {
         if (!Log.isLoggable(XimeInputMethodService.TAG, Log.DEBUG)) return
-        Log.d(XimeInputMethodService.TAG, "candidate_transform[$mode] plugin=$pluginId input='$input' $state=$count")
+        Log.d(XimeInputMethodService.TAG, "candidate_transform[$mode] plugin=$pluginId input_len=${input.length} $state=$count")
     }
 }

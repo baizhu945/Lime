@@ -272,6 +272,9 @@ class XimeInputMethodService : InputMethodService(), LifecycleOwner, SavedStateR
             }
         }, reportFailure = { failure ->
             FileLogger.e("InputLifecycle", "Input action failed; subsequent input remains active", failure)
+        }, onPersistentFailure = {
+            FileLogger.e("InputLifecycle", "Input engine persistent failure: entering passthrough mode (letters direct)")
+            try { android.widget.Toast.makeText(this@XimeInputMethodService, "输入引擎异常，已切换直通模式", android.widget.Toast.LENGTH_LONG).show() } catch (_: Exception) {}
         }, reportSample = { sample ->
             // 按动作类别分别给分位数，区分按键解码、选词、停顿重排与主线程等待；不记按键内容。
             inputLatencyByKind.record(sample)?.let { s ->

@@ -68,18 +68,18 @@ class SpatialCostsTest {
 
     @Test fun encodeKeepsOneFieldPerCharacter() {
         val records = listOf(emptyMap(), emptyMap(), mapOf('g' to -0.4f, 'n' to -2.1f))
-        assertEquals(";;g=-0.40,n=-2.10", SpatialCosts.encode(records))
+        assertEquals(";;g=-0.4000,n=-2.1000", SpatialCosts.encode(records))
         assertEquals("", SpatialCosts.encode(listOf(emptyMap(), emptyMap())))
     }
 
     @Test fun logAdoptsThePredictedSpellingAndRebuildsAfterAShorterOne() {
         val log = SpatialInputLog()
-        assertEquals("g=-0.40", log.beforeAppend('h', mapOf('g' to -0.4f)))
-        assertEquals("g=-0.40", log.afterInput("h"))
+        assertEquals("g=-0.4000", log.beforeAppend('h', mapOf('g' to -0.4f)))
+        assertEquals("g=-0.4000", log.afterInput("h"))
         // Backspace (no touch prediction) trims the records with the spelling.
         assertEquals("", log.afterInput(""))
-        assertEquals("n=-1.20", log.beforeAppend('h', mapOf('n' to -1.2f)))
-        assertEquals("n=-1.20", log.afterInput("h"))
+        assertEquals("n=-1.2000", log.beforeAppend('h', mapOf('n' to -1.2f)))
+        assertEquals("n=-1.2000", log.afterInput("h"))
         assertEquals("", log.afterInput(""))
     }
 
@@ -88,7 +88,7 @@ class SpatialCostsTest {
         assertEquals("", log.beforeAppend('k', emptyMap()))
         assertEquals("", log.afterInput("k"))
         // Japanese romaji: the second k becomes っ, so the input is longer than the typed letters.
-        assertEquals(";g=-0.40", log.beforeAppend('k', mapOf('g' to -0.4f)))
+        assertEquals(";g=-0.4000", log.beforeAppend('k', mapOf('g' to -0.4f)))
         assertEquals("", log.afterInput("xtsuk"))
         // The rest of the composition keeps Rime's word model alone.
         assertEquals("", log.beforeAppend('o', mapOf('l' to -0.4f)))

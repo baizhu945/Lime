@@ -39,7 +39,12 @@ JNIEXPORT jobjectArray JNICALL Java_im_cyime_cylm_CylmNative_decode2(JNIEnv* env
   std::vector<char> buf(32768);
   int n = cylm_decode2(reinterpret_cast<CylmSession*>(session), k.c_str(), mode, c.c_str(), buf.data(), int(buf.size()));
   jclass str = env->FindClass("java/lang/String");
+  if (!str) return nullptr;
+  env->DeleteLocalRef(str);
+  str = env->FindClass("java/lang/String");
+  if (!str) return nullptr;
   jobjectArray out = env->NewObjectArray(n > 0 ? n : 0, str, nullptr);
+  if (!out) { env->DeleteLocalRef(str); return nullptr; }
   const char* q = buf.data();
   for (int i = 0; i < n; ++i) {
     jstring s = env->NewStringUTF(q);
@@ -60,7 +65,12 @@ JNIEXPORT jobjectArray JNICALL Java_im_cyime_cylm_CylmNative_decode(JNIEnv* env,
   std::vector<char> buf(16384);
   int n = cylm_decode(reinterpret_cast<CylmSession*>(session), k.c_str(), mode, c.c_str(), buf.data(), int(buf.size()));
   jclass str = env->FindClass("java/lang/String");
+  if (!str) return nullptr;
+  env->DeleteLocalRef(str);
+  str = env->FindClass("java/lang/String");
+  if (!str) return nullptr;
   jobjectArray out = env->NewObjectArray(n > 0 ? n : 0, str, nullptr);
+  if (!out) { env->DeleteLocalRef(str); return nullptr; }
   const char* p = buf.data();
   for (int i = 0; i < n; ++i) {
     jstring s = env->NewStringUTF(p);

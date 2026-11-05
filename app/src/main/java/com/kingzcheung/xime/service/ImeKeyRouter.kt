@@ -478,6 +478,11 @@ internal class ImeKeyRouter(internal val service: XimeInputMethodService) {
             "Only a direct Main input entry may create command ownership"
         }
         val admission = service.inputReadiness.ticket() ?: return
+        // 持久引擎失败时直通：字母/数字直接上屏保命，避免假死。
+        if (service.inputCommands.passthroughMode && key.length == 1 && key[0].isLetterOrDigit()) {
+            service.currentInputConnection?.commitText(key, 1)
+            return
+        }
         // 实体键盘 Tab：手写板上还没确认的字先排队上屏，再处理 Tab（否则 Tab 换了输入框，这些字就丢了）
         if (hardwareEvent?.keyCode == KeyEvent.KEYCODE_TAB) service.keyboardViewModel.confirmPendingHandwriting?.invoke()
         commandOwner(admission).runInline { routeKeyPress(key, isShifted, hardwarePageDirection, languageSwitchMode, hardwareEvent, mergedKey) }

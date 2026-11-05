@@ -109,7 +109,10 @@ Java_com_kingzcheung_xime_association_NativeOnnxEngine_nativeInitVocab(
     std::lock_guard<std::mutex> lock(g_onnx_mutex);
 
     jsize len = env->GetArrayLength(keys);
+    jsize val_len = env->GetArrayLength(values);
+    if (len != val_len || len <= 0 || len > 500000) return;
     jint* val_arr = env->GetIntArrayElements(values, nullptr);
+    if (!val_arr) return;
 
     g_vocab.clear();
     g_vocab.reserve(len);
@@ -117,7 +120,9 @@ Java_com_kingzcheung_xime_association_NativeOnnxEngine_nativeInitVocab(
     int64_t max_id = 0;
     for (jsize i = 0; i < len; i++) {
         jstring jkey = static_cast<jstring>(env->GetObjectArrayElement(keys, i));
+        if (!jkey) continue;
         const char* key_str = env->GetStringUTFChars(jkey, nullptr);
+        if (!key_str) { env->DeleteLocalRef(jkey); continue; }
         int64_t id = val_arr[i];
         g_vocab[key_str] = id;
         if (id > max_id) max_id = id;

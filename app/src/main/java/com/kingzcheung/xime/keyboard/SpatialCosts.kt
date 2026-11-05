@@ -68,7 +68,10 @@ object SpatialCosts {
             val gapX = ((key.x + key.width / 2f) - (origin.x + origin.width / 2f)) / ((origin.width + key.width) / 2f)
             val gapY = ((key.y + key.height / 2f) - (origin.y + origin.height / 2f)) / ((origin.height + key.height) / 2f)
             if (hypot(gapX, gapY) !in 0.01f..NEIGHBOR_LIMIT) continue
-            val relative = logDensity(touchX, touchY, key, sigma) - typed
+            val neighbor = logDensity(touchX, touchY, key, sigma)
+            if (!neighbor.isFinite()) continue
+            val relative = neighbor - typed
+            if (!relative.isFinite()) continue
             out[letter] = max(relative, -cap).coerceAtMost(0f)
         }
         return out
@@ -126,7 +129,7 @@ object SpatialCosts {
         if (records.isEmpty() || records.all { it.isEmpty() }) return ""
         return records.joinToString(";") { tap ->
             tap.entries.sortedBy { it.key }.joinToString(",") { (letter, cost) ->
-                String.format(Locale.US, "%c=%.2f", letter, cost)
+                String.format(Locale.US, "%c=%.4f", letter, cost)
             }
         }
     }

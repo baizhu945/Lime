@@ -23,7 +23,21 @@ class InputCommandQueue(
     private val nanoTime: () -> Long = System::nanoTime,
     private val reportFailure: ((Throwable) -> Unit)? = null,
     private val reportSample: (InputCommandSample) -> Unit = {},
+    private val onPersistentFailure: (() -> Unit)? = null,
 ) : AutoCloseable {
+    private val consecutiveFailures = java.util.concurrent.atomic.AtomicInteger(0)
+    @Volatile var passthroughMode = false; private set
+    val consecutiveFailureCount: Int get() = consecutiveFailures.get()
+    private fun recordSuccess() { if (consecutiveFailures.getAndSet(0) > 0 && passthroughMode) passthroughMode = false }
+    private fun recordFailure(failure: Throwable) {
+        val n = consecutiveFailures.incrementAndGet()
+        val report = reportFailure ?: throw failure
+        report(failure)
+        if (n >= 3 && !passthroughMode) {
+            passthroughMode = true
+            runCatching { onPersistentFailure?.invoke() }
+        }
+    }
     private val lifetime = SupervisorJob(parent.coroutineContext[Job])
     private val scope = CoroutineScope(parent.coroutineContext + lifetime + dispatcher)
     private data class Entry(val turn: CompletableDeferred<Unit>, val job: Job)
@@ -62,12 +76,9 @@ class InputCommandQueue(
         val meter = LongArray(1)
         val job = scope.launch(context + current.asContextElement(this) + EngineTimeMeter.current.asContextElement(meter)) {
             turn.await()
-            try { measured(enqueued, kind, meter) { block() } }
+            try { measured(enqueued, kind, meter) { block() }; recordSuccess() }
             catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) {
-                val report = reportFailure ?: throw failure
-                report(failure)
-            }
+            catch (failure: Exception) { recordFailure(failure) }
         }
         enqueue(turn, job)
         return job
