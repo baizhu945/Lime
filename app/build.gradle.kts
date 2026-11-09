@@ -343,7 +343,7 @@ dependencies {
     testImplementation("org.mockito:mockito-core:5.24.0")
     testImplementation("org.mockito.kotlin:mockito-kotlin:6.3.0")
     // JVM 单测使用真实 org.json 实现（android.jar 内为抛异常的 stub）
-    testImplementation("org.json:json:20240303")
+    testImplementation("org.json:json:20260814")
     // 在电脑上用真实 Compose 代码渲染界面截图（Robolectric 原生绘制），不用模拟器。
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation(libs.androidx.junit)
