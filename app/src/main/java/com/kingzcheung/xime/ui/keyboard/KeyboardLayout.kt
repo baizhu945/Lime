@@ -132,20 +132,10 @@ fun KeyboardLayout(
         uiState.inputProfile.scheme, uiState.inputProfile.language, uiState.isVoiceMode,
         letterLayout, controlPrefs.splitKeyboardEnabled, controlPrefs.qwertyCommaKey,
     ) {
-        configuredControlRow(
-            layout = KeysConfigHelper.getRowsLayout(isAsciiMode),
-            eligible = letterLayout == null && !controlPrefs.splitKeyboardEnabled &&
-                controlPrefs.qwertyCommaKey &&
-                // Xime 的控制行没有单独的句号键：句号在逗号键的上滑/长按里，故不受句号键开关限制。
-                (uiState.inputProfile.layout == com.kingzcheung.xime.settings.InputLayout.QWERTY ||
-                    uiState.inputProfile.layout.id == "qwerty_japanese") &&
-                uiState.inputProfile.scheme in setOf(com.kingzcheung.xime.settings.InputScheme.PINYIN,
-                    com.kingzcheung.xime.settings.InputScheme.DIRECT,
-                    com.kingzcheung.xime.settings.InputScheme.ROMAJI) &&
-                uiState.inputProfile.language in setOf(com.kingzcheung.xime.settings.InputLanguage.CHINESE,
-                    com.kingzcheung.xime.settings.InputLanguage.ENGLISH,
-                    com.kingzcheung.xime.settings.InputLanguage.JAPANESE) &&
-                !uiState.isVoiceMode,
+        resolveTypingConfiguredControlRow(
+            layout = KeysConfigHelper.getRowsLayout(isAsciiMode), profile = uiState.inputProfile,
+            customLetters = letterLayout != null, split = controlPrefs.splitKeyboardEnabled,
+            comma = controlPrefs.qwertyCommaKey, voice = uiState.isVoiceMode,
             bindings = { KeysConfigHelper.getKeyGesture(it, isAsciiMode) },
         )
     }
@@ -994,7 +984,8 @@ fun KeyboardLayout(
                     // 底排保留共用权重及逗号/地球等宽；宽屏实体字母错位不移动底排。
                     // 注音的底排同 26 键的比例（首行 11 键不是旧式布局）。
                     val bottom = letterKeyboardBottomRow(keyRows, fourteenKey || zhuyin)
-                    // 空格左侧逗号、右侧句号；只开逗号时沿用原配置的逗号键。
+                    // 标准 ?123 底排在逗号旁显示句号；旧双模式键布局仍在空格右侧。
+                    // 只开逗号时沿用同宽度句号副键，两个开关和标点提交策略共用。
                     val bottomPrefs = LocalKeyboardInputPreferences.current
                     val commaOnLeft = bottomPrefs.qwertyCommaKey
                     val periodOnRight = bottomPrefs.qwertyPeriodKey
@@ -1042,21 +1033,21 @@ fun KeyboardLayout(
                         }
                     // 配置控制行只接管已验证可完整复用现有交互的子集。
                     if (configuredRow != null && leftPunctuation != null) {
+                        val footer = configuredFooterWeights(bottom, rightPunctuation != null) {
+                            KeysConfigHelper.getKeyGesture(it, isAsciiMode)
+                        }
                         Row(Modifier.fillMaxWidth().weight(1f).testTag("configured-control-row")) {
                             configuredRow.controls.forEach { id -> androidx.compose.runtime.key(id) {
-                                val bindingWidth = KeysConfigHelper.getKeyGesture(id, isAsciiMode)?.width
-                                // The merged ?123 replaces two mode slots. The configured width is
-                                // one slot (default 1.2), so span both slots instead of shrinking to one.
-                                val weight = if (id == "mode_change") (bindingWidth ?: bottom.mode) * 2f
-                                else bindingWidth ?: when (id) {
-                                    "comma" -> bottom.punctuation
-                                    "space" -> bottomSpaceWeight
-                                    "earth" -> bottom.language
-                                    else -> bottom.enter
+                                val weight = when (id) {
+                                    "mode_change" -> footer.mode
+                                    "comma" -> footer.comma
+                                    "space" -> footer.space
+                                    "earth" -> footer.language
+                                    else -> footer.enter
                                 }
                                 when (id) {
                                     // Xime 外观：一颗 ?123；点按进上次的页面，长按选“数字”“常用符号”。
-                                    // 总权重和原来两个键一样（分别是 weight / 2f），Ctrl 拖选也还在同一颗键上。
+                                    // 句号只从模式键原总宽度借位；其余底排按键的权重不变，Ctrl 拖选仍保留。
                                     "mode_change" -> XimeModeKey(
                                         onKeyPress = onKeyPress,
                                         backgroundColor = specialKeyBackgroundColor, textColor = specialKeyTextColor,
@@ -1067,7 +1058,11 @@ fun KeyboardLayout(
                                             com.kingzcheung.xime.keyboard.CtrlShortcuts.command(letter)) },
                                         onSwipeStateChange = { state, bounds -> processSwipeState(state, bounds) },
                                     )
-                                    "comma" -> PunctuationKey(leftPunctuation, "qwerty-punctuation-key", leftSplit, weight)
+                                    "comma" -> {
+                                        PunctuationKey(leftPunctuation, "qwerty-punctuation-key", leftSplit, weight)
+                                        if (rightPunctuation != null) PunctuationKey(rightPunctuation,
+                                            "qwerty-period-key", rightSplit, footer.period)
+                                    }
                                     "space" -> SpaceKey(
                                         schemaName = schemaName, isAsciiMode = isAsciiMode, isSttEnabled = isSttEnabled,
                                         isVoiceMode = isVoiceMode, voiceSticky = isVoiceSticky,

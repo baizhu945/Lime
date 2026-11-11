@@ -20,12 +20,13 @@ internal fun candidateQwertyGeometry(
     fourteenKey: Boolean,
     custom: Boolean,
     split: Boolean,
+    configuredFooter: ConfiguredFooterWeights? = null,
 ): CandidateQwertyGeometry {
     val columns = letterKeyboardColumns(rows, fourteenKey)
     val bottom = letterKeyboardBottomRow(rows, fourteenKey)
-    val right = bottom.enter / bottom.total
+    val right = configuredFooter?.let { it.enter / it.total } ?: (bottom.enter / bottom.total)
     return CandidateQwertyGeometry(columns, split,
-        modeFraction = bottom.mode / bottom.total,
+        modeFraction = configuredFooter?.let { it.mode / it.total } ?: (bottom.mode / bottom.total),
         deleteFraction = right,
         enterFraction = right)
 }
