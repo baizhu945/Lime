@@ -353,7 +353,7 @@ dependencies {
     // JVM 单测使用真实 org.json 实现（android.jar 内为抛异常的 stub）
     testImplementation("org.json:json:20260814")
     // 在电脑上用真实 Compose 代码渲染界面截图（Robolectric 原生绘制），不用模拟器。
-    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("org.robolectric:robolectric:4.17")
     testImplementation(libs.androidx.junit)
     testImplementation(platform(libs.androidx.compose.bom))
     testImplementation(libs.androidx.compose.ui.test.junit4)
