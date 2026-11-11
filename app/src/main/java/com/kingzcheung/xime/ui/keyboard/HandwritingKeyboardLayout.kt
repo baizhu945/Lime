@@ -307,8 +307,8 @@ fun HandwritingKeyboardLayout(
         val ascii = language == InputLanguage.ENGLISH
         fun configuredWeight(id: String, fallback: Float) =
             KeysConfigHelper.getKeyGesture(id, ascii)?.width ?: fallback
-        // The handwriting footer mirrors QWERTY's bottom row, including user-adjusted
-        // bindings. The merged ?123 occupies the two slots the old symbol/number keys had.
+        // Keep handwriting's original symbol/number controls and user-adjusted widths.
+        // The main ?123 footer can redistribute its mode/comma/period slots independently.
         val modeWeight = configuredWeight("mode_change", bottom.mode) * 2f
         val symbolWeight = modeWeight / 2f
         val numberWeight = modeWeight / 2f
@@ -419,8 +419,8 @@ fun HandwritingKeyboardLayout(
             }
             Row(Modifier.fillMaxWidth().height(footerHeight).background(functionRowBackground)
                 .testTag("handwriting-bottom-row")) {
-                // The expand control occupies QWERTY's punctuation slot, so every
-                // bottom-row boundary stays in place when switching input modes.
+                // Retain the original punctuation-slot footprint for the expand control;
+                // adding a period to the main keyboard must not narrow handwriting controls.
                 val keys = listOf("symbol" to symbolWeight, "number" to numberWeight,
                     (if (expanded) "collapse" else "expand") to expandWeight,
                     "space" to spaceWeight, "ime_switch" to languageWeight, "enter" to enterWeight)

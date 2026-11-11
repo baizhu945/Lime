@@ -60,13 +60,16 @@ class HandwritingPanelGeometryTest {
                     }
                     return rule.onNodeWithTag(tag, true).fetchSemanticsNode().boundsInRoot
                 }
-                // The Xime configured row uses one ?123 key in place of the legacy two
-                // mode slots; both must line up with handwriting's symbol+number area.
+                // Handwriting retains its original symbol+number area. With the new period
+                // footer, ?123 + comma occupy that area and period occupies the old comma slot.
                 val configuredMode = rule.onAllNodesWithTag("configured-mode-key", true)
                     .fetchSemanticsNodes().isNotEmpty()
                 val modeReference = if (configuredMode) bounds("configured-mode-key") else bounds("mode-slot-1")
-                val secondModeReference = if (configuredMode) modeReference else bounds("mode-slot-2")
-                val punctuationReference = bounds("qwerty-punctuation-key")
+                val modernPeriod = configuredMode && rule.onAllNodesWithTag("qwerty-period-key", true)
+                    .fetchSemanticsNodes().isNotEmpty()
+                val secondModeReference = if (modernPeriod) bounds("qwerty-punctuation-key")
+                    else if (configuredMode) modeReference else bounds("mode-slot-2")
+                val punctuationReference = bounds(if (modernPeriod) "qwerty-period-key" else "qwerty-punctuation-key")
                 val enterReference = bounds("qwerty-enter-key")
                 val name = "${window.first.value.toInt()}-${window.second.value.toInt()}-$isFloating"
                 saveUiEvidence("handwriting-reference-$name", rule.onNodeWithTag("comparison-body"))
