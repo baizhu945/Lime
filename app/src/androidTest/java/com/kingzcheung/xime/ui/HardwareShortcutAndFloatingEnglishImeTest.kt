@@ -242,58 +242,12 @@ class HardwareShortcutAndFloatingEnglishImeTest {
             assertEquals("An ordinary English space must not accept a suggested completion", "hel ", document())
             shell("input keyboard keyevent KEYCODE_H KEYCODE_E KEYCODE_L")
             rule.waitUntil(10_000) { document() == "hel hel" && completion() != null }
-            val englishCaret = selection()
-            assertEquals(7 to 7, englishCaret)
-            shell("input keyboard keyevent KEYCODE_DPAD_RIGHT")
-            rule.waitUntil(10_000) { highlighted(1) && completion() != null }
-            val arrowCompletion = requireNotNull(completion())
-            rule.onNodeWithTag("bar-candidate:1", true).assertIsSelected()
-            assertEquals("Candidate navigation must not move the editor caret", englishCaret, selection())
-            assertEquals("Highlighting must not commit or alter the prefix", "hel hel", document())
-            screenshot("hardware-arrow-english-highlight.png")
-            shell("input keyboard keyevent KEYCODE_SPACE")
-            rule.waitUntil(10_000) { document() == "hel $arrowCompletion" && !has("hardware-docked-candidates") }
-            assertEquals("Space must replace only the current prefix once, without an extra space",
-                "hel $arrowCompletion", document())
-            shell("input keyboard keyevent KEYCODE_SPACE")
-            rule.waitUntil(10_000) { document() == "hel $arrowCompletion " }
-
-            // Esc drops suggestion selection, so a subsequent arrow belongs to the editor again.
-            resetEditor("", "EN")
-            shell("input keyboard keyevent KEYCODE_H KEYCODE_E KEYCODE_L")
-            rule.waitUntil(10_000) { document() == "hel" && completion() != null }
-            shell("input keyboard keyevent KEYCODE_DPAD_RIGHT")
-            rule.waitUntil(10_000) { highlighted(1) }
-            shell("input keyboard keyevent KEYCODE_ESCAPE")
-            rule.waitUntil(10_000) { !has("hardware-docked-candidates") }
-            assertEquals("Esc must preserve already typed English", "hel", document())
-            assertEquals(3 to 3, selection())
+            // Physical arrows belong to the editor, not English suggestions (covered in
+            // HardwareArrowNavigationImeTest); keep one real caret check here.
+            val caretAtEnd = selection()
             shell("input keyboard keyevent KEYCODE_DPAD_LEFT")
-            rule.waitUntil(10_000) { selection() == (2 to 2) }
-            shell("input keyboard keyevent KEYCODE_DPAD_RIGHT")
-            rule.waitUntil(10_000) { selection() == (3 to 3) }
-            assertEquals("Editor navigation must not duplicate English text", "hel", document())
-
-            shell("input keyboard keyevent KEYCODE_SHIFT_LEFT")
-            awaitLanguage("中")
-            resetEditor("前文", "中")
-            // One uninterrupted event batch exercises FIFO ordering when the last letter is still pending.
-            shell("input keyboard keyevent KEYCODE_N KEYCODE_I KEYCODE_H KEYCODE_A KEYCODE_O KEYCODE_DPAD_RIGHT")
-            rule.waitUntil(15_000) { engine.getInput() == "nihao" && highlighted(1) }
-            assertEquals("Fast letters plus Right must not leak Latin input into the document", "前文", committedDocument())
-            val chineseChoice = nativeCandidate(1)
-            assertTrue("The highlighted item must come from actual Chinese candidates", chineseChoice.isNotBlank())
-            rule.onNodeWithTag("bar-candidate:1", true).assertIsSelected()
-            shell("input keyboard keyevent KEYCODE_SPACE")
-            rule.waitUntil(10_000) { engine.getInput().isEmpty() && document() == "前文$chineseChoice" }
-            assertEquals("Chinese Space must commit the highlighted item once", "前文$chineseChoice", document())
-
-            resetEditor("前文", "中")
-            shell("input keyboard keyevent KEYCODE_N KEYCODE_I KEYCODE_DPAD_RIGHT")
-            rule.waitUntil(10_000) { engine.getInput() == "ni" && highlighted(1) }
-            shell("input keyboard keyevent KEYCODE_ENTER")
-            rule.waitUntil(10_000) { engine.getInput().isEmpty() && document() == "前文ni" }
-            assertEquals("Enter must keep committing raw input instead of the highlighted candidate", "前文ni", document())
+            rule.waitUntil(10_000) { selection() == (caretAtEnd.first - 1 to caretAtEnd.second - 1) }
+            assertEquals("Editor arrows must not duplicate English text", "hel hel", document())
         } finally {
             if (editorReady) rule.runOnUiThread {
                 (context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)

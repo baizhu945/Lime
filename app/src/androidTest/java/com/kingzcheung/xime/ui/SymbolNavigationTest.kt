@@ -20,6 +20,10 @@ import android.graphics.Bitmap
 import com.kingzcheung.xime.ui.keyboard.LocalTextModeLabel
 import com.kingzcheung.xime.ui.keyboard.LocalKeyboardPunctuation
 import com.kingzcheung.xime.ui.keyboard.KeyboardPunctuation
+import com.kingzcheung.xime.ui.keyboard.KeyVisualMetrics
+import com.kingzcheung.xime.ui.keyboard.KeyVisualPolicy
+import kotlin.math.roundToInt
+import com.kingzcheung.xime.ui.keyboard.LocalKeyboardMetricsProbe
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -111,8 +115,10 @@ class SymbolNavigationTest {
 
     @Test fun categoryTabsFitFooterOnPhoneAndTabletAndStillScroll() {
         val viewport = mutableStateOf(360.dp to 240.dp)
+        var metrics: KeyVisualMetrics? = null
         rule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f), LocalTextModeLabel provides "あいう",
+                LocalKeyboardMetricsProbe provides { metrics = it },
                 LocalKeyboardPunctuation provides KeyboardPunctuation(full = true, japanese = true)) {
                 MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme()) {
                     SymbolKeyboardLayout(onSelect = {}, onBack = {}, onNumber = {},
@@ -131,10 +137,17 @@ class SymbolNavigationTest {
                 assertEquals(bounds[0].top, it.top, 1f)
                 assertEquals(bounds[0].bottom, it.bottom, 1f)
             }
+            val observed = requireNotNull(metrics)
+            val declaredGap = com.kingzcheung.xime.settings.KeysConfigHelper.getKeyboardKeyConfig()
+                .spacingFor("qwerty").second ?: KeyVisualPolicy.DeclaredDefaultGap
+            val sharedInset = (if (declaredGap == KeyVisualPolicy.DeclaredDefaultGap)
+                requireNotNull(observed.insetY) else declaredGap / 2f) + observed.extraInsetY
+            // This fixture uses density 1: Compose rounds each side separately, not the total gap.
+            val expectedCategoryHeight = bounds[0].height - sharedInset.roundToInt() * 2
             listOf(bounds[2], bounds[3]).forEach {
                 assertTrue("Categories must fit within the footer", it.height <= bounds[0].height + 1f)
-                assertTrue("Category surfaces use the full footer minus the shared key inset",
-                    it.height >= bounds[0].height - 8f)
+                assertEquals("Category surface must inherit the real shared inset at $size: $observed",
+                    expectedCategoryHeight, it.height, 1f)
                 assertEquals(bounds[0].center.y, it.center.y, 1f)
             }
             val panel = rule.onNodeWithTag("symbols").fetchSemanticsNode().boundsInRoot
@@ -162,9 +175,7 @@ class SymbolNavigationTest {
 
     @Test fun commonSymbolPortraitKeepsReturnLeftAndEnterRight() = assertCommonSymbolNavigation(false)
 
-    @Test fun symbolModeKeysKeepStandardQwertyBoundsAfterSwitching() {
-        val app = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
-        com.kingzcheung.xime.settings.KeysConfigHelper.loadConfig(app)
+    @Test fun symbolModeKeysKeepStandardQwertyBoundsAfterSwitching() = withLegacyTwoModeKeys { app ->
         val vm = com.kingzcheung.xime.viewmodel.KeyboardViewModel(app)
         vm.setKeyboardState(com.kingzcheung.xime.ui.keyboard.KeyboardLayoutState.Chinese)
         var viewport by mutableStateOf(360.dp to 240.dp)
@@ -197,6 +208,30 @@ class SymbolNavigationTest {
     }
 
     @Test fun commonSymbolLandscapeKeepsReturnLeftAndEnterRight() = assertCommonSymbolNavigation(true)
+
+    private fun withLegacyTwoModeKeys(block: (android.app.Application) -> Unit) {
+        val app = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
+        val keys = com.kingzcheung.xime.settings.KeysConfigHelper
+        keys.loadConfig(app)
+        val fields = listOf("_zhRowsLayout", "_zhRowsBase", "_zhRows").map { name ->
+            keys::class.java.getDeclaredField(name).apply { isAccessible = true }
+        }
+        val previousRows = fields.map { it.get(keys) }
+        val activeSchema = keys::class.java.getDeclaredField("_activeSchemaId").apply { isAccessible = true }
+        val previousSchema = activeSchema.get(keys) as String
+        try {
+            keys.setActiveKeyboardSchema("luna_pinyin")
+            // Audit the two supported legacy slots, not the default combined ?123 span.
+            val rows = keys.getKeyRows(false).take(3)
+            fields.first().set(keys, com.kingzcheung.xime.settings.KeyboardRowsLayout(
+                rows.map { com.kingzcheung.xime.settings.KeyboardRow(it) }))
+            fields.drop(1).forEach { it.set(keys, rows) }
+            block(app)
+        } finally {
+            keys.setActiveKeyboardSchema(previousSchema)
+            fields.zip(previousRows).forEach { (field, value) -> field.set(keys, value) }
+        }
+    }
 
     private fun assertCommonSymbolNavigation(landscape: Boolean) {
         val actions = mutableListOf<String>()

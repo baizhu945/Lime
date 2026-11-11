@@ -3,7 +3,7 @@ package com.kingzcheung.xime.ui
 import android.content.Context
 import android.os.SystemClock
 import androidx.compose.ui.test.assertTextEquals
-import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -39,17 +39,23 @@ class SettingsShortcutActivityTest {
         try {
             // Start through the enabled launcher alias, as users do, then reopen from the IME.
             val launcherIntent = requireNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName))
-            ActivityScenario.launch<MainActivity>(launcherIntent).use { scenario ->
-                lateinit var original: MainActivity
-                scenario.onActivity { original = it }
-                compose.onNode(hasSetTextAction()).performClick().performTextInput("保留测试内容")
+            val instrumentation = InstrumentationRegistry.getInstrumentation()
+            // ActivityScenario matches the initial alias intent and drops lifecycle events after
+            // onNewIntent replaces it with MainActivity's explicit intent. Track the actual instance.
+            val original = instrumentation.startActivitySync(launcherIntent) as MainActivity
+            try {
+                assertResumedInstance(original)
+                compose.onNodeWithTag("settings-test-input").performClick().performTextInput("保留测试内容")
                 repeat(3) {
                     context.startActivity(settingsActivityIntent(context))
-                    InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                    instrumentation.waitForIdleSync()
                     compose.waitForIdle()
                     assertResumedInstance(original)
-                    compose.onNode(hasSetTextAction()).assertTextEquals("保留测试内容")
+                    compose.onNodeWithTag("settings-test-input").assertTextEquals("保留测试内容")
                 }
+            } finally {
+                instrumentation.runOnMainSync { original.finish() }
+                compose.waitUntil(10_000) { original.isDestroyed }
             }
         } finally {
             SettingsPreferences.setSetupCompleted(context, setup)
@@ -71,6 +77,9 @@ class SettingsShortcutActivityTest {
                 repeat(node.childCount) { collectText(node.getChild(it), result) }
             }
             while (!shown && SystemClock.uptimeMillis() < deadline) {
+                // UIAutomation does not drive Compose's test clock. Advance the real navigation
+                // transition within this same deadline rather than polling a frozen old page.
+                compose.mainClock.advanceTimeByFrame()
                 // Compose exposes virtual descendants; walk them like UI Automator instead
                 // of relying on the platform view-provider text-search implementation.
                 visibleText = mutableListOf<String>().also { collectText(automation.rootInActiveWindow, it) }
@@ -82,7 +91,10 @@ class SettingsShortcutActivityTest {
         try {
             ActivityScenario.launch<MainActivity>(settingsActivityIntent(context, SettingsRoutes.Theme)).use { scenario ->
                 lateinit var original: MainActivity
-                scenario.onActivity { original = it }
+                scenario.onActivity {
+                    original = it
+                    org.junit.Assert.assertEquals(SettingsRoutes.Theme, it.intent.getStringExtra("open_fragment"))
+                }
                 waitForTitle("主题与外观")
                 context.startActivity(settingsActivityIntent(context, SettingsRoutes.SpeechToText))
                 waitForTitle("语音转文本")

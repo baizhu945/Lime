@@ -93,9 +93,18 @@ fun LanguageSettingsContent(onOpenSchemaResources: () -> Unit = {}, onOpenDouble
                             .clickable(enabled = checked) { expandedLanguage = if (expanded) null else language }
                             .padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                                Text(language.displayName, style = MaterialTheme.typography.titleMedium)
-                                Text(if (!checked) "未启用" else selected?.selectionLabel ?: "正在准备可用组合",
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                // Dynamic font-scale previews must recreate the text layout,
+                                // otherwise the cached TextLayout keeps the old line height.
+                                val cardFontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
+                                androidx.compose.runtime.key(cardFontScale) {
+                                    androidx.compose.foundation.layout.Column {
+                                        Text(language.displayName, style = MaterialTheme.typography.titleMedium,
+                                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                        Text(if (!checked) "未启用" else selected?.selectionLabel ?: "正在准备可用组合",
+                                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                    }
+                                }
                             }
                             if (checked) IconButton(onClick = { expandedLanguage = if (expanded) null else language },
                                 modifier = Modifier.testTag("language-expand:${language.id}")) {

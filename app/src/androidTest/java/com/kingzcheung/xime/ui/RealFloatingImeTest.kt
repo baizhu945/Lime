@@ -3,6 +3,7 @@ package com.kingzcheung.xime.ui
 import android.content.Context
 import android.graphics.Bitmap
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
@@ -41,13 +42,15 @@ class RealFloatingImeTest {
         val enabledBefore = shell("ime list -s").lineSequence().any { it == ime }
         val engine = RimeEngine.getInstance()
         var previousSchema = ""
+        var previousAscii = false
+        var previousSavedAscii = false
         lateinit var editor: EditText
         try {
-            val (userDir, sharedDir) = RimeConfigHelper.initializeRimeDataAsync(context)
-            engine.initialize(userDir, sharedDir)
-            assertTrue(RimeConfigHelper.ensureDeployment(context))
+            assertTrue(RimeConfigHelper.prepareEngine(context))
             assertTrue(engine.ensureSession())
             previousSchema = engine.getCurrentSchema()
+            previousAscii = engine.isAsciiMode()
+            previousSavedAscii = engine.getUserConfigBool("var/option/ascii_mode")
             SettingsPreferences.setKeyboardHeightDp(context, 300)
             SettingsPreferences.setKeyboardBottomPaddingDp(context, 80)
             SettingsPreferences.setKeyboardOpacity(context, 1f)
@@ -62,27 +65,39 @@ class RealFloatingImeTest {
             val density = context.resources.displayMetrics.density
             val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
             fun showSchema(schema: String) {
+                val deadline = SystemClock.uptimeMillis() + 30_000
+                fun remaining() = (deadline - SystemClock.uptimeMillis()).coerceAtLeast(1L)
+                val service = rule.awaitRealImeInputReady(editor, imm, engine, remaining())
                 assertTrue("切换 $schema", engine.switchSchema(schema))
                 engine.setOption("ascii_mode", false)
+                engine.setUserConfigBool("var/option/ascii_mode", false)
                 SettingsPreferences.setCurrentSchema(context, schema)
                 rule.runOnUiThread {
                     editor.requestFocus()
                     imm.restartInput(editor)
                     imm.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
                 }
-                rule.waitUntil(30_000) {
-                    rule.onAllNodesWithTag("floating-drag-bar").fetchSemanticsNodes().isNotEmpty()
+                var expandedHardwareToolbar = false
+                rule.waitUntil(remaining()) {
+                    val expand = rule.onAllNodesWithTag("hardware-toolbar-keyboard", useUnmergedTree = true)
+                    if (!expandedHardwareToolbar && expand.fetchSemanticsNodes().isNotEmpty()) {
+                        expandedHardwareToolbar = true
+                        expand.onFirst().performClick()
+                    }
+                    service.inputReadiness.ticket() != null && service.uiState.value.currentSchemaId == schema &&
+                        !service.uiState.value.isAsciiMode && !engine.isAsciiMode() &&
+                        rule.onAllNodesWithTag("floating-drag-bar").fetchSemanticsNodes().isNotEmpty()
                 }
             }
             showSchema("t9_pinyin")
-            rule.waitUntil(30_000) { rule.onAllNodesWithText("符号").fetchSemanticsNodes().isNotEmpty() }
-            val symbol = rule.onNodeWithText("符号").fetchSemanticsNode()
+            rule.waitUntil(30_000) { rule.onAllNodesWithText("!@#").fetchSemanticsNodes().isNotEmpty() }
+            val symbol = rule.onNodeWithText("!@#").fetchSemanticsNode()
             val bar = rule.onNodeWithTag("floating-drag-bar").fetchSemanticsNode()
             assertTrue("九键末行与拖条之间不能残留80dp留白",
                 bar.positionOnScreen.y - (symbol.positionOnScreen.y + symbol.size.height) < 55f * density)
             screenshot("floating-t9")
 
-            showSchema("pinyin_simp")
+            showSchema("rime_ice")
             rule.waitUntil(30_000) { rule.onAllNodesWithText("Q").fetchSemanticsNodes().isNotEmpty() ||
                 rule.onAllNodesWithText("q").fetchSemanticsNodes().isNotEmpty() }
             val space = rule.onNodeWithContentDescription("空格").fetchSemanticsNode()
@@ -106,7 +121,11 @@ class RealFloatingImeTest {
             screenshot("failure")
             throw failure
         } finally {
-            if (previousSchema.isNotEmpty()) engine.switchSchema(previousSchema)
+            if (previousSchema.isNotEmpty()) {
+                engine.switchSchema(previousSchema)
+                engine.setOption("ascii_mode", previousAscii)
+                engine.setUserConfigBool("var/option/ascii_mode", previousSavedAscii)
+            }
             prefs.edit().also { edit ->
                 saved.forEach { (key, value) ->
                     when (value) {

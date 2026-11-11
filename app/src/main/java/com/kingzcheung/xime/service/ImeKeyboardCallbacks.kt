@@ -86,7 +86,14 @@ internal fun rememberImeKeyboardCallbacks(
                     val separator = key == "'" && service.candidateState.value.isComposing && !service.uiState.value.isAsciiMode
                     // 微软双拼的 ing 在分号上：分号键交给按键队列，打字中送进 Rime 组码，没在打字时照旧按标点上屏（见 ImeKeyRouter）。
                     val semicolonCode = key == ";" && service.keyRouter.semicolonIsCode()
-                    if (!numberPanel && !separator && !semicolonCode && isLiteralPunctuation(key)) {
+                    // Only momentary soft Shift is a literal Latin chord. Keep one-shot/caps
+                    // in Chinese composition, and let the internal preedit editor intercept first.
+                    val heldLatin = service.keyboardViewModel.shiftMode.value == com.kingzcheung.xime.viewmodel.ShiftMode.HELD &&
+                        service.uiState.value.inputProfile.language == com.kingzcheung.xime.settings.InputLanguage.CHINESE &&
+                        key.length == 1 && key[0] in 'A'..'Z'
+                    if (heldLatin) {
+                        service.textCommit.commitLiteralText(key, preserveWidth = true)
+                    } else if (!numberPanel && !separator && !semicolonCode && isLiteralPunctuation(key)) {
                         service.textCommit.commitLiteralText(key)
                     } else {
                         val mergedKey = com.kingzcheung.xime.rime.MergedLetterInput.isGroup(key,
@@ -220,6 +227,7 @@ internal fun rememberImeKeyboardCallbacks(
                     fixedWidthDp = if (s.isFloatingMode) s.fixedWidthDp else currentWidth,
                     resizeInitialFloating = service.uiState.value.isFloatingMode,
                     resizeInitialSplit = SettingsPreferences.isSplitKeyboardEnabled(service),
+                    resizeInitialWidthDp = currentWidth,
                     resizeInitialX = service.uiState.value.floatingOffsetX,
                     resizeInitialY = service.uiState.value.floatingOffsetY,
                 )

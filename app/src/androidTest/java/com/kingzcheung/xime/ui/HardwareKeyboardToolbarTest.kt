@@ -24,6 +24,7 @@ import com.kingzcheung.xime.ui.keyboard.HardwareToolbarPosition
 import com.kingzcheung.xime.ui.keyboard.HardwareCandidateRow
 import com.kingzcheung.xime.ui.keyboard.CandidateBarVisuals
 import com.kingzcheung.xime.ui.keyboard.KeyboardInputActions
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -540,8 +541,16 @@ class HardwareKeyboardToolbarTest {
         } finally {
             rule.mainClock.autoAdvance = true
         }
-        rule.onNodeWithTag("language-menu").assertDoesNotExist()
-        rule.runOnIdle { assertEquals(0, language); assertNull(selectedLanguage) }
+        // Releasing without moving keeps the menu open for tap selection by design;
+        // choose the shown language to close it, then reset the fixture counters so
+        // the following tap still validates the language key itself.
+        rule.onNodeWithTag("language-menu").assertIsDisplayed()
+        rule.onAllNodes(hasAnyAncestor(hasTestTag("language-menu")) and hasClickAction(),
+            useUnmergedTree = true).onFirst().performClick()
+        rule.waitUntil(5_000) {
+            rule.onAllNodesWithTag("language-menu").fetchSemanticsNodes().isEmpty()
+        }
+        rule.runOnIdle { language = 0; selectedLanguage = null }
         languageKey.performTouchInput { click() }
         rule.runOnIdle { assertEquals(1, language); assertNull(selectedLanguage) }
     }

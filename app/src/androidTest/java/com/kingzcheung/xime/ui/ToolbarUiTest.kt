@@ -137,7 +137,7 @@ class ToolbarUiTest {
     }
 
     @Test
-    fun toolbarPressCircleFadesFor300msAfterRelease() {
+    fun toolbarPressCircleFadesFor300msAfterRelease() = withOriginalToolbarMaterial {
         rule.setContent {
             MaterialTheme {
                 CandidateBar(
@@ -164,6 +164,21 @@ class ToolbarUiTest {
         assertTrue("Circle should remain visible while fading", fading > held && fading < 0.995f)
         rule.mainClock.advanceTimeBy(240L)
         assertEquals(1f, edgeBrightness(), 0.01f)
+    }
+
+    private fun withOriginalToolbarMaterial(block: () -> Unit) {
+        // The fade oracle below is a pure-white base, not an independently decorated toolbar.
+        val previous = com.kingzcheung.xime.ui.theme.VisualStyles.current
+        try {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                com.kingzcheung.xime.ui.theme.VisualStyles.current = com.kingzcheung.xime.ui.theme.VisualStyle.ORIGINAL
+            }
+            block()
+        } finally {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                com.kingzcheung.xime.ui.theme.VisualStyles.current = previous
+            }
+        }
     }
 
     @Test

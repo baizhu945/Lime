@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -25,6 +26,24 @@ import org.junit.Test
 /** UI routing only; real prism/decoder correctness is tested by the local host probe. */
 class PinyinSyllableRailTest {
     @get:Rule val rule = createComposeRule()
+
+    @Test fun emptyPinyinRailDoesNotFallBackToPunctuation() {
+        val usePinyinRail = mutableStateOf(true)
+        rule.setContent {
+            MaterialTheme {
+                CandidatePage(
+                    CandidatePageState(backgroundColor = Color.White, textColor = Color.Black,
+                        usePinyinRail = usePinyinRail.value),
+                    CandidatePageCallbacks(onCandidateSelect = {}),
+                    Modifier.requiredSize(360.dp, 276.dp),
+                )
+            }
+        }
+        rule.onNodeWithText("？").assertDoesNotExist()
+        rule.onNodeWithText("！").assertDoesNotExist()
+        rule.runOnIdle { usePinyinRail.value = false }
+        rule.onNodeWithText("？").assertIsDisplayed()
+    }
 
     @Test fun mergedPinyinAndDoublePinyinUseRealChoiceCallbackWithoutCommittingText() {
         val app = ApplicationProvider.getApplicationContext<Application>()
@@ -83,6 +102,8 @@ class PinyinSyllableRailTest {
         rule.waitForIdle()
         rule.runOnIdle { vm.setCandidatePageExpanded(true) }
         rule.waitForIdle()
+        rule.onNodeWithText("？").assertDoesNotExist()
+        rule.onNodeWithText("！").assertDoesNotExist()
         rule.runOnIdle { vm.setCandidatePageExpanded(false) }
         rule.waitForIdle()
         rule.runOnIdle { checkNotNull(delayed).invoke() }

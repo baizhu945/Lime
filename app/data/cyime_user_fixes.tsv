@@ -12,3 +12,6 @@
 新浪微博	xin lang wei bo	12150
 # His report (2026-10-30): 测完 is not a dictionary word, so the pattern rule cannot form it.
 测完了吗	ce wan le ma	3000
+# InputQualityRepairTest: missing standalone phrases; modest weights avoid broad ranking changes.
+到底怎么	dao di zen me	100
+问题太	wen ti tai	100

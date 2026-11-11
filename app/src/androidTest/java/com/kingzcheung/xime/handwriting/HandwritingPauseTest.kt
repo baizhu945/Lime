@@ -41,11 +41,17 @@ class HandwritingPauseTest {
             }
         }
         rule.mainClock.autoAdvance = false
-        val writing = rule.onNodeWithTag("writing")
+        // The drawing area is inset by the side keys, so inject in canvas-local
+        // coordinates instead of the surrounding keyboard root.
+        val writing = rule.onNodeWithTag("handwriting-canvas", useUnmergedTree = true)
         fun oldInkPixels(): Int {
             rule.mainClock.advanceTimeByFrame()
             val pixels = writing.captureToImage().toPixelMap()
-            return (30..200).sumOf { x -> (40..190).count { y -> pixels[x, y].red < 0.8f } }
+            // Only the old stroke's area: the new touch-down below is a legitimate
+            // dot and must not be mistaken for restored old ink.
+            return (0 until minOf(200, pixels.width)).sumOf { x ->
+                (0 until minOf(190, pixels.height)).count { y -> pixels[x, y].red < 0.8f }
+            }
         }
         writing.performTouchInput {
             down(Offset(50f, 100f)); moveTo(Offset(80f, 100f)); moveTo(Offset(180f, 100f)); up()

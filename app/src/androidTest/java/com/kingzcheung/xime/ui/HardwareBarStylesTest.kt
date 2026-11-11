@@ -51,6 +51,10 @@ class HardwareBarStylesTest {
                 }
             }
         }
+        // On a phone-width docked strip the secondary actions live behind “更多”.
+        if (rule.onAllNodesWithTag("hardware-toolbar-more", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()) {
+            rule.onNodeWithTag("hardware-toolbar-more", useUnmergedTree = true).performClick()
+        }
         rule.onNodeWithTag("hardware-toolbar-voice").assertExists()
         save("dock-current")
         rule.runOnIdle { samsung.value = true }

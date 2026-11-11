@@ -1,17 +1,39 @@
 package com.kingzcheung.xime.ui
 
+import android.content.ContextWrapper
+import androidx.compose.ui.graphics.Color
 import androidx.test.platform.app.InstrumentationRegistry
+import com.kingzcheung.xime.settings.KeysConfigHelper
 import com.kingzcheung.xime.ui.theme.DynamicThemes
 import com.kingzcheung.xime.ui.theme.KeyboardThemes
 import com.kingzcheung.xime.ui.theme.SoftBlueTheme
-import com.kingzcheung.xime.ui.theme.softDarkKeyContainer
 import org.junit.Assert.*
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import java.io.File
+import java.util.UUID
 
 class KeyboardThemePaletteTest {
+    private val base = InstrumentationRegistry.getInstrumentation().targetContext
+    private val folder = File(base.cacheDir, "palette-test-${UUID.randomUUID()}")
+    private val context = object : ContextWrapper(base) {
+        override fun getFilesDir(): File = folder
+    }
+
     @Before fun reload() {
-        KeyboardThemes.reload(InstrumentationRegistry.getInstrumentation().targetContext)
+        check(File(folder, "rime").mkdirs())
+        KeysConfigHelper.loadConfig(context)
+        KeyboardThemes.reload(context)
+    }
+
+    @After fun restore() {
+        try {
+            KeysConfigHelper.loadConfig(base)
+            KeyboardThemes.reload(base)
+        } finally {
+            check(folder.deleteRecursively())
+        }
     }
 
     @Test fun fixedThemeUsesItsCompletePaletteInsteadOfOldGlobalDefaults() {
@@ -25,24 +47,41 @@ class KeyboardThemePaletteTest {
         }
     }
 
-    @Test fun lavenderAndOtherStaticThemesShareOneFunctionContainerRule() {
-        // 10-18 旧主题每个色系恢复一套（如樱花粉黛）；未恢复的旧 id（海洋蔚蓝，蓝色由柔和蓝代表）仍回落到柔和蓝。
+    @Test fun packagedStaticThemesRetainTheirOwnConfiguredPalettes() {
         assertEquals("sakura_pink", KeyboardThemes.getThemeById("sakura_pink").id)
-        assertEquals(SoftBlueTheme.ID, KeyboardThemes.getThemeById("ocean_blue").id)
-        listOf("lavender_purple").forEach { id ->
+        for ((id, background, special) in listOf(
+            Triple("lavender_purple", Color(0xFF1E1838), Color(0xFF8D79D1)),
+            Triple("ocean_blue", Color(0xFF0D1B33), Color(0xFF4478C4)),
+        )) {
             val theme = KeyboardThemes.getThemeById(id)
             assertEquals(id, theme.id)
-            assertEquals(softDarkKeyContainer(theme.accentDark), theme.specialKeyDark)
-            assertEquals(theme.specialKeyDark, theme.primaryContainerDark)
+            assertEquals(background, theme.keyboardBgDark)
+            assertEquals(special, theme.specialKeyDark)
         }
+        assertEquals(SoftBlueTheme.ID, KeyboardThemes.getThemeById("unknown_theme").id)
     }
 
-    @Test fun dynamicThemeKeepsAnExplicitSystemFollowingEntryAndSoftDarkKeys() {
+    @Test fun oldDeployedCatalogDoesNotReplacePackagedOceanTheme() {
+        File(folder, "rime/xime.yaml").writeText("""
+            color_schemes:
+              ocean_blue:
+                keyboard_background: {type: solid, color_dark: 0xFF123456}
+        """.trimIndent())
+        KeyboardThemes.reload(context)
+        assertEquals(Color(0xFF0D1B33), KeyboardThemes.getThemeById("ocean_blue").keyboardBgDark)
+    }
+
+    @Test fun dynamicThemeUsesSystemAccentContainer() {
         val theme = KeyboardThemes.getThemeById(DynamicThemes.THEME_ID)
         assertEquals("跟随系统动态配色", theme.name)
         if (DynamicThemes.isSupported()) {
             assertTrue(theme.isDynamic)
-            assertEquals(softDarkKeyContainer(theme.accentDark), theme.specialKeyDark)
+            val id = base.resources.getIdentifier("system_accent1_700", "color", "android")
+            val expected = if (id == 0) Color(0xFF405F91) else Color(base.getColor(id))
+            assertEquals(expected, theme.specialKeyDark)
+            assertEquals(expected, theme.primaryContainerDark)
+        } else {
+            assertFalse(theme.isDynamic)
         }
     }
 }

@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -26,8 +27,13 @@ class CursorStepFeedbackTest {
         val cursor = EditorCursor()
         var ticks = 0
         var density = 1f
+        var dragPx = 70f
         rule.setContent {
             density = LocalDensity.current.density
+            dragPx = 5f * 10f * cursorUnitPx(
+                keyboardPhysicalMetrics(
+                    androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext,
+                    LocalView.current.display, density), density)
             Column {
                 AndroidView(factory = { EditText(it).also { v -> editor = v; v.setText("a😀bc"); v.showSoftInputOnFocus = false } }, modifier = Modifier.size(250.dp, 80.dp))
                 CompositionLocalProvider(
@@ -42,9 +48,9 @@ class CursorStepFeedbackTest {
         rule.mainClock.autoAdvance = false
         rule.onNodeWithTag("space").performTouchInput { down(center) }
         rule.mainClock.advanceTimeBy(320)
-        rule.onNodeWithTag("space").performTouchInput { moveTo(center + Offset(70 * density, 0f)) }
+        rule.onNodeWithTag("space").performTouchInput { moveTo(center + Offset(dragPx, 0f)) }
         rule.runOnIdle { assertEquals(4, ticks); assertEquals(5, editor.selectionEnd); assertTrue(editor.hasFocus()) }
-        rule.onNodeWithTag("space").performTouchInput { moveTo(center + Offset(90 * density, 0f)); up() }
+        rule.onNodeWithTag("space").performTouchInput { moveTo(center + Offset(dragPx + 20f * density, 0f)); up() }
         rule.runOnIdle { assertEquals(4, ticks); assertEquals("a😀bc", editor.text.toString()) }
     }
 }

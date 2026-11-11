@@ -739,6 +739,13 @@ internal fun toolbarPillSize(slot: androidx.compose.ui.unit.Dp): androidx.compos
         else androidx.compose.ui.unit.DpSize(minOf(width, 32.dp), minOf(width, 32.dp))
 }
 
+/** A selected tool owns its surface, so toolbar reflections cannot wash the state out. */
+internal fun toolbarActiveSurface(background: Color, accent: Color): Color =
+    accent.copy(alpha = 0.45f).compositeOver(background.copy(alpha = 1f))
+
+internal fun toolbarActiveForeground(surface: Color): Color =
+    if (textContrast(Color.Black, surface) >= textContrast(Color.White, surface)) Color.Black else Color.White
+
 @Composable
 internal fun ToolbarActionButton(
     action: ToolbarAction, visuals: CandidateBarVisuals, tint: Color,
@@ -755,14 +762,17 @@ internal fun ToolbarActionButton(
     // Hover/focus events must not cancel a release fade and leave a permanent glow.
     val pressAlpha by animateFloatAsState(if (pressed) 1f else 0f,
         animationSpec = tween(if (pressed) 0 else 300), label = "toolbar-press")
-    // The disc appears only while pressed or on (no resting disc, glass or not). Under glass
-    // the active tool is filled solidly with an inverted glyph; voice keeps its pulsing glow.
+    // The disc appears only while pressed or on (no resting disc, glass or not). Selected tools
+    // own an opaque theme-derived surface and a contrasting glyph; voice keeps its pulsing glow.
     val glassActiveFill = visuals.glassControlBackground?.takeIf { action.active && !voiceActive }?.let { fill ->
         val surface = fill.copy(alpha = 1f)
         if (textContrast(visuals.accentColor, surface) >= 3f) visuals.accentColor.copy(alpha = 1f) else tint.copy(alpha = 1f)
     }
+    val activeToolFill = if (action.active && !voiceActive) {
+        glassActiveFill ?: toolbarActiveSurface(visuals.backgroundColor, visuals.accentColor)
+    } else null
     val iconTint = when {
-        glassActiveFill != null -> if (glassActiveFill.luminance() > 0.5f) Color.Black else Color.White
+        activeToolFill != null -> toolbarActiveForeground(activeToolFill)
         action.active -> visuals.accentColor
         else -> tint
     }
@@ -781,8 +791,9 @@ internal fun ToolbarActionButton(
     ) {
     Box(
         Modifier.size(if (listening) androidx.compose.ui.unit.DpSize(36.dp, 36.dp) else toolbarPillSize(maxWidth))
+            .testTag("toolbar-pill")
             .clip(CircleShape)
-            .background(if (listening) Color.Transparent else glassActiveFill ?: visuals.glassControlBackground?.let { fill ->
+            .background(if (listening) Color.Transparent else activeToolFill ?: visuals.glassControlBackground?.let { fill ->
                 if (action.active) androidx.compose.ui.graphics.lerp(fill, visuals.accentColor, 0.18f).copy(alpha = fill.alpha)
                 else fill.copy(alpha = fill.alpha * pressAlpha)
             } ?: if (action.active) visuals.accentColor.copy(alpha = 0.28f)

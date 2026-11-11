@@ -235,7 +235,7 @@ fun EditKeyboardLayout(
 }
 
 /** 手机上键缝约为格子短边的 15%；更大的格子按这个比例放宽。 */
-private const val EDITOR_GAP_FRACTION = 0.15f
+internal const val EDITOR_GAP_FRACTION = 0.15f
 
 /** Keep labels centred in the usable part of a corner, clear of the circle and outer edge. */
 internal fun editorCornerContentOffset(width: Float, height: Float, circleX: Float, circleY: Float,

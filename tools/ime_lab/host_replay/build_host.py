@@ -22,7 +22,7 @@ import urllib.request
 import uuid
 import zipfile
 
-VERSIONS = {"cmake": "3.31.6", "ninja": "1.11.1.4", "onnxruntime": "1.28.0"}
+VERSIONS = {"cmake": "3.31.6", "ninja": "1.11.1.4", "onnxruntime": "1.31.1"}
 JNI_TAG = "jdk-11.0.28%2B6"
 HERE = Path(__file__).resolve().parent
 CODE_SUFFIXES = {".h", ".hpp", ".c", ".cc", ".cpp", ".inc", ".cmake", ".patch", ".in", ".txt"}
@@ -101,7 +101,7 @@ def wheel(package, cache):
     return destination, {"version": version, "source": entry["url"], "wheel_sha256": sha(archive)}
 
 
-def dependencies(cache):
+def dependencies(cache, ort_api):
     cache.mkdir(parents=True, exist_ok=True)
     cmake, cmake_identity = wheel("cmake", cache)
     ninja, ninja_identity = wheel("ninja", cache)
@@ -122,9 +122,9 @@ def dependencies(cache):
     native = ctypes.CDLL(str(library))
     native.OrtGetApiBase.restype = ctypes.POINTER(ApiBase)
     api = native.OrtGetApiBase().contents
-    if not api.get_api(28):
-        raise ValueError("Linux ONNX Runtime does not support the production header API 28")
-    ort_identity.update(library_sha256=sha(library), runtime_version=api.get_version().decode(), api=28)
+    if not api.get_api(ort_api):
+        raise ValueError(f"Linux ONNX Runtime does not support production header API {ort_api}")
+    ort_identity.update(library_sha256=sha(library), runtime_version=api.get_version().decode(), api=ort_api)
     include = cache / "jni-11.0.28"
     identity = {}
     for leaf, source in (("jni.h", "share/native/include/jni.h"), ("linux/jni_md.h", "unix/native/include/jni_md.h")):
@@ -213,11 +213,12 @@ def build(args):
         raise ValueError("This backend requires Linux x86_64 (including WSL)")
     repo, cache = args.repo.resolve(), args.cache.resolve()
     cache.mkdir(parents=True, exist_ok=True)
-    tools, dependency_identity = dependencies(cache / "dependencies")
     source, identity, files = snapshot(repo, cache)
     header = source / "onnxruntime/include/onnxruntime_c_api.h"
-    if not re.search(r"#define ORT_API_VERSION\s+28\b", header.read_text(encoding="utf-8")):
-        raise ValueError("Production ORT API changed; review the host runtime dependency")
+    match = re.search(r"^#define ORT_API_VERSION\s+(\d+)\b", header.read_text(encoding="utf-8"), re.MULTILINE)
+    if not match:
+        raise ValueError("Cannot determine production ONNX Runtime API version")
+    tools, dependency_identity = dependencies(cache / "dependencies", int(match.group(1)))
     production = (source / "CMakeLists.txt").read_text(encoding="utf-8")
     # A reused configured snapshot already contains the host prefix; use its original.
     original = source / "CMakeLists.production.txt"
@@ -228,7 +229,11 @@ def build(args):
     anchor = "include(Rime)"
     if production.count(anchor) != 1:
         raise ValueError("Production CMake layout changed; review host adaptation")
-    prefix = production[:production.index(anchor)] + 'list(PREPEND CMAKE_MODULE_PATH "${HOST_ADAPTER_DIR}")\n' + anchor
+    prefix = production[:production.index(anchor)] + '''list(PREPEND CMAKE_MODULE_PATH "${HOST_ADAPTER_DIR}")
+# Boost modular targets in this checkout omit some transitive header dependencies.
+file(GLOB HOST_BOOST_INCLUDES LIST_DIRECTORIES true "${CMAKE_SOURCE_DIR}/boost/libs/*/include")
+include_directories(${HOST_BOOST_INCLUDES})
+''' + anchor
     tail = (HERE / "host_tail.cmake").read_text(encoding="utf-8")
     (source / "CMakeLists.txt").write_text(prefix + "\n" + tail, encoding="utf-8")
     adapter_hashes = {name: sha(HERE / name) for name in ("build_host.py", "host_tail.cmake", "android/log.h", "FindBoost.cmake",

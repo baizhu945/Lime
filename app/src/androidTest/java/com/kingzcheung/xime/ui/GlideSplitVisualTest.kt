@@ -41,12 +41,13 @@ class GlideSplitVisualTest {
     @get:Rule val rule = createComposeRule()
     private val app = ApplicationProvider.getApplicationContext<Application>()
     private val prefs = SettingsPreferences.getPrefsPublic(app)
-    private val keys = listOf(SettingsPreferences.KEY_SPLIT_KEYBOARD, "glide_typing", "cursor_gesture_mode")
+    private val keys = listOf(SettingsPreferences.KEY_SPLIT_KEYBOARD, "glide_typing", "glide_typing_v2", "cursor_gesture_mode")
     private var original: Map<String, Any?> = emptyMap()
 
     @Before fun before() {
         original = keys.associateWith { prefs.all[it] }
-        prefs.edit().putBoolean("glide_typing", true).putString("cursor_gesture_mode", "SPACE").commit()
+        prefs.edit().putBoolean("glide_typing", true).putBoolean("glide_typing_v2", true)
+            .putString("cursor_gesture_mode", "SPACE").commit()
         KeysConfigHelper.loadConfig(app)
     }
 

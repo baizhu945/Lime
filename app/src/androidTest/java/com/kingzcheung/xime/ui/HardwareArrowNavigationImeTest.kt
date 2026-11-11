@@ -63,6 +63,12 @@ class HardwareArrowNavigationImeTest {
             key("ESCAPE", "ESCAPE", "H", "E", "L")
             rule.waitUntil(10_000) { document() == "before hel123 hel" }
             assertTrue("Repeated Esc must not hide the input surface", has("hardware-keyboard-toolbar") || has("keyboard-underlay"))
+            // Esc may dismiss the soft/IME focus while leaving the compact surface alive;
+            // restore the editor so this scenario tests suggestions vs. DEL/arrows, not Esc focus.
+            if (!focused()) {
+                rule.runOnUiThread { editor.requestFocus() }
+                rule.waitUntil(10_000) { focused() }
+            }
             key("DEL", "DEL", "DEL", "DPAD_LEFT")
             rule.waitUntil(10_000) { document() == "before hel123 " && selection() == (13 to 13) }
         }
@@ -120,6 +126,11 @@ class HardwareArrowNavigationImeTest {
         fun selection(): Pair<Int, Int> {
             var result = -1 to -1
             rule.runOnUiThread { result = editor.selectionStart to editor.selectionEnd }
+            return result
+        }
+        fun focused(): Boolean {
+            var result = false
+            rule.runOnUiThread { result = editor.hasFocus() }
             return result
         }
         fun key(vararg names: String) { shell("input keyboard keyevent " + names.joinToString(" ") { "KEYCODE_$it" }) }
@@ -199,10 +210,14 @@ class HardwareArrowNavigationImeTest {
                 resetEditor(original, cursor)
                 surface(full)
                 key("N", "I", "DPAD_LEFT")
-                val rawExpected = original.substring(0, cursor) + "ni" + original.substring(cursor)
-                rule.waitUntil(10_000) { engine.getInput().isEmpty() && document() == rawExpected && selection() == (cursor + 1 to cursor + 1) }
+                // While pinyin is composing, physical arrows navigate the composition
+                // (Samsung/Gboard convention), never committing raw letters or moving
+                // the host caret. The committed arrow case is covered above.
+                rule.waitUntil(10_000) { engine.getInput() == "ni" && document() == original && selection() == (cursor to cursor) }
                 key("DPAD_UP")
-                rule.waitUntil(10_000) { selection() == (4 to 4) }
+                rule.waitForIdle()
+                assertEquals(original, document())
+                assertEquals(cursor to cursor, selection())
 
                 resetEditor(original, cursor)
                 surface(full)
@@ -215,10 +230,14 @@ class HardwareArrowNavigationImeTest {
 
                 resetEditor(original, 0)
                 surface(full)
+                // Toolbar interactions may move window focus in the disposable activity;
+                // this scenario is specifically about arrows, so focus the editor first.
+                rule.runOnUiThread { editor.requestFocus() }
+                rule.waitUntil(10_000) { focused() }
                 key("DPAD_LEFT", "DPAD_LEFT", "DPAD_UP", "DPAD_UP")
                 rule.waitForIdle()
                 assertEquals(0 to 0, selection())
-                rule.runOnUiThread { assertTrue("Arrows at text edges must not transfer focus", editor.hasFocus()) }
+                assertTrue("Arrows at text edges must not transfer focus", focused())
                 key("DPAD_DOWN")
                 rule.waitUntil(10_000) { selection() == (6 to 6) }
                 assertEquals(original, document())

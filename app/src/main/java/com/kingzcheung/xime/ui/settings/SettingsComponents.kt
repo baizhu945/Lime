@@ -1022,7 +1022,9 @@ fun KeyboardThemeCard(
     val kbColors = KeysConfigHelper.getKeyboardColors()
     val selectionColor = MaterialTheme.colorScheme.primary
     val swatchColor = if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) theme.accentDark else theme.accentLight
-    val longToColor: (Long) -> Color = { if (it > 0xFFFFFF) Color(it) else Color(0xFF000000 or it) }
+    val longToColor: (Long) -> Color = {
+        if (it > 0xFFFFFF) Color(it.toInt()) else Color((0xFF000000 or it).toInt())
+    }
     val globalKeyBgLight = KeyboardThemes.getKeyBgColorOverride(theme.id, false)
         ?: longToColor(kbColors.keyBgColor)
     val globalKeyBgDark = KeyboardThemes.getKeyBgColorOverride(theme.id, true)

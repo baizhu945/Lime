@@ -52,11 +52,14 @@ class MenuSettingsShortcutTest {
     }
 
     @Test fun themeShortcutOpensRealPageAndBackReturnsToSettingsHome() {
+        var homeTitle = ""
         rule.setContent {
+            homeTitle = androidx.compose.ui.res.stringResource(com.kingzcheung.xime.R.string.settings_title)
             androidx.compose.material3.MaterialTheme { SettingsScreen(initialRoute = SettingsRoutes.Theme) }
         }
         rule.onNodeWithContentDescription("返回").performClick()
-        rule.onNodeWithText("CyIME 设置").assertIsDisplayed()
+        rule.waitForIdle()
+        rule.onNodeWithText(homeTitle).assertIsDisplayed()
     }
 
     @Test fun everyEntryStaysReachableAcrossMinimumPhoneAndTabletPanels() {
@@ -76,10 +79,12 @@ class MenuSettingsShortcutTest {
             for (button in ToolbarButton.DEFAULT_MENU) {
                 // A compact panel paginates instead of squeezing or dropping entries.
                 rule.onNodeWithTag("menu-pages").performScrollToIndex(0)
+                rule.waitForIdle()
                 var page = 0
-                while (rule.onAllNodesWithTag("menu-item:${button.id}").fetchSemanticsNodes()
-                        .none { it.boundsInRoot.width > 0 && it.boundsInRoot.height > 0 } && page < 7) {
+                // Adjacent pager pages can be measured but remain outside the viewport.
+                while (!rule.onNodeWithTag("menu-item:${button.id}").isDisplayed() && page < 7) {
                     rule.onNodeWithTag("menu-pages").performScrollToIndex(++page)
+                    rule.waitForIdle()
                 }
                 rule.onNodeWithTag("menu-item:${button.id}").assertIsDisplayed().performClick()
                 rule.runOnIdle { assertEquals(button, opened.last()) }

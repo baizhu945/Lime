@@ -72,6 +72,7 @@ class FrostedGlassUiTest {
         var host by mutableStateOf(Color.Black)
         val config = FrostedGlassConfig.defaults(true, true)
         FrostedGlassPreferences.save(context, config, true)
+        val effective = com.kingzcheung.xime.ui.keyboard.KeyboardInputPreferences.read(context, true).frostedGlass
         val savedStyle = com.kingzcheung.xime.ui.theme.VisualStyles.current
         rule.runOnUiThread { com.kingzcheung.xime.ui.theme.VisualStyles.current = com.kingzcheung.xime.ui.theme.VisualStyle.ORIGINAL }
         try {
@@ -81,7 +82,7 @@ class FrostedGlassUiTest {
                     CompositionLocalProvider(LocalKeyboardInputPreferences provides saved) {
                         MaterialTheme {
                             Box(Modifier.size(320.dp, 160.dp).background(host).testTag("raised-key-panel")
-                                .keyboardBackground(null, true, Color.Black, config)) {
+                                .keyboardBackground(null, true, Color.Black, saved.frostedGlass)) {
                                 Row(Modifier.padding(16.dp)) {
                                     KeyButton("A", {}, Color(0xFF1C1C1C), Color.White,
                                         Modifier.size(88.dp, 128.dp).testTag("raised-letter"), shadowEnabled = false)
@@ -95,15 +96,17 @@ class FrostedGlassUiTest {
             }
             for (backdrop in listOf(Color.Black, Color.White)) {
                 rule.runOnIdle { host = backdrop }
-                val expectedPanel = if (backdrop == Color.Black) 0 else 51
+                val expectedPanel = if (backdrop == Color.Black) 0 else ((1f - effective.backgroundOpacity) * 255f).toInt()
                 val panel = awaitImage("raised-key-panel") {
                     abs(android.graphics.Color.red(it.getPixel(4, 4)) - expectedPanel) <= 2
                 }
                 val panelRed = android.graphics.Color.red(panel.getPixel(4, 4))
-                val letterRed = android.graphics.Color.red(sample(snapshot("raised-letter")))
-                val functionRed = android.graphics.Color.red(sample(snapshot("raised-function")))
-                assertTrue("letter key must remain visible on $backdrop", letterRed - panelRed >= 16)
-                assertTrue("function key remains distinct on $backdrop", functionRed - letterRed >= 16)
+                val letterImage = snapshot("raised-letter")
+                val functionImage = snapshot("raised-function")
+                val letterRed = android.graphics.Color.red(sample(letterImage))
+                val functionRed = android.graphics.Color.red(sample(functionImage))
+                assertTrue("letter key must remain visible on $backdrop: panel=$panelRed letter=$letterRed", letterRed - panelRed >= 16)
+                assertTrue("function key remains distinct on $backdrop: letter=$letterRed function=$functionRed", functionRed - letterRed >= 16)
                 save("raised-keys-${if (backdrop == Color.Black) "black" else "white"}", panel)
             }
         } finally {
@@ -234,15 +237,17 @@ class FrostedGlassUiTest {
     }
 
     @Test
-    fun preferenceUpdatesChangeOnlyKeyFillAndKeepTextAndTapWorking() {
+    fun preferenceUpdatesChangeOnlyKeyFillAndKeepTextAndTapWorking() = withOriginalKeyMaterial {
         val backdrop = Color(0xFF173E52)
         val cap = Color(0xFF49516A)
         var taps = 0
-        val initial = FrostedGlassConfig(enabled = false, keyOpacity = 0f)
-        FrostedGlassPreferences.save(context, initial)
+        // An opaque dark material is already legible over either host, so the
+        // production legibility policy can leave both key-opacity endpoints intact.
+        val initial = FrostedGlassConfig(enabled = false, backgroundOpacity = 1f, keyOpacity = 0f)
+        FrostedGlassPreferences.save(context, initial, true)
         rule.setContent {
             CompositionLocalProvider(LocalContext provides context, LocalDensity provides Density(1f)) {
-                val saved = rememberKeyboardInputPreferences()
+                val saved = rememberKeyboardInputPreferences(true)
                 MaterialTheme {
                     CompositionLocalProvider(LocalKeyboardInputPreferences provides saved) {
                         Box(Modifier.size(180.dp, 100.dp).background(backdrop).testTag("key-panel")) {
@@ -255,15 +260,15 @@ class FrostedGlassUiTest {
         }
         val original = snapshot("key-panel")
         assertEquals(0xFF49516A.toInt(), sample(original))
-        rule.runOnIdle { FrostedGlassPreferences.save(context, initial.copy(enabled = true)) }
+        rule.runOnIdle { FrostedGlassPreferences.save(context, initial.copy(enabled = true), true) }
         val transparent = awaitImage("key-panel") { sample(it) == 0xFF173E52.toInt() }
         assertSameWhiteForeground(original, transparent)
-        rule.runOnIdle { FrostedGlassPreferences.save(context, initial.copy(enabled = true, keyOpacity = 1f)) }
+        rule.runOnIdle { FrostedGlassPreferences.save(context, initial.copy(enabled = true, keyOpacity = 1f), true) }
         val opaque = awaitImage("key-panel") { sample(it) == 0xFF49516A.toInt() }
         assertSameWhiteForeground(transparent, opaque)
         rule.onNodeWithTag("glass-key").performTouchInput { click() }
         rule.runOnIdle { assertEquals("frosted decoration must preserve key gestures", 1, taps) }
-        rule.runOnIdle { FrostedGlassPreferences.save(context, initial) }
+        rule.runOnIdle { FrostedGlassPreferences.save(context, initial, true) }
         val disabled = awaitImage("key-panel") { it.sameAs(original) }
         assertTrue("disabling via preferences restores the original cap", disabled.sameAs(original))
         save("07-key-transparent", transparent)
@@ -313,6 +318,20 @@ class FrostedGlassUiTest {
         val transparent = awaitImage("floating-glass") { sample(it) == host }
         assertSameWhiteForeground(darkFloating, transparent)
         save("12-floating-transparent-opaque-text", transparent)
+    }
+
+    private fun withOriginalKeyMaterial(block: () -> Unit) {
+        // This endpoint oracle is the undecorated cap RGB. Independent visual-material overlays
+        // are not part of frosted opacity, just as in darkGlassKeysRemainSeparatedFromBlackAndWhiteHosts.
+        val previous = com.kingzcheung.xime.ui.theme.VisualStyles.current
+        try {
+            rule.runOnUiThread {
+                com.kingzcheung.xime.ui.theme.VisualStyles.current = com.kingzcheung.xime.ui.theme.VisualStyle.ORIGINAL
+            }
+            block()
+        } finally {
+            rule.runOnUiThread { com.kingzcheung.xime.ui.theme.VisualStyles.current = previous }
+        }
     }
 
     private fun snapshot(tag: String): Bitmap = rule.onNodeWithTag(tag).captureToImage().asAndroidBitmap()

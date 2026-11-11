@@ -17,14 +17,37 @@ class ForkThemeDefaultsTest {
     @Before fun before() { SettingsPreferences.getPrefsPublic(context).edit().clear().commit() }
     @After fun after() { SettingsPreferences.getPrefsPublic(context).edit().clear().commit() }
 
-    @Test fun freshInstallUsesBlackWhiteDarkWithoutPersonalConfiguration() {
+    @Test fun freshInstallUsesConfiguredDefaults() {
+        // Application startup loads these from merged xime.yaml / xime.custom.yaml.
+        // The preference wrapper isolates storage, not the application singleton's defaults.
+        val theme = SettingsPreferences.defaultKeyboardTheme
+        val darkMode = SettingsPreferences.defaultDarkMode
         SettingsPreferences.applyForkThemeDefaults(context)
-        assertEquals("pure_black", SettingsPreferences.getKeyboardTheme(context))
-        assertEquals(1, SettingsPreferences.getDarkMode(context))
+        assertEquals(theme, SettingsPreferences.getKeyboardTheme(context))
+        assertEquals(darkMode, SettingsPreferences.getDarkMode(context))
         assertFalse(SettingsPreferences.shouldShowPressBubble(context))
         assertFalse(com.kingzcheung.xime.ui.keyboard.KeyboardInputPreferences.read(context).keyGlowEnabled)
         assertFalse(SettingsPreferences.isVerboseLoggingEnabled(context))
         assertTrue(KeyboardThemes.getThemeById("dynamic").isDynamic)
+    }
+    @Test fun configuredDefaultsAreAppliedAndLaterChoicesPersist() {
+        val originalTheme = SettingsPreferences.defaultKeyboardTheme
+        val originalDarkMode = SettingsPreferences.defaultDarkMode
+        try {
+            SettingsPreferences.defaultKeyboardTheme = "configured_theme"
+            SettingsPreferences.defaultDarkMode = 2
+            SettingsPreferences.applyForkThemeDefaults(context)
+            assertEquals("configured_theme", SettingsPreferences.getKeyboardTheme(context))
+            assertEquals(2, SettingsPreferences.getDarkMode(context))
+            SettingsPreferences.setKeyboardTheme(context, "user_theme")
+            SettingsPreferences.setDarkMode(context, 0)
+            SettingsPreferences.applyForkThemeDefaults(context)
+            assertEquals("user_theme", SettingsPreferences.getKeyboardTheme(context))
+            assertEquals(0, SettingsPreferences.getDarkMode(context))
+        } finally {
+            SettingsPreferences.defaultKeyboardTheme = originalTheme
+            SettingsPreferences.defaultDarkMode = originalDarkMode
+        }
     }
     @Test fun existingPurpleAndLaterUserChoicesPersist() {
         SettingsPreferences.setKeyboardTheme(context, "lavender_purple")

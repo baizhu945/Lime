@@ -16,7 +16,8 @@ data class KeyboardPalette(
 
 fun resolveKeyboardPalette(themeId: String, dark: Boolean): KeyboardPalette {
     val legacy = KeysConfigHelper.getKeyboardColors()
-    fun color(value: Long) = Color(if (value > 0xFFFFFF) value else 0xFF000000 or value)
+    fun color(value: Long) = Color(
+        if (value > 0xFFFFFF) value.toInt() else (0xFF000000 or value).toInt())
     return KeyboardPalette(
         background = KeyboardThemes.getKeyboardBackgroundColor(themeId, dark),
         key = KeyboardThemes.getKeyBgColorOverride(themeId, dark)
@@ -26,7 +27,7 @@ fun resolveKeyboardPalette(themeId: String, dark: Boolean): KeyboardPalette {
         accent = KeyboardThemes.getAccentColor(themeId, dark),
         function = resolvedSpecialKeyColor(KeyboardThemes.getRenderingScheme(themeId), dark,
             (if (dark) legacy.specialKeyBgColorDark else legacy.specialKeyBgColor)?.let(::color)),
-        functionText = if (dark) Color.White else KeyboardThemes.getSpecialKeyTextColor(themeId, false),
+        functionText = resolvedSpecialKeyTextColor(themeId, dark),
         enter = KeyboardThemes.getEnterKeyColor(themeId, dark),
         candidateText = KeyboardThemes.getCandidateTextColorOverride(themeId, dark)
             ?: color(if (dark) legacy.candidateTextColorDark else legacy.candidateTextColor),
@@ -34,6 +35,13 @@ fun resolveKeyboardPalette(themeId: String, dark: Boolean): KeyboardPalette {
             ?: KeyboardThemes.getCandidateSelectedTextColor(themeId, dark),
     )
 }
+
+internal fun resolvedSpecialKeyTextColor(themeId: String, dark: Boolean): Color =
+    if (dark) resolvedDarkSpecialKeyTextColor(KeyboardThemes.getRenderingScheme(themeId))
+    else KeyboardThemes.getSpecialKeyTextColor(themeId, false)
+
+internal fun resolvedDarkSpecialKeyTextColor(theme: KeyboardColorScheme): Color =
+    theme.specialKeyTextColorDark ?: Color.White
 
 internal val LocalKeyboardPalette = staticCompositionLocalOf<KeyboardPalette?> { null }
 

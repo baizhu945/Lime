@@ -142,7 +142,8 @@ class FrostedBackgroundCompositingTest {
                 last = rule.onNodeWithTag("compositing-panel").captureToImage().asAndroidBitmap()
                 val frame = checkNotNull(last)
                 difference(frame.getPixel(10, 124), expectedBackground) <= 3 &&
-                    (expectedKey == null || difference(frame.getPixel(100, 124), expectedKey) <= 3)
+                    (expectedKey == null || difference(frame.getPixel(100, 124), expectedKey) <= 3) &&
+                    difference(frame.getPixel(20, 20), frame.getPixel(10, 124)) <= 3
             }
         } finally {
             last?.let { frame ->
@@ -152,8 +153,12 @@ class FrostedBackgroundCompositingTest {
                     difference(frame.getPixel(10, 124), expectedBackground) <= 3)
                 if (expectedKey != null) assertTrue("$name key must be one cap over one background",
                     difference(frame.getPixel(100, 124), expectedKey) <= 3)
-                assertTrue("$name toolbar blank area must have the body's exact material alpha",
-                    difference(frame.getPixel(160, 20), frame.getPixel(10, 124)) <= 3)
+                // With no toolbar actions the leading logo occupies the centered slot:
+                // (160, 20) hits the icon and its halo, not the rail's blank area.
+                val toolbar = frame.getPixel(20, 20)
+                val body = frame.getPixel(10, 124)
+                assertTrue("$name toolbar (20,20)=${toolbar.toUInt().toString(16)} must match body (10,124)=${body.toUInt().toString(16)} material alpha",
+                    difference(toolbar, body) <= 3)
             }
         }
     }

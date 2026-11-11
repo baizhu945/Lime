@@ -1,0 +1,13 @@
+diff --git a/lib/marisa/grimoire/trie/louds-trie.cc b/lib/marisa/grimoire/trie/louds-trie.cc
+--- a/lib/marisa/grimoire/trie/louds-trie.cc
++++ b/lib/marisa/grimoire/trie/louds-trie.cc
+@@ -542,2 +542,4 @@
+   cache_.map(mapper);
++  const std::size_t n = cache_.size();
++  MARISA_THROW_IF(n == 0 || (n & (n - 1)) != 0, std::runtime_error);
+   cache_mask_ = cache_.size() - 1;
+@@ -567,2 +569,4 @@
+   cache_.read(reader);
++  const std::size_t n = cache_.size();
++  MARISA_THROW_IF(n == 0 || (n & (n - 1)) != 0, std::runtime_error);
+   cache_mask_ = cache_.size() - 1;

@@ -7,11 +7,12 @@ data class CandidateQwertyGeometry(
     val modeFraction: Float,
     val deleteFraction: Float,
     val enterFraction: Float,
+    /** Fraction of the gutter-free body left for keys after the actual split gap. */
+    val widthFraction: Float = 1f,
 ) {
-    val widthFraction: Float get() = if (split) .9f else 1f
-    val innerInsetDp: Float get() = if (split) 4f else 0f
+    val innerInsetDp: Float get() = 0f
     val deleteEndInsetDp: Float get() = 0f
-    fun deleteWidth(widthDp: Float): Float = (widthDp * enterFraction).coerceAtLeast(1f)
+    fun deleteWidth(widthDp: Float): Float = (widthDp * widthFraction * enterFraction).coerceAtLeast(1f)
 }
 
 internal fun candidateQwertyGeometry(
@@ -22,9 +23,9 @@ internal fun candidateQwertyGeometry(
 ): CandidateQwertyGeometry {
     val columns = letterKeyboardColumns(rows, fourteenKey)
     val bottom = letterKeyboardBottomRow(rows, fourteenKey)
-    val right = if (split) .45f * 1.2f / 5.2f else bottom.enter / bottom.total
+    val right = bottom.enter / bottom.total
     return CandidateQwertyGeometry(columns, split,
-        modeFraction = if (split) .16f else bottom.mode / bottom.total,
+        modeFraction = bottom.mode / bottom.total,
         deleteFraction = right,
         enterFraction = right)
 }

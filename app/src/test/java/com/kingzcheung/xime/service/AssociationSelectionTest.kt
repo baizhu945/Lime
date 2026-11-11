@@ -37,6 +37,8 @@ class AssociationSelectionTest {
         assertEquals("fuck", rawCompositionCommitText("fuck", "fu c k", false))
         assertEquals("fuck", rawCompositionCommitText("3825", "fu c k", true))
         assertEquals("你好ceshi", rawCompositionCommitText("23744", "你好 ce shi", true))
+        assertEquals("caret bar is display-only", "nihao",
+            rawCompositionCommitText("nihao", "ni|hao", true))
         assertEquals("xi'an", rawCompositionCommitText("xi'an", "xi an", false))
         assertEquals("", rawCompositionCommitText("", "", false))
     }
