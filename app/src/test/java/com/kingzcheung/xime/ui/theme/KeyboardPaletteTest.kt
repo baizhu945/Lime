@@ -69,6 +69,14 @@ class KeyboardPaletteTest {
             assertTrue("dark keys should be softly tinted", spread < 0.2f)
         }
     }
+    @Test fun darkSpecialTextKeepsExplicitImportedColorsAndLegacyWhiteFallback() {
+        val oldTheme = SoftBlueTheme.create()
+        assertEquals(Color.White, resolvedDarkSpecialKeyTextColor(oldTheme))
+        assertEquals(Color.Red, resolvedDarkSpecialKeyTextColor(oldTheme.copy(specialKeyTextColorDark = Color.Red)))
+        assertEquals(PureBlackTheme.create().specialKeyTextColorDark, resolvedSpecialKeyTextColor(PureBlackTheme.ID, true))
+        assertEquals(KeyboardThemes.getSpecialKeyTextColor(SoftBlueTheme.ID, false), resolvedSpecialKeyTextColor(SoftBlueTheme.ID, false))
+    }
+
     @Test fun completePalettesIgnoreLegacyGlobalFunctionKeyColors() {
         val full = SoftBlueTheme.create()
         assertEquals(full.specialKeyDark, resolvedSpecialKeyColor(full, true, Color.Red))

@@ -1,6 +1,7 @@
 package com.kingzcheung.xime.ui.keyboard
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -47,9 +48,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.kingzcheung.xime.data.RecentUsageStore
 import com.kingzcheung.xime.data.SymbolCategory
@@ -105,6 +110,19 @@ fun SymbolKeyboardLayout(
     )
 
     val keySpacing = KeysConfigHelper.getKeyboardKeyConfig().spacingFor("qwerty")
+    val textSlots = LocalTextModeNavigationGeometry.current?.slots.orEmpty()
+    val sourceFooter = textSlots[1]?.takeIf { first ->
+        textSlots[2]?.let { kotlin.math.abs(first.top - it.top) <= 1f &&
+            kotlin.math.abs(first.bottom - it.bottom) <= 1f } == true
+    }
+    val density = LocalDensity.current
+    var panelBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    val footerInset = panelBounds?.let { bounds ->
+        sourceFooter?.takeIf { it.top >= bounds.top && it.bottom <= bounds.bottom + 1f }
+            ?.let { with(density) { (bounds.bottom - it.bottom).coerceAtLeast(0f).toDp() } }
+    }
+    val footerHeight = if (footerInset != null && sourceFooter != null)
+        with(density) { sourceFooter.height.toDp() } else null
     // The spacing scope hands back a fresh modifier; keep the host's glass inheritance marker,
     // otherwise the panel paints a second keyboard background over the glass.
     val inheritBackground = modifier.inheritsKeyboardBackground()
@@ -120,7 +138,11 @@ fun SymbolKeyboardLayout(
             .fillMaxWidth()
             .inheritKeyboardBackground(inheritBackground)
             .keyboardPanelBackground(backgroundColor)
-            .padding(bottom = 8.dp)
+            .onGloballyPositioned {
+                val bounds = it.boundsInRoot()
+                if (panelBounds != bounds) panelBounds = bounds
+            }
+            .padding(bottom = footerInset ?: 8.dp)
     ) {
         // 内容区：符号网格 + HorizontalPager
         BoxWithConstraints(
@@ -166,15 +188,17 @@ fun SymbolKeyboardLayout(
                                 horizontalArrangement = Arrangement.Start
                             ) {
                                 rowSymbols.forEach { symbol ->
+                                    val exact = preserveWidth || (category.id == "common" && symbol in ownCommon)
+                                    val literal = if (exact) symbol else presetPanelSymbol(symbol)
                                     SymbolButton(
-                                        symbol = symbol,
-                                        preserveWidth = preserveWidth,
+                                        symbol = literal,
+                                        preserveWidth = exact,
                                         onClick = {
                                             recentSymbols = RecentUsageStore.record(
                                                 context, RecentUsageStore.KEY_RECENT_SYMBOLS, symbol
                                             )
-                                            if (preserveWidth || (category.id == "common" && symbol in ownCommon)) onSelectExact(symbol)
-                                            else onSelect(symbol)
+                                            if (exact) onSelectExact(literal)
+                                            else onSelect(literal)
                                         },
                                         modifier = Modifier.weight(1f).height(grid.rowHeightDp.dp).testTag("symbol-key:$symbol"),
                                         fontSize = symbolFontSize,
@@ -194,14 +218,13 @@ fun SymbolKeyboardLayout(
 
         }
 
-        // 和标准 26 键共用底栏权重；分类只占余下空间，不挤压两侧入口。
+        // Legacy TEXT slots supply measured hitboxes; standalone/configured panels keep
+        // the standard 26-key footer. Categories and delete still occupy the remainder.
         val bottom = QwertyBottomRowWeights.Standard
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            horizontalArrangement = Arrangement.Start,
-            verticalAlignment = Alignment.CenterVertically
+        SymbolNavigationRow(
+            modifier = Modifier.fillMaxWidth().then(
+                if (footerHeight != null) Modifier.height(footerHeight) else Modifier.weight(1f)
+            ),
         ) {
             for (slot in 1..2) {
                 KeyboardModeKey(
@@ -306,6 +329,10 @@ private fun SymbolButton(
         Text(
             text = if (preserveWidth) symbol else punctuationKeyLabel(symbol),
             fontSize = fontSize,
+            autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = fontSize, stepSize = 0.25.sp),
+            lineHeight = 1.2.em,
+            maxLines = 1,
+            softWrap = false,
             textAlign = TextAlign.Center,
             color = textColor,
             fontFamily = AppFonts.keyFontFamily

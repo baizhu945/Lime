@@ -1709,6 +1709,18 @@ index 7886e494..3fe897ce 100644
  };
  
  class UserDictionaryComponent : public UserDictionary::Component {
+diff --git a/src/rime/service.h b/src/rime/service.h
+index a69ae741..76438819 100644
+--- a/src/rime/service.h
++++ b/src/rime/service.h
+@@ -42,6 +42,7 @@ class Session {
+ 
+   Context* context() const;
+   Schema* schema() const;
++  Engine* engine() const { return engine_.get(); }
+   time_t last_active_time() const { return last_active_time_; }
+   const string& commit_text() const { return commit_text_; }
+ 
 diff --git a/src/rime/engine.cc b/src/rime/engine.cc
 index 4a54f64c..4a3188bb 100644
 --- a/src/rime/engine.cc

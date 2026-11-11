@@ -14,3 +14,10 @@ internal fun punctuationKeyLabel(raw: String): String {
     val policy = LocalKeyboardPunctuation.current ?: return raw
     return keyboardLiteralWidth(raw, policy.full, policy.japanese, policy.numberPanel, chineseKeyboard = policy.chinese)
 }
+
+/** Default panel presets follow the width selector; custom glyphs and letter-key corners do not. */
+@Composable
+internal fun presetPanelSymbol(raw: String): String {
+    val policy = LocalKeyboardPunctuation.current ?: return raw
+    return keyboardLiteralWidth(raw, policy.full, policy.japanese, policy.numberPanel)
+}

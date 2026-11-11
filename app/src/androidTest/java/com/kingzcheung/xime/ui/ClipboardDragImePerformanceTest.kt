@@ -109,8 +109,43 @@ class ClipboardDragImePerformanceTest {
                 appendLine("configuration_dp=${actualIme.resources.configuration.screenWidthDp}x${actualIme.resources.configuration.screenHeightDp}; fontScale=${actualIme.resources.configuration.fontScale}")
                 appendLine("keyboard_container_px=${actualIme.keyboardContainer.width}x${actualIme.keyboardContainer.height}; normal_keyboard_dp=${actualIme.currentResolvedKeyboardSize}")
             }
+            fun recordImeState(stage: String) {
+                rule.runOnUiThread {
+                    val state = actualIme.uiState.value
+                    val decor = actualIme.window.window?.decorView
+                    println("CLIPBOARD_DIAG $stage page=${actualIme.keyboardViewModel.page.value} compact=${state.isCompact} " +
+                        "clipboardExpanded=${state.clipboardImagesExpanded} imeShowing=${actualIme.isInputViewShown} " +
+                        "imeWindow=${decor?.isShown} imeFocus=${decor?.hasWindowFocus()} " +
+                        "container=${actualIme.keyboardContainer.width}x${actualIme.keyboardContainer.height} " +
+                        "editorAttached=${editor.isAttachedToWindow} editorFocus=${editor.hasFocus()} " +
+                        "editorWindowFocus=${editor.hasWindowFocus()} immActive=${imm.isActive(editor)}")
+                }
+                val roots = rule.onAllNodes(isRoot(), useUnmergedTree = true)
+                roots.fetchSemanticsNodes().indices.forEach { index ->
+                    println("CLIPBOARD_DIAG $stage root=$index\n${roots[index].printToString(maxDepth = Int.MAX_VALUE)}")
+                }
+            }
+            rule.waitForIdle()
+            recordImeState("before-overlay")
+            // An emulator may expose a physical keyboard. The compact toolbar does not
+            // render the panel even if the view model already points at Clipboard.
+            if (actualIme.uiState.value.isCompact) {
+                rule.waitUntil(10_000) {
+                    rule.onAllNodesWithTag("hardware-toolbar-keyboard", useUnmergedTree = true)
+                        .fetchSemanticsNodes().isNotEmpty()
+                }
+                rule.onNodeWithTag("hardware-toolbar-keyboard", useUnmergedTree = true).performClick()
+                rule.waitUntil(10_000) { !actualIme.uiState.value.isCompact }
+            }
             rule.runOnUiThread { actualIme.keyboardViewModel.showOverlay(OverlayRoute.Clipboard()) }
-            rule.waitUntil(10_000) { rule.onAllNodesWithTag("clipboard-controls").fetchSemanticsNodes().isNotEmpty() }
+            rule.waitForIdle()
+            recordImeState("after-overlay")
+            try {
+                rule.waitUntil(10_000) { rule.onAllNodesWithTag("clipboard-controls").fetchSemanticsNodes().isNotEmpty() }
+            } catch (failure: Throwable) {
+                runCatching { recordImeState("overlay-wait-failed") }.exceptionOrNull()?.let(failure::addSuppressed)
+                throw failure
+            }
             rule.waitForIdle(); SystemClock.sleep(400)
             val normalHeight = actualIme.currentEffectiveKeyboardHeight
             fun drag(expand: Boolean) {
@@ -147,13 +182,18 @@ class ClipboardDragImePerformanceTest {
                 metricsWindow = actualIme.window.window
                 checkNotNull(metricsWindow).addOnFrameMetricsAvailableListener(listener, frameHandler)
             }
-            repeat(3) { drag(true); drag(false) }
+            // The current panel settles with only a few rendered frames per drag;
+            // exercise more real drags rather than relaxing the sample-size check.
+            repeat(10) { drag(true); drag(false) }
             rule.runOnUiThread { metricsWindow?.removeOnFrameMetricsAvailableListener(listener); metricsWindow = null }
             val drained = CountDownLatch(1)
             frameHandler.post { drained.countDown() }
             assertTrue("drain already queued frame reports", drained.await(5, TimeUnit.SECONDS))
             val snapshot = synchronized(samples) { samples.toList() }
-            assertTrue("must measure actual rendered frames", snapshot.size >= 30)
+            val decor = actualIme.window.window?.decorView
+            assertTrue("must measure actual rendered frames: count=${snapshot.size}, dropped=${droppedReports.get()}, " +
+                "hardwareAccelerated=${decor?.isHardwareAccelerated}, shown=${decor?.isShown}, " +
+                "durations=$gestureDurations", snapshot.size >= 30)
             val label = InstrumentationRegistry.getArguments().getString("evidenceLabel")?.takeIf { it.matches(Regex("[a-z0-9-]+")) } ?: "sample"
             val dir = File(context.getExternalFilesDir(null), "clipboard-drag-performance").apply { mkdirs() }
             File(dir, "$label.csv").writeText("total_ms,layout_measure_ms,draw_ms,sync_ms\n" + snapshot.joinToString("\n") { it.joinToString(",") })

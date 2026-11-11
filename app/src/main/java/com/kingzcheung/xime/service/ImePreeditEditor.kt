@@ -68,17 +68,22 @@ internal class ImePreeditEditor(private val service: XimeInputMethodService) {
             var text = session.text
             var caret = (selection ?: session.caret).coerceIn(0, text.length)
             val letters = when {
-                com.kingzcheung.xime.settings.InputProfiles.describe(session.schemaId).layout == com.kingzcheung.xime.settings.InputLayout.MERGED14 && key?.length == 1 ->
-                    com.kingzcheung.xime.rime.merged14Groups.firstOrNull { it.first().toString() == key }
+                com.kingzcheung.xime.settings.InputProfiles.describe(session.schemaId).layout == com.kingzcheung.xime.settings.InputLayout.MERGED14 ->
+                    com.kingzcheung.xime.rime.merged14MultiTapGroup(key)
                 else -> null
             }
-            // A nine-key digit typed at the code caret is the same ambiguous key as one typed
-            // at the end: rebuild the editable code as plain keys, never a fixed letter.
-            // Backspace likewise removes the key before the caret, as it does at the end.
-            val t9Key = session.isT9 && replacement == null && selection == null &&
+            // Automatic reading separators are editable display boundaries, not T9 digits.
+            // Removing one must not rebuild or lock the underlying ambiguous code.
+            val displaySeparatorDelete = if (session.isT9 && key == "delete" && replacement == null && selection == null)
+                com.kingzcheung.xime.rime.t9DeleteAutomaticSeparator(text, caret, session.expectedInput) else null
+            // Other T9 edits rebuild plain ambiguous keys rather than fixed letters.
+            val t9Key = displaySeparatorDelete == null && session.isT9 && replacement == null && selection == null &&
                 (key?.length == 1 && key[0] in '2'..'9' || key == "delete" && text.take(caret).any { it != '\'' })
             if (letters == null || replacement != null || selection != null) multiTap.reset()
-            if (t9Key) {
+            if (displaySeparatorDelete != null) {
+                text = displaySeparatorDelete.first
+                caret = displaySeparatorDelete.second
+            } else if (t9Key) {
                 val keys = text.filter { it != '\'' }.map(::t9Digit).joinToString("")
                 val before = text.take(caret).count { it != '\'' }
                 if (key == "delete") {
@@ -109,7 +114,7 @@ internal class ImePreeditEditor(private val service: XimeInputMethodService) {
                 caret += insertion.length
             }
             val engine = service.rimeEngine
-            val changed = text != session.text
+            val changed = text != session.text && displaySeparatorDelete == null
             val result = engine.editPinyinAndReadState {
                 // Candidates follow the caret. Merely moving it must not lock an ambiguous
                 // nine-key reading, so only the engine caret moves; an edit rebuilds the keys first.

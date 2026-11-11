@@ -8,6 +8,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -201,7 +202,13 @@ class GlassThemePreviewTest {
         val blackWhite = KeyboardThemes.getThemeById("pure_black")
         assertNotEquals(blackWhite.keyboardBackground, gradient.keyboardBackground)
         assertEquals(blackWhite.keyBgLight, gradient.keyBgLight)
-        assertEquals(blackWhite.keyBgDark, gradient.keyBgDark)
+        // The opaque iOS gradient deliberately uses lighter letter keys and darker
+        // function keys than the black theme; glass rendering has its own tint.
+        assertEquals(Color(0xFF1C1C1E), blackWhite.keyBgDark)
+        assertEquals(Color(0xFF55555A), gradient.keyBgDark)
+        assertEquals(Color(0xFF29292B), blackWhite.specialKeyDark)
+        assertEquals(Color(0xFF3A3A3C), gradient.specialKeyDark)
+        assertEquals(gradient.specialKeyDark, gradient.enterKeyDark)
         assertEquals(blackWhite.keyTextColorLight, gradient.keyTextColorLight)
         assertEquals(blackWhite.keyTextColorDark, gradient.keyTextColorDark)
     }

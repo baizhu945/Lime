@@ -28,7 +28,9 @@ class LayoutDisplayPagesTest {
         rule.onNodeWithText("自定义布局").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("按键符号").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("分体键盘").performScrollTo().assertIsDisplayed()
-        rule.onNodeWithText("数字框自动数字键盘").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("layout-display-list")
+            .performScrollToNode(hasText("数字框自动数字键盘"))
+        rule.onNodeWithText("数字框自动数字键盘").assertIsDisplayed()
         save("index")
     }
 
@@ -44,7 +46,10 @@ class LayoutDisplayPagesTest {
         }
         for ((id, title, _) in LayoutDisplayPages) {
             rule.runOnIdle { route.value = id; backs = 0 }
-            rule.onNodeWithText(title).assertExists()
+            rule.waitForIdle()
+            assertTrue("page $title did not open",
+                rule.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty())
+            rule.waitForIdle()
             save("page-$title")
             rule.onNodeWithContentDescription("返回").performClick()
             rule.runOnIdle { assertEquals("$title 返回首页", 1, backs) }

@@ -29,7 +29,17 @@ import org.junit.Test
 
 class QwertyExpandedRailGeometryTest {
     @get:Rule val rule = createComposeRule()
-    @After fun restoreLayout() { KeysConfigHelper.setActiveKeyboardSchema("rime_ice") }
+    private val rowFields = listOf("_zhRowsLayout", "_zhRowsBase", "_zhRows").map { name ->
+        KeysConfigHelper::class.java.getDeclaredField(name).apply { isAccessible = true }
+    }
+    private var previousRows = emptyList<Any?>()
+    private var rowLayoutOverridden = false
+    @After fun restoreLayout() {
+        if (rowLayoutOverridden) rowFields.zip(previousRows).forEach { (field, value) ->
+            field.set(KeysConfigHelper, value)
+        }
+        KeysConfigHelper.setActiveKeyboardSchema("rime_ice")
+    }
 
     @Test fun t9PagingKeepsItsRowSizeAndDisabledStateInBothMaterials() {
         KeysConfigHelper.loadConfig(ApplicationProvider.getApplicationContext<Application>())
@@ -75,6 +85,14 @@ class QwertyExpandedRailGeometryTest {
         val app = ApplicationProvider.getApplicationContext<Application>()
         KeysConfigHelper.loadConfig(app)
         KeysConfigHelper.setActiveKeyboardSchema("rime_ice")
+        // This audit measures one legacy mode slot, not the combined ?123 span.
+        // Keep its original geometry contract on the supported two-key layout.
+        previousRows = rowFields.map { it.get(KeysConfigHelper) }
+        rowLayoutOverridden = true
+        val letterRows = KeysConfigHelper.getKeyRows(false).take(3)
+        rowFields.first().set(KeysConfigHelper, com.kingzcheung.xime.settings.KeyboardRowsLayout(
+            letterRows.map { com.kingzcheung.xime.settings.KeyboardRow(it) }))
+        rowFields.drop(1).forEach { it.set(KeysConfigHelper, letterRows) }
         val vm = KeyboardViewModel(app)
         var window by mutableStateOf(windows.first())
         var expanded by mutableStateOf(false)

@@ -13,7 +13,8 @@ internal fun usesMergedLetterKeys(layout: InputLayout): Boolean = layout.kind ==
  * selections but removing display separators; never the merged codes ("bugao" for ni'hao). */
 internal fun rawCompositionCommitText(engineInput: String, preedit: String, t9: Boolean, merged14: Boolean = false): String =
     when {
-        (t9 || merged14) && preedit.isNotEmpty() -> preedit.filterNot { it.isWhitespace() || it == '\'' }
+        (t9 || merged14) && preedit.isNotEmpty() ->
+            preedit.filterNot { it.isWhitespace() || it == '\'' || it == com.kingzcheung.xime.service.PREEDIT_CARET }
         merged14 -> engineInput.lowercase()
         else -> engineInput
     }

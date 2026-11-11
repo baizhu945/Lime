@@ -29,16 +29,46 @@ class JapaneseImeWorkflowTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val prefs = SettingsPreferences.getPrefsPublic(context)
-        val saved = prefs.all.toMap()
+        // Portrait setters below own only the non-landscape geometry keys.
+        val ownedKeys = setOf(
+            "enabled_input_languages", "input_language_order", "japanese_language_added_v1",
+            "current_schema", "current_schema_dual", "floating_mode", "keyboard_height_dp", "input_text_location",
+            "builtin_schemas_merged", "japanese_schemas_added_v1", "cyime_chinese_defaults_v1",
+            "cyime_double_pinyin_defaults_v1", "deployment_done", "deployment_hash",
+            RimeConfigHelper.DEPLOYMENT_REVISION, RimeConfigHelper.DEPLOYMENT_PROBLEM,
+        ) + com.kingzcheung.xime.settings.InputLanguage.entries.map { "last_input_mode_${it.id}" }
+        val saved = ownedKeys.associateWith { key ->
+            prefs.all[key].let { if (it is Set<*>) it.toSet() else it }
+        }
+        val imeId = android.content.ComponentName(
+            context.packageName, "com.kingzcheung.xime.service.XimeInputMethodService",
+        ).flattenToShortString()
+        val inputMethods = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        val wasImeEnabled = inputMethods.enabledInputMethodList.any { it.id == imeId }
         val previousIme = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
         val engine = RimeEngine.getInstance()
+        var previousSchema: String? = null
+        var previousSelectedSchema: String? = null
+        var previousAscii: Boolean? = null
+        var previousPersistentAscii: Boolean? = null
+        fun captureNativeState() {
+            if (previousAscii != null || engine.getCurrentSchema().isBlank()) return
+            previousSchema = engine.getCurrentSchema()
+            previousSelectedSchema = engine.getUserConfigString("var/previously_selected_schema")
+            previousAscii = engine.getOption("ascii_mode")
+            previousPersistentAscii = engine.getUserConfigBool("var/option/ascii_mode")
+        }
+        if (RimeEngine.isInitialized()) captureNativeState()
         lateinit var editor: EditText
+        var expandedCompactToolbar = false
+        fun has(tag: String) = rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
         try {
             // 日语不是默认启用的语言；未启用时输入准备会拒绝 japanese_kana 并回落到中文方案。
             com.kingzcheung.xime.settings.LanguagePreferences.save(
                 context, com.kingzcheung.xime.settings.InputLanguage.JAPANESE, true)
             val (user, shared) = RimeConfigHelper.initializeRimeDataAsync(context)
             engine.initialize(user, shared); assertTrue(RimeConfigHelper.ensureDeployment(context)); assertTrue(engine.ensureSession())
+            captureNativeState()
             assertTrue(engine.switchSchema("japanese_kana")); engine.setOption("ascii_mode", false)
             engine.setUserConfigBool("var/option/ascii_mode", false)
             SettingsPreferences.setCurrentSchema(context, "japanese_kana")
@@ -49,7 +79,12 @@ class JapaneseImeWorkflowTest {
             shell("ime set ${context.packageName}/com.kingzcheung.xime.service.XimeInputMethodService")
             rule.setContent { AndroidView(factory = { EditText(it).also { editor = it; it.hint = "日语连续流程" } }, modifier = Modifier.fillMaxWidth().height(120.dp)) }
             rule.runOnUiThread { editor.requestFocus(); (context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT) }
-            rule.waitUntil(30000) { rule.onAllNodesWithTag("kana-key:na").fetchSemanticsNodes().isNotEmpty() }
+            rule.waitUntil(30000) { has("kana-key:na") || has("hardware-toolbar-keyboard") }
+            if (!has("kana-key:na")) {
+                rule.onNodeWithTag("hardware-toolbar-keyboard", useUnmergedTree = true).performClick()
+                rule.waitUntil(15000) { has("kana-key:na") }
+                expandedCompactToolbar = true
+            }
             fun text(): String { var result = ""; rule.runOnUiThread { result = editor.text.toString() }; return result }
             fun waitText(expected: String) { rule.waitUntil(5000) { text().replace(" ", "") == expected } }
             fun tap(tag: String) { rule.onNodeWithTag(tag).performTouchInput { down(center); up() }; rule.waitForIdle() }
@@ -67,7 +102,13 @@ class JapaneseImeWorkflowTest {
             rule.waitUntil(5000) { text().startsWith("何") && text().endsWith("しますか") }
             screenshot("japanese-range")
             tap("kana-convert")
-            rule.onNodeWithTag("kana-convert").performTouchInput { down(center); moveTo(center + Offset(0f, 50f)); moveTo(center + Offset(0f, 100f)); up() }
+            val swipeDp = context.resources.displayMetrics.density
+            rule.onNodeWithTag("kana-convert").performTouchInput {
+                down(center)
+                moveTo(center + Offset(0f, 50f * swipeDp))
+                moveTo(center + Offset(0f, 100f * swipeDp))
+                up()
+            }
             waitText("なにをしますか")
             tap("kana-convert"); tap("kana-delete")
             waitText("なにをします")
@@ -84,9 +125,45 @@ class JapaneseImeWorkflowTest {
             screenshot("japanese-idle")
         } catch (t: Throwable) { screenshot("japanese-failure"); throw t }
         finally {
-            engine.clearComposition()
-            prefs.edit().clear().also { edit -> saved.forEach { (k,v) -> when(v) { is String -> edit.putString(k,v); is Int -> edit.putInt(k,v); is Float -> edit.putFloat(k,v); is Long -> edit.putLong(k,v); is Boolean -> edit.putBoolean(k,v); is Set<*> -> edit.putStringSet(k,v.filterIsInstance<String>().toSet()) } } }.commit()
-            if (!previousIme.isNullOrBlank()) shell("ime set $previousIme")
+            if (expandedCompactToolbar) runCatching { shell("input keyevent KEYCODE_BACK") }
+            runCatching { engine.clearComposition() }
+            runCatching {
+                previousSchema?.takeIf { it.isNotBlank() && it != engine.getCurrentSchema() }
+                    ?.let { engine.switchSchema(it) }
+                previousSelectedSchema?.let {
+                    if (engine.getUserConfigString("var/previously_selected_schema") != it)
+                        engine.setUserConfigString("var/previously_selected_schema", it)
+                }
+                previousPersistentAscii?.let {
+                    if (engine.getUserConfigBool("var/option/ascii_mode") != it)
+                        engine.setUserConfigBool("var/option/ascii_mode", it)
+                }
+                previousAscii?.let { if (engine.getOption("ascii_mode") != it) engine.setOption("ascii_mode", it) }
+            }
+            prefs.edit().also { edit ->
+                saved.forEach { (k, v) ->
+                    if (prefs.all[k] == v) return@forEach
+                    when (v) {
+                        null -> edit.remove(k)
+                        is String -> edit.putString(k, v)
+                        is Int -> edit.putInt(k, v)
+                        is Float -> edit.putFloat(k, v)
+                        is Long -> edit.putLong(k, v)
+                        is Boolean -> edit.putBoolean(k, v)
+                        is Set<*> -> edit.putStringSet(k, v.map { it as String }.toSet())
+                    }
+                }
+            }.commit()
+            try {
+                if (!previousIme.isNullOrBlank() && Settings.Secure.getString(
+                        context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD) != previousIme) {
+                    shell("ime set $previousIme")
+                }
+            } finally {
+                if (!wasImeEnabled && inputMethods.enabledInputMethodList.any { it.id == imeId }) {
+                    shell("ime disable $imeId")
+                }
+            }
         }
     }
     private fun shell(cmd: String): String = ParcelFileDescriptor.AutoCloseInputStream(InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(cmd)).bufferedReader().use { it.readText() }

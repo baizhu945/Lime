@@ -31,6 +31,11 @@ class VisualStyleIntegrationTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     private fun preservingAppearance(block: () -> Unit) {
+        // Snapshot the configured catalogue, not the process's not-yet-loaded fallback themes.
+        rule.runOnIdle {
+            KeysConfigHelper.loadConfig(context)
+            KeyboardThemes.reload(context)
+        }
         val prefs = SettingsPreferences.getPrefsPublic(context)
         val saved = prefs.getString(SettingsPreferences.KEY_VISUAL_STYLE, null)
         val savedIcon = prefs.getString(IconAppearance.KEY_STYLE, null)

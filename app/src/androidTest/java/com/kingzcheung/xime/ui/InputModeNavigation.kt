@@ -10,6 +10,21 @@ import com.kingzcheung.xime.settings.InputModes
 internal fun ComposeTestRule.chooseModeThroughLanguageAndPanel(id: String) {
     mainClock.autoAdvance = true
     waitForIdle()
+    fun expandScreenKeyboard() {
+        val expand = onAllNodesWithTag("hardware-toolbar-keyboard", useUnmergedTree = true)
+        if (expand.fetchSemanticsNodes().isNotEmpty()) {
+            expand.onFirst().performClick()
+            waitUntil(10_000) { expand.fetchSemanticsNodes().isEmpty() }
+            waitForIdle()
+        }
+        // A prior cut/copy can replace the toolbar with a clipboard preview.
+        val back = onAllNodesWithContentDescription("返回工具栏")
+        if (back.fetchSemanticsNodes().isNotEmpty()) {
+            back.onFirst().performClick()
+            waitForIdle()
+        }
+    }
+    expandScreenKeyboard()
     val engine = RimeEngine.getInstance()
     val language = InputModes.languageOf(id)
     val globe = onAllNodesWithTag("language-key-control", useUnmergedTree = true).onLast()
@@ -26,21 +41,46 @@ internal fun ComposeTestRule.chooseModeThroughLanguageAndPanel(id: String) {
         else !engine.isAsciiMode() && InputModes.languageOf(engine.getCurrentSchema()) == language
     }
     waitForIdle()
+    // A language switch can re-dock the physical-keyboard toolbar. Expand before
+    // opening the layout/scheme panel, not after navigation has already finished.
+    expandScreenKeyboard()
     if (id != InputModes.ENGLISH && engine.getCurrentSchema() != id) {
-        onNodeWithContentDescription("输入方案").performClick()
         try {
-            waitUntil(5000) { onAllNodesWithTag("input-profile-panel", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+            fun targetSelected() = engine.getCurrentSchema() == id && !engine.isAsciiMode()
+            fun openPanelUnlessSelected(): Boolean {
+                waitUntil(5000) { targetSelected() || onAllNodesWithContentDescription("输入方式").fetchSemanticsNodes().isNotEmpty() }
+                if (targetSelected()) return false
+                onNodeWithContentDescription("输入方式").performClick()
+                fun panelVisible() = onAllNodesWithTag("input-profile-panel", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+                waitUntil(5000) { panelVisible() || targetSelected() }
+                return panelVisible()
+            }
+            if (openPanelUnlessSelected()) {
+                val profile = com.kingzcheung.xime.settings.InputProfiles.current(id)
+                // LazyRow only composes visible cards; scroll by its stable key first.
+                onNodeWithTag("profile-layout-list:list").performScrollToKey(profile.layout.id)
+                onNodeWithTag("panel-layout:${profile.layout.id}").assertIsDisplayed().assertIsEnabled().performClick()
+                waitUntil(10_000) { onAllNodesWithTag("input-profile-panel", useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
+                waitForIdle()
+                if (!targetSelected() && openPanelUnlessSelected()) {
+                    onNodeWithTag("profile-scheme-list:list").performScrollToKey(id)
+                    onNodeWithTag("panel-scheme:$id").assertIsDisplayed().assertIsEnabled().performClick()
+                }
+            }
+            waitUntil(10_000) { engine.getCurrentSchema() == id && !engine.isAsciiMode() }
         } catch (failure: Throwable) {
+            println("MODE_NAVIGATION_FAILURE target=$id schema=${engine.getCurrentSchema()} ascii=${engine.isAsciiMode()}")
+            runCatching {
+                val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+                val dir = java.io.File(instrumentation.targetContext.getExternalFilesDir(null), "mode-navigation").apply { mkdirs() }
+                val image = instrumentation.uiAutomation.takeScreenshot()
+                try { java.io.File(dir, "failure-$id.png").outputStream().use { image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) } } finally { image.recycle() }
+            }.exceptionOrNull()?.let(failure::addSuppressed)
             onAllNodes(isRoot()).fetchSemanticsNodes().indices.forEach { index ->
                 println("MODE_NAVIGATION_ROOT $index " + onAllNodes(isRoot()).get(index).printToString())
             }
             throw failure
         }
-        val profile = com.kingzcheung.xime.settings.InputProfiles.current(id)
-        onNodeWithTag("panel-layout:${profile.layout.id}").performScrollTo().performClick()
-        onNodeWithTag("panel-scheme:$id").performScrollTo().performClick()
-        onNodeWithTag("apply-input-profile").performClick()
-        waitUntil(10_000) { engine.getCurrentSchema() == id && !engine.isAsciiMode() }
     }
     waitForIdle()
 }

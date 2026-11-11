@@ -22,7 +22,11 @@ class InputQualityProbeTest {
         assertTrue(RimeConfigHelper.ensureDeployment(context))
         val previousSchema = engine.getCurrentSchema()
         engine.destroy()
-        val fixture = File(context.filesDir, "ime-lab/run-${System.currentTimeMillis()}").apply { mkdirs() }
+        val samples = File(context.filesDir, "ime-lab/samples-${System.currentTimeMillis()}.jsonl")
+        val fixtureParent = File(context.filesDir, "ime-lab").apply { mkdirs() }
+        val fixture = java.nio.file.Files.createTempDirectory(fixtureParent.toPath(), "run-").toFile()
+        var failure: Throwable? = null
+        try {
         val manifest = context.assets.open("rime-bundled-manifest.tsv").bufferedReader().use { it.readText() }
         // Entire shipped language assets, with fresh user databases, not copied user preferences.
         manifest.lineSequence().filter { it.isNotBlank() }.forEach { line ->
@@ -48,10 +52,8 @@ class InputQualityProbeTest {
             }
         }
         val cases = JSONArray(instrumentation.context.assets.open("ime_lab/regression_cases.json").bufferedReader().use { it.readText() })
-        val samples = File(context.filesDir, "ime-lab/samples-${System.currentTimeMillis()}.jsonl")
         val violations = mutableListOf<String>()
         val englishSelections = mutableListOf<Pair<String, String>>()
-        try {
             engine.initialize(fixture.path, fixture.path)
             assertTrue(engine.deploy())
             assertTrue(engine.ensureSession())
@@ -83,8 +85,9 @@ class InputQualityProbeTest {
                 samples.appendText(sample.toString() + "\n")
                 if (iteration == 0) {
                     android.util.Log.i("InputQualityProbe", case.getString("id") + " " + input + " " + rows.take(20).joinToString { it[0] + ":" + it[2] })
-                    if (case.getString("id") == "T9-005" && rows.any { it[2] == "date" }) violations += "77 still triggers date"
-                    if (case.getString("id") == "T9-006" && rows.none { it[2] == "date" }) violations += "7474 missing date"
+                    val hasDate = rows.any { it[2] in listOf("date", "cyime_datetime") && it[0].matches(Regex("\\d{4}-\\d{2}-\\d{2}")) }
+                    if (case.getString("id") == "T9-005" && hasDate) violations += "77 still triggers date"
+                    if (case.getString("id") == "T9-006" && !hasDate) violations += "7474 missing date"
                     if (case.getString("id") in listOf("T9-007", "T9-008")) {
                         val expected = case.getJSONArray("expected")
                         val index = rows.indexOfFirst { row -> (0 until expected.length()).any { expected.getString(it) == row[0] } }
@@ -131,12 +134,20 @@ class InputQualityProbeTest {
             assertTrue(engine.switchSchema("t9_pinyin")); engine.setOption("ascii_mode", false)
             engine.clearQueuedT9Composition(); "5833".forEach { engine.processQueuedT9Key(it.code) }
             assertTrue("Learning survives restart", separatedSnapshot().indexOf("觉得") in 0..rankBefore)
+            // The datetime filter intentionally replaces native date candidates with hints.
+            // Disable it to verify the underlying native trigger independently of ranking.
+            engine.setOption("_cyime_datetime_off", true)
+            for ((digits, expectedDate) in listOf("77" to false, "7474" to true)) {
+                engine.clearQueuedT9Composition(); digits.forEach { engine.processQueuedT9Key(it.code) }
+                assertEquals("default date input=" + digits, expectedDate, engine.inspectCandidates(100).any { it[2] == "date" })
+            }
             // Legacy date: rq custom settings must not bring back the numeric 77 trigger.
             engine.clearQueuedT9Composition()
             engine.destroy()
             File(fixture, "t9_pinyin.custom.yaml").writeText("patch:\n  t9/date_translator/date: rq\n")
             engine.initialize(fixture.path, fixture.path); assertTrue(engine.deploy()); assertTrue(engine.ensureSession())
             assertTrue(engine.switchSchema("t9_pinyin")); engine.setOption("ascii_mode", false)
+            engine.setOption("_cyime_datetime_off", true)
             for ((digits, expectedDate) in listOf("77" to false, "7474" to true)) {
                 engine.clearQueuedT9Composition(); digits.forEach { engine.processQueuedT9Key(it.code) }
                 assertEquals("legacy date: rq input=" + digits, expectedDate, engine.inspectCandidates(100).any { it[2] == "date" })
@@ -172,10 +183,23 @@ class InputQualityProbeTest {
                 android.util.Log.i("InputQualityProbe", "SWEEP_FILE=" + sweep.path)
             }
             assertTrue(violations.joinToString("; "), violations.isEmpty())
+        } catch (t: Throwable) {
+            failure = t
+            throw t
         } finally {
-            android.util.Log.i("InputQualityProbe", "RESULT_FILE=" + samples.path)
-            engine.destroy(); engine.initialize(user, shared); engine.ensureSession()
-            if (previousSchema.isNotEmpty()) engine.switchSchema(previousSchema)
+            fun attempt(action: () -> Unit) {
+                try { action() } catch (t: Throwable) {
+                    if (failure == null) failure = t else if (failure !== t) failure!!.addSuppressed(t)
+                }
+            }
+            attempt { android.util.Log.i("InputQualityProbe", "RESULT_FILE=" + samples.path) }
+            attempt { engine.destroy() }
+            attempt { check(fixture.deleteRecursively()) { "Failed to remove isolated fixture: $fixture" } }
+            attempt {
+                engine.initialize(user, shared); engine.ensureSession()
+                if (previousSchema.isNotEmpty()) engine.switchSchema(previousSchema)
+            }
+            failure?.let { throw it }
         }
     }
 }

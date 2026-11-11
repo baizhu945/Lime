@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.kingzcheung.xime.settings.KeysConfigHelper
+import com.kingzcheung.xime.settings.KeyboardRowsLayout
 import com.kingzcheung.xime.settings.FrostedGlassConfig
 import com.kingzcheung.xime.ui.keyboard.*
 import com.kingzcheung.xime.viewmodel.KeyboardUiState
@@ -37,11 +38,23 @@ class FourteenBottomRowGeometryTest {
     @Before fun keepFixtureVisible() {
         rule.runOnUiThread { rule.activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
-    @After fun restoreLayout() { KeysConfigHelper.setActiveKeyboardSchema("rime_ice") }
+    private var previousRowsLayout: Any? = null
+    private val rowsLayoutField = KeysConfigHelper::class.java.getDeclaredField("_zhRowsLayout").apply { isAccessible = true }
+
+    @After fun restoreLayout() {
+        previousRowsLayout?.let { rowsLayoutField.set(KeysConfigHelper, it) }
+        KeysConfigHelper.setActiveKeyboardSchema("rime_ice")
+    }
 
     @Test fun bottomRowMatchesQwertyAcrossSchemasSizesFontsAndGlass() {
         val app = ApplicationProvider.getApplicationContext<Application>()
         KeysConfigHelper.loadConfig(app)
+        // Keep the real configured rows (including controls), but select the legacy
+        // renderer for the 26-key reference so its two mode slots are comparable.
+        // The schema-aware row API and default-size calculation still see production input.
+        val originalLayout = rowsLayoutField.get(KeysConfigHelper) as KeyboardRowsLayout
+        previousRowsLayout = originalLayout
+        rowsLayoutField.set(KeysConfigHelper, originalLayout.copy(columns = 10))
         val vm = KeyboardViewModel(app)
         var schema by mutableStateOf("rime_ice")
         var width by mutableIntStateOf(360)
@@ -81,8 +94,13 @@ class FourteenBottomRowGeometryTest {
             }
             rule.waitForIdle()
             val expected = bounds()
+            val referenceRows = KeysConfigHelper.getKeyRows("rime_ice", false)
+            assertEquals("reference must retain the configured control row", 4, referenceRows.size)
+            assertTrue("reference must retain shift", "shift" in referenceRows[2])
+            assertEquals("active-row API exposes only letters", 3, KeysConfigHelper.getKeyRows(false).size)
             val expectedLetterDefaults = letterKeyboardDefaults(
                 KeyboardUiState(currentSchemaId = "rime_ice").inputProfile, 1000, false)
+            assertNotNull("configured 26-key layout must use letter defaults", expectedLetterDefaults)
             for (target in listOf("pinyin_14jian", "double_pinyin_flypy_14jian", "pinyin_17jian",
                 "pinyin_18jian", "pinyin_qwjrtk", "pinyin_cyletix10")) {
                 rule.runOnIdle { KeysConfigHelper.setActiveKeyboardSchema(target); schema = target }
@@ -121,6 +139,11 @@ class FourteenBottomRowGeometryTest {
                     assertEquals("m borrows from delete", (1f + borrowed) * pitch, key("m").width, 1.1f)
                 }
             }
+            rule.runOnIdle { KeysConfigHelper.setActiveKeyboardSchema("rime_ice"); schema = "rime_ice" }
+            rule.waitForIdle()
+            assertEquals("restoring the reference schema must preserve its defaults", expectedLetterDefaults,
+                letterKeyboardDefaults(KeyboardUiState(currentSchemaId = "rime_ice").inputProfile, 1000, false))
+            assertEquals("restoring the reference schema must preserve its bottom row", expected, bounds())
         }
     }
 }

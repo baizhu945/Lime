@@ -94,7 +94,7 @@ class ResourceAndCategoryConsistencyTest {
     }
     @Test fun quickActionEditorShowsOneClipboardAndDragsAcrossTheMenuDivider() {
         val layout = mutableStateOf(com.kingzcheung.xime.keyboard.QuickActionLayout(
-            listOf("clipboard", "copy", "voice"), listOf("settings", "sound")))
+            listOf("clipboard", "edit", "voice"), listOf("settings", "sound")))
         rule.setContent { CompositionLocalProvider(LocalDensity provides Density(1f)) {
             MaterialTheme(darkColorScheme()) {
                 Box(Modifier.requiredSize(360.dp, 520.dp).testTag("toolbar-customize")) {
@@ -119,7 +119,7 @@ class ResourceAndCategoryConsistencyTest {
             up()
         }
         rule.runOnIdle {
-            assertEquals(listOf("clipboard", "copy"), layout.value.toolbar)
+            assertEquals(listOf("clipboard", "edit"), layout.value.toolbar)
             assertEquals("voice", layout.value.menu.first())
         }
     }

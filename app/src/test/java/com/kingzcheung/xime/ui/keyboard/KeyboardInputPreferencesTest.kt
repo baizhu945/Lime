@@ -265,11 +265,42 @@ class KeyboardInputPreferencesTest {
         FrostedGlassPreferences.save(context, dark, true)
         FrostedGlassPreferences.save(context, light, false)
         val swappedDark = dark.copy(backgroundOpacity = light.keyOpacity, keyOpacity = light.backgroundOpacity)
-        assertEquals(swappedDark, KeyboardInputPreferences.read(context, true).frostedGlass)
-        assertEquals(light, KeyboardInputPreferences.read(context, false).frostedGlass)
+        val theme = SettingsPreferences.getKeyboardTheme(context)
+        val shownDark = swappedDark.legibleForTheme(theme, true)
+        val shownLight = light.legibleForTheme(theme, false)
+        // The two-dimensional legibility search changes rendering only, not the paired preferences.
+        assertEquals(0.506f, shownLight.backgroundOpacity, 0.00001f)
+        assertEquals(0.848f, shownLight.keyOpacity, 0.00001f)
+        for ((stored, shown) in listOf(swappedDark to shownDark, light to shownLight)) {
+            assertEquals(stored.enabled, shown.enabled)
+            assertEquals(stored.blurRadiusDp, shown.blurRadiusDp, 0f)
+            assertTrue(shown.backgroundOpacity >= stored.backgroundOpacity)
+            assertTrue(shown.keyOpacity >= stored.keyOpacity)
+        }
+        fun assertStored() {
+            assertEquals(swappedDark, FrostedGlassPreferences.read(context, true))
+            assertEquals(light, FrostedGlassPreferences.read(context, false))
+        }
+        assertStored()
+        assertEquals(shownDark, KeyboardInputPreferences.read(context, true).frostedGlass)
+        assertEquals(shownLight, KeyboardInputPreferences.read(context, false).frostedGlass)
+        assertEquals(shownLight, KeyboardInputPreferences.read(context).frostedGlass)
         values["dark_mode"] = 1
-        assertEquals(light, KeyboardInputPreferences.read(context, false).frostedGlass)
-        assertEquals(swappedDark, KeyboardInputPreferences.read(context).frostedGlass)
+        assertEquals(shownLight, KeyboardInputPreferences.read(context, false).frostedGlass)
+        assertEquals(shownDark, KeyboardInputPreferences.read(context, true).frostedGlass)
+        assertEquals(shownDark, KeyboardInputPreferences.read(context).frostedGlass)
+        assertStored()
+
+        // Editing from the dark appearance swaps the pair in the other direction,
+        // but must retain the light blur and the shared enabled flag.
+        FrostedGlassPreferences.save(context, dark, true)
+        val swappedLight = light.copy(backgroundOpacity = dark.keyOpacity, keyOpacity = dark.backgroundOpacity)
+        assertEquals(dark, FrostedGlassPreferences.read(context, true))
+        assertEquals(swappedLight, FrostedGlassPreferences.read(context, false))
+        assertEquals(dark.legibleForTheme(theme, true), KeyboardInputPreferences.read(context, true).frostedGlass)
+        assertEquals(swappedLight.legibleForTheme(theme, false), KeyboardInputPreferences.read(context, false).frostedGlass)
+        assertEquals(dark, FrostedGlassPreferences.read(context, true))
+        assertEquals(swappedLight, FrostedGlassPreferences.read(context, false))
     }
 
     @Test

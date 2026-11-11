@@ -54,6 +54,7 @@ import com.kingzcheung.xime.settings.ButtonLayout
 import com.kingzcheung.xime.settings.KeysConfigHelper
 import com.kingzcheung.xime.settings.swipeHandlerFor
 import com.kingzcheung.xime.keyboard.GestureAction
+import com.kingzcheung.xime.keyboard.encodeLetterNeighbors
 
 /** 半角 → 全角标点映射，中文模式下键帽显示用。提交仍走半角由 Rime 处理。 */
 import androidx.compose.ui.platform.testTag
@@ -82,7 +83,6 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -164,13 +164,6 @@ fun KeyboardLayout(
     val correctionEnabled = !isAsciiMode && LocalKeyboardInputPreferences.current.let {
         if (doublePinyin) it.doublePinyinCorrection else it.neighborCorrection
     }
-    val geometry = remember(cfgVer, keyRows, correctionEnabled, uiState.currentSchemaId, splitKeyboard) {
-        LetterGeometry { encoded -> callbacks.onLetterNeighbors?.invoke(uiState.currentSchemaId, if (correctionEnabled) encoded else "") }
-    }
-    DisposableEffect(geometry) {
-        callbacks.onLetterNeighbors?.invoke(uiState.currentSchemaId, "")
-        onDispose { }
-    }
     // Shared physical frame and bottom-row spacing for 14/26 keys. The paired
     // alphabet keys still occupy their own five-column rows inside that frame.
     val fourteenKey = !isAsciiMode && uiState.inputProfile.layout == com.kingzcheung.xime.settings.InputLayout.MERGED14
@@ -240,7 +233,9 @@ fun KeyboardLayout(
         policy = KeyVisualPolicy.Qwerty,
         allowShrink = uiState.isFloatingMode,
         applyGutter = true,
-        growthSpacing = KeysConfigHelper.getKeyboardKeyConfig().spacingFor("qwerty"),
+        // No custom X/Y spacing still means "automatic": null would bypass the
+        // automatic row-gap growth and leave split/default layouts on the raw policy gap.
+        growthSpacing = KeysConfigHelper.getKeyboardKeyConfig().spacingFor("qwerty") ?: (null to null),
         // 分体两半贴边、中缝按 8dp 外边距算（SplitKeyboardGeometry.gutterDp），加宽按键不改分体。
         widenKeys = LocalKeyboardInputPreferences.current.wideKeys && !splitKeyboard,
     ) { bodyModifier ->
@@ -301,10 +296,10 @@ fun KeyboardLayout(
     val splitRightG = splitKeyboard && !fourteenKey && !zhuyin && !honeycomb &&
         LocalKeyboardInputPreferences.current.splitRightG
     val isShifted = shiftMode.isShifted
-    // 概率键盘：标准 26 键的三排字母换成一个连续的概率密度面，功能键（Shift、删除、空格、
-    // 标点等）原样不动。分体、14 键、双拼、注音、蜂窝、自定义排列和手写/语音保持原布局。
-    // 所有走标准 26 键字母的语言（中文、英文、日文罗马字、西班牙语及新装语言）都用概率面；
-    // 哪套 Rime 方案带拼音/罗马字纠错，就把 P(touch|letter) 一并交给它排序。
+    // 概率键盘：标准 26 键字母在本分支里使用普通键帽，触点仍进入连续概率采样；
+    // 功能键（Shift、删除、空格、标点等）原样不动。分体、14 键、双拼、注音、
+    // 蜂窝、自定义排列和手写/语音保持原布局。哪套 Rime 方案带拼音/罗马字纠错，
+    // 就把 P(touch|letter) 一并交给它排序。
     val standardQwertyRows = keyRows.map { it.joinToString("") } ==
         listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
     val alphabeticLanguage = uiState.inputProfile.layout.kind ==
@@ -312,18 +307,35 @@ fun KeyboardLayout(
     val probabilityFieldEligible = standardQwertyRows && !fourteenKey && !honeycomb && !zhuyin &&
         !splitKeyboard && !uiState.isVoiceMode && letterLayout == null && alphabeticLanguage &&
         (isAsciiMode || correctionEnabled)
-    val probabilityField = remember(probabilityFieldEligible) {
-        if (probabilityFieldEligible) ProbabilityFieldState() else null
+    val probabilityGeometryObserver = LocalProbabilityGeometryObserver.current
+    val probabilityField = remember(probabilityFieldEligible, probabilityGeometryObserver, cfgVer,
+        keyRows, correctionEnabled, uiState.currentSchemaId, splitKeyboard) {
+        if (probabilityFieldEligible) ProbabilityFieldState { measured ->
+            callbacks.onLetterNeighbors?.invoke(uiState.currentSchemaId,
+                if (correctionEnabled) encodeLetterNeighbors(measured.cells) else "")
+            probabilityGeometryObserver?.invoke(measured)
+        } else null
     }
-    // 底排字母和 Shift/删除同处一行：整行先用 drawBehind 画概率面，功能键再盖在上面。
-    val probabilityMeasurer = rememberTextMeasurer()
-    var probabilityOrigin by remember { mutableStateOf(Offset.Zero) }
-    val probabilityAccent = KeyboardThemes.getPrimaryColor(uiState.themeId, uiState.isDarkTheme)
-    val probabilityUppercase = isShifted || LocalKeyboardInputPreferences.current.uppercaseKeyLabels
+    // Glide and nonprobabilistic layouts retain their root-coordinate collector. For the
+    // Gaussian field, native neighbour identities must come from the very same local cells
+    // as tap likelihoods/cap clipping; rotated root AABBs are not another keyboard model.
+    val geometry = remember(cfgVer, keyRows, correctionEnabled, uiState.currentSchemaId, splitKeyboard,
+        probabilityFieldEligible) {
+        LetterGeometry { encoded ->
+            if (!probabilityFieldEligible) callbacks.onLetterNeighbors?.invoke(uiState.currentSchemaId,
+                if (correctionEnabled) encoded else "")
+        }
+    }
+    DisposableEffect(geometry) {
+        callbacks.onLetterNeighbors?.invoke(uiState.currentSchemaId, "")
+        onDispose { }
+    }
 
     val context = LocalContext.current
     val kbColors = KeysConfigHelper.getKeyboardColors()
-    val longToColor: (Long) -> Color = { if (it > 0xFFFFFF) Color(it) else Color(0xFF000000 or it) }
+    val longToColor: (Long) -> Color = {
+        if (it > 0xFFFFFF) Color(it.toInt()) else Color((0xFF000000 or it).toInt())
+    }
     val keyboardBackgroundColor = KeyboardThemes.getKeyboardBackgroundColor(uiState.themeId, uiState.isDarkTheme)
     val themeScheme = KeyboardThemes.getRenderingScheme(uiState.themeId)
     val themeSpecialKeyColor = KeyboardThemes.getSpecialKeyColor(uiState.themeId, uiState.isDarkTheme)
@@ -335,8 +347,7 @@ fun KeyboardLayout(
         themeScheme, uiState.isDarkTheme,
         (if (uiState.isDarkTheme) kbColors.specialKeyBgColorDark else kbColors.specialKeyBgColor)?.let(longToColor)
     )
-    val specialKeyTextColor = if (uiState.isDarkTheme) Color.White
-        else KeyboardThemes.getSpecialKeyTextColor(uiState.themeId, false)
+    val specialKeyTextColor = com.kingzcheung.xime.ui.theme.resolvedSpecialKeyTextColor(uiState.themeId, uiState.isDarkTheme)
     val bubbleBgColor = if (uiState.isDarkTheme) themeScheme.specialKeyDark
         else themeScheme.specialKeyLight
     val kbShadow = KeysConfigHelper.getKeyboardShadow()
@@ -526,6 +537,7 @@ fun KeyboardLayout(
         modifier = bodyModifier
             .onGloballyPositioned { coordinates ->
                 keyboardBounds = coordinates.boundsInRoot()
+                probabilityField?.registerFrame(coordinates)
                 shiftSlideTargets.keyboardBounds = keyboardBounds
             }
             .glideTyping(glideEnabled, geometry, { keyboardBounds.topLeft }, glideTrail, onGlideTrace)
@@ -725,6 +737,7 @@ fun KeyboardLayout(
                         }
                     }
 
+                    KeyboardLayoutSection {
                     // 第三行
                     if (isVoiceMode && !isVoiceSticky) {
                         Box(modifier = Modifier.weight(1f)) {
@@ -773,19 +786,7 @@ fun KeyboardLayout(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .fillMaxHeight()
-                                .onGloballyPositioned { probabilityOrigin = it.positionInRoot() }
-                                .drawBehind {
-                                    val field = probabilityField ?: return@drawBehind
-                                    drawProbabilityField(
-                                        field = field,
-                                        origin = probabilityOrigin,
-                                        textColor = keyTextColor,
-                                        accentColor = probabilityAccent,
-                                        uppercase = probabilityUppercase,
-                                        measurer = probabilityMeasurer,
-                                    )
-                                },
+                                .fillMaxHeight(),
                         ) {
                             CompositionLocalProvider(LocalHoneycombEdge provides if (honeycomb) HoneycombEdge.START else null) {
                             val shiftSlot = Modifier.weight(letterSideKeyWeight)
@@ -902,8 +903,7 @@ fun KeyboardLayout(
                                         Unit
                                     } }
 
-                                    val fieldMode = probabilityField != null
-                                    val fieldLetterTap: ((String) -> Unit)? = if (fieldMode) {
+                                    val fieldLetterTap: ((String) -> Unit)? = if (probabilityField != null) {
                                         { value -> onKeyPress(if (isShifted) value.uppercase() else value) }
                                     } else null
                                     SwipeableKeyButton(
@@ -913,7 +913,7 @@ fun KeyboardLayout(
                                         letterGroup = if (isShifted) key.uppercase() else key,
                                         onLetterSelection = onKeyPress,
                                         onClick = onClick,
-                                        backgroundColor = if (fieldMode) Color.Transparent else keyBackgroundColor,
+                                        backgroundColor = keyBackgroundColor,
                                         textColor = keyTextColor,
                                         modifier = Modifier.weight(if (bottomWeighted) (renderSpans?.getOrNull(2)?.getOrNull(bottomKeys.indexOf(key))
                                             ?: letterKeySpan(key, true, LocalEvenMergedKeys.current)) +
@@ -939,20 +939,20 @@ fun KeyboardLayout(
                                         onRelease = onRelease,
                                         onLongPressSelect = onLongPressSelect,
                                         longPressItems = longPressLabels,
-                                        shadowEnabled = if (fieldMode) false else shadowEnabled,
+                                        shadowEnabled = shadowEnabled,
                                         shadowElevation = shadowElevation,
                                         shadowShapeRadius = shadowShapeRadius,
-                                        fieldMode = fieldMode,
                                         onLetterTap = fieldLetterTap,
                                     )
+                                    }
                                 }
-                            }
                             }
 
                             CompositionLocalProvider(LocalHoneycombEdge provides if (honeycomb) HoneycombEdge.END else null) {
                             deleteKey(Modifier.weight(letterDeleteKeyWeight - fourteenMExtra))
                             }
                         }
+                    }
                     }
 
                     // 蜂窝布局的第四行字母（zxcvbnm），与第二行同宽对齐。注音的第四行 10 键，删除键占第 11 列。
@@ -990,6 +990,7 @@ fun KeyboardLayout(
                         Spacer(Modifier.height(honeycombOverhang))
                     }
 
+                    KeyboardLayoutSection {
                     // 底排保留共用权重及逗号/地球等宽；宽屏实体字母错位不移动底排。
                     // 注音的底排同 26 键的比例（首行 11 键不是旧式布局）。
                     val bottom = letterKeyboardBottomRow(keyRows, fourteenKey || zhuyin)
@@ -1043,8 +1044,11 @@ fun KeyboardLayout(
                     if (configuredRow != null && leftPunctuation != null) {
                         Row(Modifier.fillMaxWidth().weight(1f).testTag("configured-control-row")) {
                             configuredRow.controls.forEach { id -> androidx.compose.runtime.key(id) {
-                                val weight = KeysConfigHelper.getKeyGesture(id, isAsciiMode)?.width ?: when (id) {
-                                    "mode_change" -> bottom.mode * 2f
+                                val bindingWidth = KeysConfigHelper.getKeyGesture(id, isAsciiMode)?.width
+                                // The merged ?123 replaces two mode slots. The configured width is
+                                // one slot (default 1.2), so span both slots instead of shrinking to one.
+                                val weight = if (id == "mode_change") (bindingWidth ?: bottom.mode) * 2f
+                                else bindingWidth ?: when (id) {
                                     "comma" -> bottom.punctuation
                                     "space" -> bottomSpaceWeight
                                     "earth" -> bottom.language
@@ -1422,6 +1426,7 @@ fun KeyboardLayout(
                         }
                     }
                     }
+                    }
                 }
 
             }
@@ -1613,17 +1618,6 @@ fun KeyboardRowWithConfig(
     val rowEndInset = homeRow.endInset.dp
     val letterGeometry = LocalLetterGeometry.current
     val probabilityField = LocalProbabilityField.current
-    // 一整行画同一张概率密度面；三行各自裁切自己的部分，拼起来没有接缝。
-    if (probabilityField != null) {
-        ProbabilityBackdrop(
-            textColor = config.keyTextColor,
-            accentColor = LocalCustomAccent.current,
-            uppercase = isShifted || LocalKeyboardInputPreferences.current.uppercaseKeyLabels,
-            modifier = Modifier.matchParentSize(),
-            onKeyPress = onKeyPress,
-            onKeyPressDown = onKeyPressDown,
-        )
-    }
     Row(
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -1697,8 +1691,7 @@ fun KeyboardRowWithConfig(
             } }
 
             // 补上的 G 不登记字母位置：滑行与邻键纠错仍只认左半那个 G。
-            val fieldMode = probabilityField != null
-            val fieldLetterTap: ((String) -> Unit)? = if (fieldMode) {
+            val fieldLetterTap: ((String) -> Unit)? = if (probabilityField != null) {
                 { value -> onKeyPress(if (isShifted) value.uppercase() else value) }
             } else null
             CompositionLocalProvider(LocalLetterGeometry provides if (index == homeRow.mirrorIndex) null else letterGeometry) {
@@ -1709,7 +1702,7 @@ fun KeyboardRowWithConfig(
                 letterGroup = if (isShifted) key.uppercase() else key,
                 onLetterSelection = onKeyPress,
                 onClick = onClick,
-                backgroundColor = if (fieldMode) Color.Transparent else config.keyBackgroundColor,
+                backgroundColor = config.keyBackgroundColor,
                 textColor = config.keyTextColor,
                 modifier = Modifier.weight((unitWidth * (spans.getOrNull(index) ?: letterKeySpan(key, weighted, evenMerged)) +
                     (if (index == 0) startInset else 0.dp) + (if (index == rowKeys.lastIndex) rowEndInset else 0.dp)).value.coerceAtLeast(1f))
@@ -1740,10 +1733,9 @@ fun KeyboardRowWithConfig(
                 longPressItems = longPressLabels,
                 fontSize = config.fontSize,
                 swipeFontSize = config.swipeFontSize,
-                shadowEnabled = if (fieldMode) false else config.shadowEnabled,
+                shadowEnabled = config.shadowEnabled,
                 shadowElevation = config.shadowElevation,
                 shadowShapeRadius = config.shadowShapeRadius,
-                fieldMode = fieldMode,
                 onLetterTap = fieldLetterTap,
             )
             }

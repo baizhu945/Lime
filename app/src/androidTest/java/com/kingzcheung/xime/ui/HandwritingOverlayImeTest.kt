@@ -70,6 +70,8 @@ class HandwritingOverlayImeTest {
         val enabledBefore = shell("ime list -s").lineSequence().any { it.trim() == ime }
         lateinit var editor: EditText
         var editorReady = false
+        var expandedCompactToolbar = false
+        var service: XimeInputMethodService? = null
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         fun has(tag: String) = rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
         fun hostInset(): Int {
@@ -111,7 +113,6 @@ class HandwritingOverlayImeTest {
                 imm.restartInput(editor)
                 imm.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
             }
-            var service: XimeInputMethodService? = null
             rule.waitUntil(30_000) {
                 rule.runOnUiThread { service = WindowInspector.getGlobalWindowViews().firstNotNullOfOrNull(::findService) }
                 service?.keyboardCallbacks != null && (service?.currentEffectiveKeyboardHeight ?: 0) > 0
@@ -119,6 +120,15 @@ class HandwritingOverlayImeTest {
             val actualIme = checkNotNull(service)
             rule.waitUntil(30_000) { actualIme.inputReadiness.ticket() != null && !actualIme.uiState.value.isDeploying }
             android.os.SystemClock.sleep(300)
+            // A hardware keyboard opens the compact toolbar; fullscreen handwriting can only
+            // grow from the expanded soft keyboard, so use the real expand control first.
+            if (actualIme.uiState.value.isCompact) {
+                rule.waitUntil(10_000) { has("hardware-toolbar-keyboard") }
+                rule.onNodeWithTag("hardware-toolbar-keyboard", useUnmergedTree = true).performClick()
+                rule.waitUntil(10_000) { !actualIme.uiState.value.isCompact }
+                expandedCompactToolbar = true
+                android.os.SystemClock.sleep(300)
+            }
             val callbacks = checkNotNull(actualIme.keyboardCallbacks)
             rule.runOnUiThread { callbacks.onHandwritingToggle!!.invoke() }
             rule.waitUntil(10_000) { actualIme.keyboardViewModel.page.value == KeyboardPage.Main(MainType.HANDWRITING) }
@@ -181,10 +191,22 @@ class HandwritingOverlayImeTest {
             }
 
         } finally {
+            rule.runOnUiThread {
+                val actual: XimeInputMethodService? = service
+                if (actual != null) {
+                    actual.keyboardCallbacks?.onHandwritingExpand?.invoke(false)
+                    actual.keyboardViewModel.closeOverlay()
+                    val page = actual.keyboardViewModel.page.value
+                    if (page is KeyboardPage.Main && page.type == MainType.HANDWRITING) {
+                        actual.keyboardCallbacks?.onHandwritingToggle?.invoke()
+                    }
+                }
+            }
             if (editorReady) rule.runOnUiThread {
                 imm.hideSoftInputFromWindow(editor.windowToken, 0)
                 editor.clearFocus()
             }
+            if (expandedCompactToolbar) runCatching { shell("input keyevent KEYCODE_BACK") }
             if (previousSchema.isNotBlank()) engine.switchSchema(previousSchema)
             engine.setOption("ascii_mode", previousAscii)
             engine.setUserConfigBool("var/option/ascii_mode", previousSavedAscii)

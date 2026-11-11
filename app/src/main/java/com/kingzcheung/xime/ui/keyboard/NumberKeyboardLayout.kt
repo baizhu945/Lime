@@ -105,8 +105,27 @@ fun NumberKeyboardLayout(
         }
         return
     }
-    KeyboardKeySpacingScope(modifier, columns = 5f * 3f / 3.4f,
-        policy = KeyVisualPolicy.T9, allowShrink = isFloatingMode, applyGutter = true,
+    val textSlot = LocalTextModeNavigationGeometry.current?.slots?.get(1)
+    val density = LocalDensity.current
+    var panelBounds by remember { mutableStateOf<Rect?>(null) }
+    val inheritedInset = panelBounds?.let { bounds ->
+        textSlot?.let { slot -> (slot.left - bounds.left).takeIf {
+            it.isFinite() && it >= 0f && it < bounds.width / 2f
+        } }?.let { with(density) { it.toDp() } }
+    }
+    val wide = LocalKeyboardInputPreferences.current.wideKeys
+    // Keep the originating legacy text frame, including a full-width split frame;
+    // centering a narrow keypad would leave its old mode-key position in empty space.
+    val policy = if (inheritedInset != null) {
+        (if (wide) KeyVisualPolicy.T9.widened() else KeyVisualPolicy.T9)
+            .copy(maxKeyWidth = Float.MAX_VALUE, minGutter = 0f)
+    } else KeyVisualPolicy.T9
+    KeyboardKeySpacingScope(modifier.onGloballyPositioned {
+        val next = it.boundsInRoot()
+        if (panelBounds != next) panelBounds = next
+    }, columns = 5f * 3f / 3.4f, horizontalInset = inheritedInset ?: 8.dp,
+        policy = policy, allowShrink = isFloatingMode, applyGutter = true,
+        widenKeys = wide && inheritedInset == null,
         growthSpacing = keySpacingX?.value to keySpacingY?.value) { bodyModifier ->
 
     val swipeBubble = rememberSwipeBubbleController()
@@ -224,7 +243,8 @@ private fun NumberRows(
                         row.forEach { key ->
                             KeyButton(text = key, onClick = { onKeyPress(key) },
                                 backgroundColor = keyBackgroundColor, textColor = keyTextColor,
-                                onPress = { onKeyPressDown?.invoke(key) }, modifier = Modifier.weight(1f),
+                                onPress = { onKeyPressDown?.invoke(key) },
+                                modifier = Modifier.weight(1f).testTag("number-digit:$key"),
                                 shadowEnabled = shadowEnabled, shadowElevation = shadowElevation,
                                 shadowShapeRadius = shadowShapeRadius, fontSize = keyFontSize)
                         }

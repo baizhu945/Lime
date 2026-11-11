@@ -46,10 +46,105 @@ class PinyinEditEngineTest {
     }
     private fun mode(id: String) { assertTrue(engine.switchSchema(id)); engine.setOption("ascii_mode", false) }
 
+    @Test fun nativeSyllableLocksSurviveOnlyUnrelatedEdits() {
+        mode("rime_ice")
+        engine.setNeighborMap("s:adw;d:sfec")
+        fun choices(): PinyinSyllableChoices? =
+            engine.readPinyinSyllableChoices(engine.getProcessResult(true).engineRevision)
+        fun choose(reading: String, start: Int, end: Int) {
+            val owner = choices()
+            assertNotNull("missing choices for $reading", owner)
+            val index = owner!!.options.indexOfFirst { it.pinyin == reading && it.start == start && it.end == end }
+            assertTrue("missing $reading at $start: ${owner.options}", index >= 0)
+            assertNotNull(engine.selectPinyinSyllable(owner, index))
+        }
+        fun key(code: Int) { assertTrue("key rejected: $code", engine.processKey(code, 0)) }
+        fun caret(at: Int) {
+            val input = engine.getInput()
+            assertTrue(engine.applyPinyinEdit(input, input, at))
+        }
+        fun chain() {
+            engine.clearQueuedComposition()
+            "dsdaochaotian".forEach { key(it.code) }
+            choose("da", 0, 2); choose("dao", 2, 5); choose("chao", 5, 9); choose("tian", 9, 13)
+            assertNull(choices())
+        }
+        try {
+            chain()
+            key(0xff08); key('n'.code)
+            choose("tian", 9, 13)
+            assertNull(choices())
+
+            // Insert and remove an identical byte inside chao; only chao onward unlocks.
+            caret(8); key('o'.code); key(0xff08); caret(13)
+            choose("chao", 5, 9); choose("tian", 9, 13)
+            assertNull(choices())
+
+            // Insert after chao, then delete the original identical byte inside it.
+            caret(9); key('o'.code); caret(9); key(0xff08); caret(13)
+            choose("chao", 5, 9); choose("tian", 9, 13)
+            assertNull(choices())
+            caret(3); caret(13)
+            assertNull("caret movement lost locks", choices())
+
+            // An outstanding option belongs to its revision, even for caret-only changes.
+            chain(); key(0xff08); key('n'.code)
+            val old = choices()!!
+            val index = old.options.indexOfFirst { it.pinyin == "tian" && it.start == 9 && it.end == 13 }
+            assertTrue(index >= 0)
+            caret(3); caret(13)
+            assertNull("stale revision accepted", engine.selectPinyinSyllable(old, index))
+            choose("tian", 9, 13)
+        } finally {
+            engine.clearQueuedComposition()
+            engine.setNeighborMap("")
+        }
+    }
+
+    @Test fun optionWritesPreserveOrClearNativeSyllableLocks() {
+        mode("rime_ice")
+        engine.setNeighborMap("s:adw;d:sfec")
+        val option = "_lime_test_lock_epoch"
+        fun choices(): PinyinSyllableChoices? =
+            engine.readPinyinSyllableChoices(engine.getProcessResult(true).engineRevision)
+        fun lockFirstSyllable() {
+            engine.clearQueuedComposition()
+            "dsdaochaotian".forEach { assertTrue(engine.processKey(it.code, 0)) }
+            val owner = choices() ?: throw AssertionError("missing initial syllable choices")
+            val index = owner.options.indexOfFirst { it.pinyin == "da" && it.start == 0 && it.end == 2 }
+            assertTrue("missing da: ${owner.options}", index >= 0)
+            assertNotNull(engine.selectPinyinSyllable(owner, index))
+            val next = choices() ?: throw AssertionError("missing choices after locking da")
+            assertTrue("first lock not applied: ${next.options}", next.options.all { it.start == 2 })
+        }
+        try {
+            assertTrue(engine.setOption(option, false))
+            assertFalse(engine.getOption(option))
+            lockFirstSyllable()
+            assertTrue(engine.setOption(option, false))
+            assertFalse(engine.getOption(option))
+            val retained = choices() ?: throw AssertionError("missing choices after same-value option")
+            assertTrue("same-value option lost lock: ${retained.options}", retained.options.all { it.start == 2 })
+
+            assertTrue(engine.setOption(option, true))
+            assertTrue(engine.getOption(option))
+            val cleared = choices() ?: throw AssertionError("missing choices after changed option")
+            assertTrue("changed option did not safely clear lock: ${cleared.options}",
+                cleared.options.any { it.start == 0 && it.pinyin == "da" })
+            assertEquals("dsdaochaotian", engine.getInput())
+            assertEquals("", engine.commit())
+        } finally {
+            engine.clearQueuedComposition()
+            engine.setOption(option, false)
+            engine.setNeighborMap("")
+        }
+    }
+
     @Test fun fourteenKeyRepresentativeCodeDisplaysCandidateReading() {
-        mode("pinyin_14jian"); engine.setInput("qeb")
+        // Merged-key taps use uppercase codes; lowercase letters are exact swipe input.
+        mode("pinyin_14jian"); engine.setInput("QEB")
         val snapshot = engine.readPinyinEditSnapshot()
-        assertEquals("qeb", snapshot[0])
+        assertEquals("QEB", snapshot[0])
         assertEquals("wen; candidates=${engine.getCandidatesWithComments().toList()}", "wen", snapshot[4])
         assertEquals("wen", engine.getComposition().preedit)
         assertEquals("wen", engine.getProcessResult(true).preeditText)

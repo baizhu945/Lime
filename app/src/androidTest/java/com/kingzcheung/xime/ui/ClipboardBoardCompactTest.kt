@@ -185,10 +185,26 @@ class ClipboardBoardCompactTest {
         // first-row preview; the lock remains an overlay rather than a separate footer.
         rule.runOnIdle { pins.value = emptySet() }
         rule.onNodeWithTag("clipboard-records").performScrollToNode(hasTestTag(textTag))
-        val unpinnedHeight = bounds(textTag).height
+        for (isDark in listOf(true, false)) {
+            rule.runOnIdle { dark.value = isDark }
+            val card = rule.onNodeWithTag(textTag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val text = rule.onNodeWithText(pinnedText.text, useUnmergedTree = true)
+                .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            // A single-line history card intentionally has no 48dp floor; verify the
+            // line itself fits and its rendered glyphs contrast with the card instead.
+            assertTrue("ordinary text fits inside card: card=$card text=$text", text.height >= 18f &&
+                text.top >= card.top && text.bottom <= card.bottom && text.left >= card.left && text.right <= card.right)
+            val bitmap = rule.onNodeWithTag(textTag).captureToImage().asAndroidBitmap()
+            val background = bitmap.getPixel(bitmap.width - 10, bitmap.height / 2)
+            var contrastingPixels = 0
+            for (y in 4 until bitmap.height - 4) for (x in 8 until bitmap.width - 30) {
+                if (androidx.core.graphics.ColorUtils.calculateContrast(bitmap.getPixel(x, y), background) >= 4.5) contrastingPixels++
+            }
+            assertTrue("ordinary history glyphs remain readable dark=$isDark: $contrastingPixels pixels", contrastingPixels >= 10)
+        }
         rule.runOnIdle { pins.value = setOf("text:${pinnedText.id}") }
+        rule.onNodeWithTag("clipboard-records").performScrollToNode(hasTestTag(textTag))
         val repinned = bounds(textTag)
-        assertTrue("ordinary history card remains readable", unpinnedHeight >= 48f)
         assertTrue("pinned preview leaves room for recent history",
             repinned.height <= bounds("clipboard-records-region").height * .35f + 1f)
         assertTrue("large panels cannot inflate the pinned preview", repinned.height <= 113f)
@@ -196,8 +212,9 @@ class ClipboardBoardCompactTest {
             hasAnyAncestor(hasTestTag("clipboard-pin:text:${pinnedText.id}")), useUnmergedTree = true)
             .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         assertTrue("small lock belongs inside the card", lock.width <= 18f && lock.height <= 18f)
-        assertTrue("lock belongs in the upper trailing corner", lock.top >= repinned.top &&
-            lock.top - repinned.top <= 12f && repinned.right - lock.right in 0f..12f)
+        assertTrue("lock belongs inside the trailing edge of the single-line preview", lock.top >= repinned.top &&
+            lock.bottom <= repinned.bottom && abs(lock.center.y - repinned.center.y) <= 1f &&
+            repinned.right - lock.right in 0f..12f)
         rule.onNodeWithTag(textTag).performClick()
         rule.runOnIdle { assertEquals(listOf(pinnedText.text), pastedText) }
     }

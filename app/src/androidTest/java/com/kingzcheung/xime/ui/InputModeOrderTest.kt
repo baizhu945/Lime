@@ -115,14 +115,12 @@ class InputModeOrderTest {
                     Color.Blue, Color.Black, Color.LightGray, {}, modifier = Modifier.size(360.dp, 250.dp))
             } }
         }
-        repeat(2) {
-            rule.onNodeWithTag("profile-more").performClick()
-            rule.onNodeWithText("组合顺序").assertDoesNotExist()
-            rule.onNodeWithTag("profile-edit-order").assertDoesNotExist()
-            rule.onNodeWithTag("add-layout-tile").assertIsDisplayed()
-            rule.onNodeWithTag("profile-management-back").performClick()
-            rule.onNodeWithTag("panel-scheme:t9_pinyin").assertIsSelected()
-        }
+        // Scheme management now opens the dedicated layout manager from this tile;
+        // the entry itself must never expose or rewrite the keyboard combination order.
+        rule.onNodeWithTag("profile-layout-management").assertIsDisplayed()
+        rule.onNodeWithText("组合顺序").assertDoesNotExist()
+        rule.onNodeWithTag("profile-edit-order").assertDoesNotExist()
+        rule.onNodeWithTag("panel-scheme:t9_pinyin").assertIsSelected()
         assertEquals(saved, prefs.getString(InputModes.ORDER_KEY, null))
     }
 }

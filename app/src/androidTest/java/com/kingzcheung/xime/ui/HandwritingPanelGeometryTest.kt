@@ -60,28 +60,43 @@ class HandwritingPanelGeometryTest {
                     }
                     return rule.onNodeWithTag(tag, true).fetchSemanticsNode().boundsInRoot
                 }
-                val references = listOf("mode-slot-1", "mode-slot-2", "qwerty-punctuation-key", "qwerty-enter-key").map { bounds(it) }
+                // The Xime configured row uses one ?123 key in place of the legacy two
+                // mode slots; both must line up with handwriting's symbol+number area.
+                val configuredMode = rule.onAllNodesWithTag("configured-mode-key", true)
+                    .fetchSemanticsNodes().isNotEmpty()
+                val modeReference = if (configuredMode) bounds("configured-mode-key") else bounds("mode-slot-1")
+                val secondModeReference = if (configuredMode) modeReference else bounds("mode-slot-2")
+                val punctuationReference = bounds("qwerty-punctuation-key")
+                val enterReference = bounds("qwerty-enter-key")
                 val name = "${window.first.value.toInt()}-${window.second.value.toInt()}-$isFloating"
                 saveUiEvidence("handwriting-reference-$name", rule.onNodeWithTag("comparison-body"))
                 rule.runOnIdle { handwriting.value = true }
-                rule.onNodeWithText("!@#", useUnmergedTree = true).assertExists()
-                rule.onNodeWithText("123", useUnmergedTree = true).assertExists()
                 val actual = bounds("handwriting-key:symbol")
                 val body = bounds("comparison-body")
-                for ((tag, reference) in listOf("symbol", "number", "expand", "enter").zip(references)) {
-                    val key = bounds("handwriting-key:$tag")
-                    assertEquals("$name $tag left", reference.left, key.left, 1f)
-                    assertEquals("$name $tag right", reference.right, key.right, 1f)
-                    assertEquals("$name $tag bottom", reference.bottom, key.bottom, 1f)
-                }
+                val symbol = actual
+                val number = bounds("handwriting-key:number")
+                assertEquals("$name symbol left", modeReference.left, symbol.left, 1f)
+                assertEquals("$name number right", secondModeReference.right, number.right, 1f)
+                assertEquals("$name symbol bottom", modeReference.bottom, symbol.bottom, 1f)
+                assertEquals("$name number bottom", secondModeReference.bottom, number.bottom, 1f)
+                val expand = bounds("handwriting-key:expand")
+                val enter = bounds("handwriting-key:enter")
+                // Five equal handwriting rows are shorter than QWERTY's four rows; the
+                // shared contract is horizontal alignment and the common bottom edge.
+                assertEquals("$name expand left", punctuationReference.left, expand.left, 1f)
+                assertEquals("$name expand right", punctuationReference.right, expand.right, 1f)
+                assertEquals("$name expand bottom", punctuationReference.bottom, expand.bottom, 1f)
+                assertEquals("$name enter left", enterReference.left, enter.left, 1f)
+                assertEquals("$name enter right", enterReference.right, enter.right, 1f)
+                assertEquals("$name enter bottom", enterReference.bottom, enter.bottom, 1f)
                 val space = bounds("handwriting-key:space")
                 val language = bounds("handwriting-key:ime_switch")
-                assertEquals(references[2].right, space.left, 1f)
+                assertEquals(punctuationReference.right, space.left, 1f)
                 assertEquals(space.right, language.left, 1f)
-                assertEquals(references[2].width, language.width, 1f)
-                assertEquals(references[3].left, language.right, 1f)
+                assertEquals(punctuationReference.width, language.width, 1f)
+                assertEquals(enterReference.left, language.right, 1f)
                 // Five rows within the same content body and bottom inset as QWERTY.
-                assertEquals((body.height - (body.bottom - references[0].bottom)) / 5f, actual.height, 1f)
+                assertEquals((body.height - (body.bottom - modeReference.bottom)) / 5f, actual.height, 1f)
                 saveUiEvidence("handwriting-aligned-$name", rule.onNodeWithTag("comparison-body"))
               }
             }

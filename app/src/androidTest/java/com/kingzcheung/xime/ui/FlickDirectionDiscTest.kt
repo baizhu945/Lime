@@ -37,7 +37,8 @@ class FlickDirectionDiscTest {
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 CompositionLocalProvider(LocalKeyboardInputPreferences provides KeyboardInputPreferences(t9FlickLetters = true, flickDirectionDisc = true)) {
-                    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.BottomCenter) {
+                    // Keep the centre and every injected flick endpoint on screen, including DOWN.
+                    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
                         Row(Modifier.background(Color(0xFF121212))) {
                             SwipeableKeyButton("ABC", onClick = { committed += "tap" }, backgroundColor = Color(0xFF3C3C3C),
                                 textColor = Color(0xFFE8EAED), modifier = Modifier.size(110.dp, 64.dp).testTag("t9-abc"),
@@ -72,9 +73,11 @@ class FlickDirectionDiscTest {
         save("fourteen-right")
         // Straight across to the neighbouring direction, without pausing at the centre.
         // The corner "1" sits on the pull-down side under the default symbol direction.
-        rule.onNodeWithTag("fourteen-qw").performTouchInput { moveBy(Offset(-90f, 110f)) }
+        // Vertical activation is 50 dp; touch input offsets are physical pixels.
+        val verticalFlick = with(rule.density) { 80.dp.toPx() }
+        rule.onNodeWithTag("fourteen-qw").performTouchInput { moveBy(Offset(-90f, verticalFlick)) }
         rule.onNodeWithTag("letter-preview-choice:DOWN", useUnmergedTree = true).assertIsSelected()
-        rule.onNodeWithTag("fourteen-qw").performTouchInput { moveBy(Offset(90f, -110f)) }
+        rule.onNodeWithTag("fourteen-qw").performTouchInput { moveBy(Offset(90f, -verticalFlick)) }
         rule.onNodeWithTag("letter-preview-choice:RIGHT", useUnmergedTree = true).assertIsSelected()
         rule.onNodeWithTag("fourteen-qw").performTouchInput { up() }
         rule.runOnIdle { assertEquals("same results as before the disc", listOf("A", "w"), committed) }

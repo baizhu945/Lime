@@ -135,7 +135,9 @@ fun HardwareKeyboardCandidateBar(
         // Use the actual host and measured card, including split-window origins.
         // The insertion marker is already in screen pixels; zero is a valid position.
         val marginPx = with(density) { 8.dp.roundToPx() }
-        val maxCardWidth = (maxWidth - 16.dp).coerceIn(1.dp, 560.dp)
+        // A floating candidate window must stay narrower than the editor so it can follow
+        // the caret; a full-width card is pinned to both margins and cannot move.
+        val maxCardWidth = minOf(maxWidth - 16.dp, 560.dp, maxWidth * 0.8f).coerceAtLeast(1.dp)
         val maxCardHeight = (maxHeight - 16.dp).coerceAtLeast(1.dp)
         view.getLocationOnScreen(viewLoc)
         val origin = (hostPositionInRoot ?: IntOffset.Zero) + IntOffset(viewLoc[0], viewLoc[1])

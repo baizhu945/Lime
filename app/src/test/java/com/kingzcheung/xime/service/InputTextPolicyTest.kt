@@ -93,6 +93,8 @@ class InputTextPolicyTest {
         assertNull("confirmed text is not editable", com.kingzcheung.xime.rime.compositionCaretStep("nihao", 2, 2, -1))
         // 手打分隔符两侧显示同一个光标位置，一步跨过。
         assertEquals(1, com.kingzcheung.xime.rime.compositionCaretStep("ni'hao", 3, 0, -1))
+        assertEquals("left from after h skips the separator", 2,
+            com.kingzcheung.xime.rime.compositionCaretStep("ni'hao", 4, 0, -1))
         assertEquals(4, com.kingzcheung.xime.rime.compositionCaretStep("ni'hao", 2, 0, 1))
     }
 }

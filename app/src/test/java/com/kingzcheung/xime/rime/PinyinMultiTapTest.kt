@@ -12,6 +12,14 @@ class PinyinMultiTapTest {
         assertEquals("ni'hao", display.text)
         assertEquals(2, display.rawOffset(3))
     }
+    @Test fun onlyAmbiguousGroupTokensTriggerMergedMultiTap() {
+        assertEquals("bn", merged14MultiTapGroup(MergedLetterInput.tapValue("bn", "b", true, false)))
+        assertEquals("qw", merged14MultiTapGroup("qw"))
+        assertNull(merged14MultiTapGroup("b")) // exact swipe/letter, not an ambiguous key
+        assertNull(merged14MultiTapGroup("B"))
+        assertNull(merged14MultiTapGroup("delete"))
+        assertNull(merged14MultiTapGroup(null))
+    }
     @Test fun repeatedGroupCyclesAndNewGroupAppends() {
         val tap = PinyinMultiTap()
         assertEquals("q" to 1, tap.press("", 0, "qw", 0))

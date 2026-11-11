@@ -20,35 +20,43 @@ class JapaneseInputTest {
         engine.initialize(userDir, sharedDir)
         assertTrue("日语词库部署成功", RimeConfigHelper.ensureDeployment(context))
         assertTrue("部署完成后创建 Rime 会话", engine.ensureSession())
+        // The engine/session is process-global. Keep setup, input, candidate lookup and
+        // selection in one transaction: UI-style tryLock probes otherwise return defaults.
+        RimeEngine.rimeLock.lock()
         val previous = engine.getCurrentSchema()
         try {
             JapaneseSchemas.ids.forEach { schema ->
                 assertTrue("切换 $schema", engine.switchSchema(schema))
                 engine.setOption("ascii_mode", false)
                 engine.clearComposition()
-                "nihonngo".forEach { engine.processKey(it.code, 0) }
+                "nihonngo".forEach { assertTrue("$schema key $it", engine.processKey(it.code, 0)) }
                 val candidates = engine.getAllCandidates(50).map { it.text }
                 assertTrue("$schema: $candidates", candidates.contains("日本語"))
                 val index = candidates.indexOf("日本語")
                 assertTrue(engine.selectCandidateByGlobalIndex(index))
                 assertEquals("日本語", engine.commit())
-                "nihonngo".forEach { engine.processKey(it.code, 0) }
+                "nihonngo".forEach { assertTrue("$schema reading key $it", engine.processKey(it.code, 0)) }
                 assertReadingReturn(engine, "にほんご")
                 if (schema == "japanese_kana") verifyKanaModifiers(engine)
                 if (schema == "japanese") {
-                    verifyQueuedKeyWaitsForEngine(engine)
+                    // This helper deliberately tests another thread waiting for the lock.
+                    RimeEngine.rimeLock.unlock()
+                    try { verifyQueuedKeyWaitsForEngine(engine) }
+                    finally { RimeEngine.rimeLock.lock() }
                     "katakana".forEach {
                         val code = com.kingzcheung.xime.service.JapaneseTyping.keyCode(it.toString(), true)
                         assertTrue(engine.processKey(code, 0))
                     }
                     assertReadingReturn(engine, "カタカナ")
-                    "katakana".forEach { engine.processKey(com.kingzcheung.xime.service.JapaneseTyping.keyCode(it.toString(), false), 0) }
+                    "katakana".forEach { assertTrue(engine.processKey(com.kingzcheung.xime.service.JapaneseTyping.keyCode(it.toString(), false), 0)) }
                     assertReadingReturn(engine, "かたかな")
                 }
             }
         } finally {
-            engine.clearComposition()
-            if (previous.isNotBlank()) engine.switchSchema(previous)
+            try {
+                engine.clearComposition()
+                if (previous.isNotBlank()) engine.switchSchema(previous)
+            } finally { RimeEngine.rimeLock.unlock() }
         }
     }
 
@@ -59,6 +67,7 @@ class JapaneseInputTest {
         engine.initialize(userDir, sharedDir)
         assertTrue(RimeConfigHelper.ensureDeployment(context))
         assertTrue(engine.ensureSession())
+        RimeEngine.rimeLock.lock()
         val previous = engine.getCurrentSchema()
         try {
             assertTrue(engine.switchSchema("japanese"))
@@ -96,8 +105,10 @@ class JapaneseInputTest {
             engine.setInput(deleteJapaneseRomaji(engine.getInput()))
             assertEquals("よ", engine.getComposition().preedit.replace(" ", ""))
         } finally {
-            engine.clearComposition()
-            if (previous.isNotBlank()) engine.switchSchema(previous)
+            try {
+                engine.clearComposition()
+                if (previous.isNotBlank()) engine.switchSchema(previous)
+            } finally { RimeEngine.rimeLock.unlock() }
         }
     }
 

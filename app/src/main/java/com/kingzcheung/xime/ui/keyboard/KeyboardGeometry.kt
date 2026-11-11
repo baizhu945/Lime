@@ -79,8 +79,8 @@ internal fun keyboardHeightBounds(screenHeight: Int, landscape: Boolean, navInse
 internal fun floatingKeyboardWidth(screenWidth: Int, screenHeight: Int, height: Int, portraitHeight: Int, wide: Boolean): Int {
     val landscape = screenWidth > screenHeight
     // 没有用户保存尺寸时给一个真正可用的默认值：竖屏约 78%，横屏约 48% 屏宽。
-    // 不再从普通键盘高度反推宽度，避免横屏默认尺寸忽大忽小。
-    val ratio = if (landscape) (if (wide) 0.52f else 0.48f) else 0.78f
+    // 26 键仍按原横屏契约比九键宽 1.2 倍；两种布局共用九键基准，避免各自漂移。
+    val ratio = if (landscape) 0.48f * (if (wide) 1.2f else 1f) else 0.78f
     return ((screenWidth * ratio / 10f).roundToInt() * 10)
         .coerceIn(keyboardWidthBounds(screenWidth))
 }

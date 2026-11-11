@@ -16,6 +16,9 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -26,7 +29,6 @@ import androidx.test.core.app.ApplicationProvider
 import com.kingzcheung.xime.settings.KeysConfigHelper
 import com.kingzcheung.xime.ui.keyboard.KeyboardCallbacks
 import com.kingzcheung.xime.ui.keyboard.KeyboardView
-import com.kingzcheung.xime.ui.keyboard.toolbarPillSize
 import com.kingzcheung.xime.viewmodel.KeyboardUiState
 import com.kingzcheung.xime.viewmodel.KeyboardViewModel
 import org.junit.Assert.assertEquals
@@ -90,9 +92,11 @@ class ToolbarSlotSizingTest {
         rule.mainClock.advanceTimeBy(2100L)
         rule.waitForIdle()
         val outline = bounds("toolbar-drag-outline")
-        val pill = toolbarPillSize(leading.width.dp)
-        assertEquals(pill.width.value, outline.width, 1f)
-        assertEquals(pill.height.value, outline.height, 1f)
+        val draggedSlot = hasTestTag("toolbar-slot") and hasAnyDescendant(hasTestTag("toolbar-drag-outline"))
+        val pill = rule.onNode(hasTestTag("toolbar-pill") and hasAnyAncestor(draggedSlot), useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        assertEquals("Outline must match the actual pill in its own slot", pill.width, outline.width, 1f)
+        assertEquals("Outline must match the actual pill in its own slot", pill.height, outline.height, 1f)
         save("$name-dragging")
         rule.onNodeWithTag("toolbar-order-row").performTouchInput { up() }
         rule.mainClock.autoAdvance = true

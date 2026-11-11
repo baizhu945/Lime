@@ -52,10 +52,16 @@ class CandidateExpansionContinuityTest {
         rule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f)) {
                 MaterialTheme {
-                    KeyboardView(vm, KeyboardUiState(currentSchemaId = "t9_pinyin"),
+                    KeyboardView(vm, KeyboardUiState(currentSchemaId = "t9_pinyin", enterKeyText = "回车"),
                         KeyboardCallbacks(onKeyPress = { _, _ -> }, onCandidateSelect = {},
                             isCandidateSnapshotCurrent = { it.hasSameSelectionSource(candidates.value) },
-                            onGlobalCandidateSelect = { selected = it }),
+                            onGlobalCandidateSelect = {
+                                selected = it
+                                // Model a successful commit ending composition; the real router updates
+                                // candidates asynchronously and the empty snapshot collapses the page.
+                                candidates.value = candidates.value.copy(candidates = emptyList(),
+                                    associationCandidates = emptyList(), expandedCandidates = emptyList(), isComposing = false)
+                            }),
                         modifier = Modifier.size(panelWidth, 240.dp).testTag("candidate-test-keyboard"), candidateState = candidates)
                 }
             }
@@ -89,11 +95,17 @@ class CandidateExpansionContinuityTest {
             assertEquals(delete.top + index * delete.height, box.top, 1f)
         }
         }
+        // The 1100px geometry case can extend past a 1080px emulator window.
+        // Return to a visible panel before testing display, screenshot and touch routing.
+        rule.runOnIdle { vm.setCandidatePageExpanded(false); panelWidth = 360.dp }
+        delete = rule.onNodeWithTag("t9-delete-key").fetchSemanticsNode().boundsInRoot
+        rule.runOnIdle { vm.setCandidatePageExpanded(true) }
         rule.onNodeWithTag("expanded-candidates").assertIsDisplayed()
         // The restored page uses the entire keyboard body, including the former bottom row.
         val list = rule.onNodeWithTag("expanded-candidates").fetchSemanticsNode().boundsInRoot
         assertTrue("Expansion must include the former bottom row", list.height > delete.height * 3.5f)
-        rule.onNodeWithContentDescription("回车").assertIsDisplayed()
+        rule.onNode(hasContentDescription("回车") and hasAnyAncestor(hasTestTag("expanded-enter-key")))
+            .assertIsDisplayed()
         rule.runOnIdle { vm.toggleSingleCharFilter() }
         rule.onAllNodes(SemanticsMatcher("header candidates") {
             (it.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.TestTag) ?: "").startsWith("bar-candidate:")

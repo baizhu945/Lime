@@ -41,8 +41,9 @@ class PanelLayoutAuditTest {
 
     private fun checkPanels(width: Int, height: Int, landscape: Boolean, font: Float) {
         val vm = KeyboardViewModel(app)
-        val schemas = listOf("中文九键", "小鹤双拼", "日语26键", "日语九宫格")
-            .mapIndexed { index, name -> SchemaInfo("mode$index", name, "", "", "") }
+        val schemas = listOf("rime_ice" to "中文26键", "t9_pinyin" to "中文九键",
+            "double_pinyin_flypy" to "小鹤双拼", "japanese" to "日语26键", "japanese_kana" to "日语九宫格")
+            .map { (id, name) -> SchemaInfo(id, name, "", "", "") }
         rule.setContent {
             val config = Configuration(LocalConfiguration.current).apply {
                 orientation = if (landscape) Configuration.ORIENTATION_LANDSCAPE else Configuration.ORIENTATION_PORTRAIT
@@ -52,7 +53,7 @@ class PanelLayoutAuditTest {
             CompositionLocalProvider(LocalConfiguration provides config, LocalDensity provides Density(1f, font)) {
                 MaterialTheme {
                     Box(Modifier.background(Color.White)) {
-                        KeyboardView(vm, KeyboardUiState(isDarkTheme = true, schemas = schemas,
+                        KeyboardView(vm, KeyboardUiState(currentSchemaId = "rime_ice", isDarkTheme = true, schemas = schemas,
                             clipboardItems = (1..8).map { ClipboardItem(it.toLong(), "复制内容 $it") },
                             quickSendItems = listOf(ClipboardItem(9, "常用短语")), toolPanelTitle = "插件面板"),
                             KeyboardCallbacks(onKeyPress = { _, _ -> }, onCandidateSelect = {}),
@@ -73,7 +74,7 @@ class PanelLayoutAuditTest {
             val panel = rule.onNodeWithTag("keyboard-overlay").fetchSemanticsNode().boundsInRoot
             if (panel.top < toolbar.bottom || panel.bottom > keyboard.bottom) issues += "$route 面板越过工具栏或底边"
             val exitLabel = when (route) {
-                OverlayRoute.ToolbarCustomize -> "确定"
+                OverlayRoute.ToolbarCustomize -> "完成"
                 OverlayRoute.ToolPanel -> "关闭"
                 OverlayRoute.Symbol -> "返回键盘"
                 else -> "返回"
@@ -85,8 +86,12 @@ class PanelLayoutAuditTest {
                 if (delete.top - panel.top > 3f || panel.right - delete.right > 5f) issues += "编辑回格未贴右上角"
             }
             if (route == OverlayRoute.SchemaList) {
-                val apply = rule.onNodeWithTag("apply-input-profile").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-                if (apply.top < panel.top || apply.bottom > panel.bottom) issues += "组合确认按钮超出面板"
+                rule.onAllNodesWithTag("apply-input-profile").assertCountEquals(0)
+                for (tag in listOf("profile-layout-list", "profile-scheme-list")) {
+                    val choice = rule.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+                    if (choice.top < panel.top || choice.bottom > panel.bottom ||
+                        choice.left < panel.left || choice.right > panel.right) issues += "$tag 选择行超出面板"
+                }
             }
             save("panel-$width-$index")
             issues += rule.geometryIssues("audit-keyboard").map { "$route $width x $height font=$font: $it" }
@@ -175,7 +180,7 @@ class PanelLayoutAuditTest {
             val layouts = mutableListOf<TextLayoutResult>()
             labelNode.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             val text = layouts.single()
-            assertEquals("$case 透明度和百分比应显示完整", "70%", text.layoutInput.text.text)
+            assertEquals("$case 透明度和百分比应显示完整", "透明度 70%", text.layoutInput.text.text)
             assertEquals("$case 透明度文字应仅占一行", 1, text.lineCount)
             assertFalse("$case 透明度文字被裁切: size=${text.size}, width=${text.didOverflowWidth}, height=${text.didOverflowHeight}, paragraphWidth=${text.multiParagraph.width}, maxWidth=${text.layoutInput.constraints.maxWidth}, lineRight=${text.getLineRight(0)}, lineEnd=${text.getLineEnd(0, true)}/${text.layoutInput.text.length}, lineBottom=${text.getLineBottom(0)}", text.hasVisualOverflow)
             assertTrue("$case 文字真实行高超过分配高度", text.getLineBottom(0) <= text.size.height + 1f)

@@ -47,6 +47,20 @@ class LanguageMenuColorsTest {
         assertTrue(dark.surface.alpha < 1f)
     }
 
+    @Test fun `all labels remain readable on normal and selected surfaces over both hosts`() {
+        for (p in palettes) for (glass in glassConfigs + FrostedGlassConfig(false)) for (blur in listOf(false, true)) {
+            val colors = languageMenuColors(p, Color.White, Color.Black, Color.Blue, glass, blur)
+            for (fill in listOf(colors.surface, colors.selectedSurface)) for (host in listOf(Color.Black, Color.White)) {
+                val seen = fill.compositeOver(host)
+                for (foreground in listOf(colors.text, colors.secondary)) {
+                    assertEquals(1f, foreground.alpha, 0f)
+                    assertTrue("palette=$p glass=$glass blur=$blur fill=$fill host=$host foreground=$foreground",
+                        textContrast(foreground, seen) >= 4.5f)
+                }
+            }
+        }
+    }
+
     @Test fun `menu keeps the theme surface instead of falling back to a white material surface`() {
         val p = palettes[3]
         val colors = languageMenuColors(p, Color.White, Color.Black, Color.Blue, FrostedGlassConfig(false), false)

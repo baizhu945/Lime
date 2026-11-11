@@ -160,7 +160,17 @@ class RimeEngine {
 
     @Volatile
     private var isInitialized = false
-    private val initLock = Any()
+    /**
+     * The composition input is published by JNI immediately after process_key, before
+     * candidate preparation. getInput() may read it when the engine lock is busy so a
+     * long candidate page cannot make the key itself look late.
+     */
+    @androidx.annotation.Keep
+    @Volatile
+    private var publishedInput: String = ""
+    // Written only under rimeLock; volatile permits admission before waiting for that lock.
+    @Volatile
+    private var lifecycleGeneration = 0L
     @Volatile
     private var userDataDir: String = ""
     private var sharedDataDir: String = ""
@@ -232,59 +242,79 @@ class RimeEngine {
         block()
     }
 
+    /**
+     * Re-check the lifecycle *inside* the native lock. Callers can read `isInitialized`
+     * and then lose the race to destroy()/restoreUserData(); touching librime after
+     * finalize() is the cross-generation native call that crashed in the field.
+     */
+    private inline fun <T> tryLiveMutation(defaultValue: T, block: (Long) -> T): T {
+        val generation = lifecycleGeneration
+        if (!isInitialized) return defaultValue
+        return tryMutating(defaultValue) {
+            if (!isInitialized || lifecycleGeneration != generation || nativeIsMaintaining()) {
+                return@tryMutating defaultValue
+            }
+            if (!nativeHasSession() && !nativeCreateSession()) return@tryMutating defaultValue
+            block(generation)
+        }
+    }
+
     private fun notifyDeploymentStatus(isDeploying: Boolean, message: String) {
         deploymentCallback?.invoke(isDeploying, message)
     }
 
     fun initialize(userDataDir: String, sharedDataDir: String) {
-        if (!isInitialized) {
-            synchronized(initLock) {
-                if (!isInitialized) {
-                    try {
-                        candidateRevision.incrementAndGet()
-                        this.userDataDir = userDataDir
-                        this.sharedDataDir = sharedDataDir
-                        rimeLock.lock()
-                        try {
-                            nativeInstallSignalHandler(userDataDir)
-                            notifyDeploymentStatus(true, "正在加载输入法引擎...")
-                            nativeInitialize(userDataDir, sharedDataDir)
-                        } finally {
-                            rimeLock.unlock()
-                        }
-                        mergedAlphabet = null
-                        isInitialized = true
+        // One lifecycle lock, including restore's reentrant restart. Never acquire
+        // a second lifecycle lock while holding the process-global native lock.
+        locked {
+            if (!isInitialized) {
+                try {
+                    candidateRevision.incrementAndGet()
+                    this.userDataDir = userDataDir
+                    this.sharedDataDir = sharedDataDir
+                    nativeInstallSignalHandler(userDataDir)
+                    notifyDeploymentStatus(true, "正在加载输入法引擎...")
+                    nativeInitialize(userDataDir, sharedDataDir)
+                    publishedInput = ""
+                    mergedAlphabet = null
+                    lifecycleGeneration++
+                    isInitialized = true
 
-                        // 部署后主动触发：为已部署目录中所有 T9 方案打九键特有补丁
-                        // （t9 四要素 + 个人词库 packs 兜底），保证第三方九键方案
-                        // 首次使用前 custom.yaml 健康、用户词典生效。
-                        ensureT9SchemaPatchesForDeployedSchemas(userDataDir)
+                    // 部署后主动触发：为已部署目录中所有 T9 方案打九键特有补丁
+                    // （t9 四要素 + 个人词库 packs 兜底），保证第三方九键方案
+                    // 首次使用前 custom.yaml 健康、用户词典生效。
+                    ensureT9SchemaPatchesForDeployedSchemas(userDataDir)
 
-                        // startup 只初始化引擎，不创建 session
-                        // session 在第一次使用时延迟创建（ensureSession）
-                        // 部署在后台异步运行，不阻塞
+                    // startup 只初始化引擎，不创建 session
+                    // session 在第一次使用时延迟创建（ensureSession）
+                    // 部署在后台异步运行，不阻塞
 
-                        notifyDeploymentStatus(false, "")
-                    } catch (e: Exception) {
-                        FileLogger.e(TAG, "Error during Rime initialization", e)
-                        notifyDeploymentStatus(false, "初始化失败")
-                    }
+                    notifyDeploymentStatus(false, "")
+                } catch (e: Exception) {
+                    FileLogger.e(TAG, "Error during Rime initialization", e)
+                    notifyDeploymentStatus(false, "初始化失败")
                 }
             }
         }
     }
 
     fun ensureSession(timeoutMs: Long = 60000L): Boolean {
+        val generation = lifecycleGeneration
         if (!isInitialized) return false
         val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
         while (true) {
             // 只在原生调用期间持锁。等词库编译时把锁放开，输入和部署才不会互相卡住。
             val ready = locked {
+                if (!isInitialized || lifecycleGeneration != generation) return false
                 if (nativeIsMaintaining()) return@locked null
-                if (!nativeHasSession()) nativeCreateSession()
-                !nativeGetAvailableSchemas().isNullOrEmpty()
+                // Schema availability is deployment-wide; only a real session makes the
+                // engine usable. Earlier this treated "schemas exist" as ready even when
+                // create_session() failed, so every key was silently dropped afterwards.
+                if (!nativeHasSession() && !nativeCreateSession()) return@locked null
+                if (!nativeHasSession() || nativeGetAvailableSchemas().isNullOrEmpty()) return@locked null
+                generation
             }
-            if (ready == true) return true
+            if (ready != null) return true
             val left = deadline - android.os.SystemClock.elapsedRealtime()
             if (left <= 0) break
             try {
@@ -316,24 +346,16 @@ class RimeEngine {
         }
     }
 
-    fun processKey(keycode: Int, mask: Int): Boolean {
-        if (!isInitialized) return false
-        return tryMutating(false) {
-            if (!nativeHasSession() && !nativeCreateSession()) return@tryMutating false
-            enforceAsciiWidth()
-            nativeProcessKey(keycode, mask)
-        }
+    fun processKey(keycode: Int, mask: Int): Boolean = tryLiveMutation(false) {
+        enforceAsciiWidth()
+        nativeProcessKey(keycode, mask)
     }
 
-    fun processKeyAndGetResult(keycode: Int, mask: Int): RimeProcessResult {
-        if (!isInitialized) return RimeProcessResult(false, "", "", "", emptyArray(), false, false, false)
-        return tryMutating(RimeProcessResult(false, "", "", "", emptyArray(), false, false, false)) {
-            if (!nativeHasSession() && !nativeCreateSession())
-                return@tryMutating RimeProcessResult(false, "", "", "", emptyArray(), false, false, false)
+    fun processKeyAndGetResult(keycode: Int, mask: Int): RimeProcessResult =
+        tryLiveMutation(RimeProcessResult(false, "", "", "", emptyArray(), false, false, false)) {
             enforceAsciiWidth()
             withDisplayPreedit(nativeProcessKeyAndGetResult(keycode, mask))
         }
-    }
 
     /** 后台按键队列必须等待引擎锁，不能把短暂繁忙伪装成未处理并直接上屏字母。 */
     @androidx.annotation.WorkerThread
@@ -368,6 +390,7 @@ class RimeEngine {
     }
 
     fun getCandidates(): Array<String> {
+        if (!isInitialized) return emptyArray()
         return tryLocked(emptyArray()) {
             if (!nativeHasSession()) return@tryLocked emptyArray()
             nativeGetCandidates() ?: emptyArray()
@@ -450,7 +473,8 @@ class RimeEngine {
     }
 
     fun getInput(): String {
-        return tryLocked("") {
+        if (!isInitialized) return ""
+        return tryLocked(publishedInput) {
             nativeGetInput() ?: ""
         }
     }
@@ -470,6 +494,7 @@ class RimeEngine {
     }
 
     fun selectCandidate(index: Int): Boolean {
+        if (!isInitialized) return false
         return tryMutating(false) {
             if (!nativeHasSession()) return@tryMutating false
             nativeSelectCandidate(index)
@@ -540,6 +565,7 @@ class RimeEngine {
     }
 
     fun commit(): String {
+        if (!isInitialized) return ""
         return tryMutating("") {
             (nativeCommit() ?: "").also(::noteCommit)
         }
@@ -587,14 +613,10 @@ class RimeEngine {
      * @param input 拼音或数字字符串，如 "zhongguo" 或 "54482"
      * @return 是否设置成功
      */
-    fun setInput(input: String): Boolean {
-        if (!isInitialized) return false
-        return tryMutating(false) {
-            if (!nativeHasSession() && !nativeCreateSession()) return@tryMutating false
-            val japanese = !nativeIsAsciiMode() && com.kingzcheung.xime.settings.InputProfiles
-                .describe(nativeGetCurrentSchema().orEmpty()).capabilities.japaneseConversion
-            nativeSetInput(if (japanese) canonicalJapaneseRomaji(input) else input)
-        }
+    fun setInput(input: String): Boolean = tryLiveMutation(false) {
+        val japanese = !nativeIsAsciiMode() && com.kingzcheung.xime.settings.InputProfiles
+            .describe(nativeGetCurrentSchema().orEmpty()).capabilities.japaneseConversion
+        nativeSetInput(if (japanese) canonicalJapaneseRomaji(input) else input)
     }
 
     /** Snapshot/apply run on the existing input FIFO, under one engine lock. */
@@ -748,15 +770,19 @@ class RimeEngine {
     }
 
     fun toggleAsciiMode(): Boolean {
+        if (!isInitialized) return false
+        val generation = lifecycleGeneration
         // 用户显式切换操作：阻塞等待锁（部署/维护持锁时排队，完成后自动切换），
         // 不静默失败；调用方保证不在主线程执行（ImeKeyRouter 的 key-process 线程）。
         return mutateLocked {
+            if (!isInitialized || lifecycleGeneration != generation || nativeIsMaintaining()) return@mutateLocked false
             if (!nativeHasSession() && !nativeCreateSession()) return@mutateLocked false
             nativeToggleAsciiMode().also { enforceAsciiWidth() }
         }
     }
 
     fun isAsciiMode(): Boolean {
+        if (!isInitialized) return false
         return tryLocked(false) {
             if (!nativeHasSession() && !nativeCreateSession()) return@tryLocked false
             nativeIsAsciiMode()
@@ -800,6 +826,7 @@ class RimeEngine {
     }
 
     fun switchSchema(schemaId: String): Boolean {
+        if (!isInitialized) return false
         // 部署/全量编译进行中（30s+）不阻塞等待：直接返回 false，避免主线程
         // onStartInput/selectSchema 等路径 ANR。部署完成后的 initRimeEngine
         // 流程会重新切换方案。非部署场景保持阻塞锁语义，保证切换可靠。
@@ -808,6 +835,7 @@ class RimeEngine {
             return false
         }
         mutateLocked {
+            if (!isInitialized || nativeIsMaintaining()) return false
             if (!nativeHasSession()) {
                 FileLogger.w(TAG, "switchSchema($schemaId) failed: no rime session")
                 return false
@@ -964,10 +992,13 @@ class RimeEngine {
     }
 
     fun destroy() {
-        if (isInitialized) {
-            mutateLocked {
+        locked {
+            if (isInitialized) {
+                candidateRevision.incrementAndGet()
+                lifecycleGeneration++
                 nativeDestroy()
                 isInitialized = false
+                publishedInput = ""
             }
         }
     }
@@ -980,8 +1011,10 @@ class RimeEngine {
         val restart = isInitialized
         if (restart) {
             notifyDeploymentStatus(true, "正在恢复备份…")
+            lifecycleGeneration++
             nativeDestroy()
             isInitialized = false
+            publishedInput = ""
             candidateRevision.incrementAndGet()
         }
         try { restore() }
@@ -1084,7 +1117,7 @@ class RimeEngine {
      * 未启用方案仅写 custom.yaml 无副作用（后续切换到它时即生效）。
      *
      * 注意：此处【不】触发部署。历史上曾根据 native 返回值（词库未编译）在此调用
-     * nativeDeploy，导致 initialize 的 initLock 内同步执行大部署，与引擎初始化/
+     * nativeDeploy，导致 initialize 的生命周期锁内同步执行大部署，与引擎初始化/
      * 首次部署时序冲突引发 SIGSEGV（新装引导页场景）。词库编译统一由
      * 引导页/设置页的部署流程（build 缺失或用户显式部署）负责。
      */
@@ -1228,7 +1261,8 @@ class RimeEngine {
     )
 
     @androidx.annotation.WorkerThread
-    internal fun processQueuedT9KeyAndGetResult(keycode: Int, leftContext: String? = null): T9KeyResult? = locked {
+    internal fun processQueuedT9KeyAndGetResult(keycode: Int, leftContext: String? = null, onLockAcquired: (() -> Unit)? = null): T9KeyResult? = locked {
+        onLockAcquired?.invoke()
         if (!isInitialized || !nativeHasSession() || nativeIsMaintaining()) return@locked null
         // Only backspace needs the pre-key composition to decide whether the host may delete.
         val before = keycode == 0xff08 &&
@@ -1475,7 +1509,10 @@ internal fun compositionCaretStep(input: String, caret: Int, confirmed: Int, del
     } else {
         if (target <= low) return null
         target--
+        // Normalize to the left of a separator, otherwise positions 3 and 2 in
+        // "ni'hao" render identically and the second ← looks like a lost key.
         while (target > low && input[target] == '\'') target--
+        if (target > low && input[target - 1] == '\'') target--
     }
     return target
 }

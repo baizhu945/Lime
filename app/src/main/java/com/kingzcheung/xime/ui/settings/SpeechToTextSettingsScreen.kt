@@ -78,7 +78,7 @@ fun SpeechToTextSettingsContent(
         containerColor = MaterialTheme.colorScheme.surface,
         topBar = {
             TopAppBar(
-                title = { Text("语音转文本", style = MaterialTheme.typography.titleMedium,
+                title = { Text("语音转文本", modifier = Modifier.testTag("speech-settings-title"), style = MaterialTheme.typography.titleMedium,
                     maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -100,6 +100,7 @@ fun SpeechToTextSettingsContent(
                 .fillMaxSize()
                 .padding(padding)
                 .settingsVerticalScroll()
+                .testTag("speech-settings-list")
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -372,6 +373,7 @@ internal fun OnlineSpeechApiSection() {
                 })
             Text("选填。兼容 OpenAI 语音转写接口（/audio/transcriptions），如 OpenAI、Groq、硅基流动；说完一句整段上传识别。" +
                 "不填或测试没通过时一律用本地模型。密钥只存在本机，不进备份。",
+                modifier = Modifier.testTag("speech-api-description"),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

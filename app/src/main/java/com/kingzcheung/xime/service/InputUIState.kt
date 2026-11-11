@@ -34,6 +34,7 @@ data class InputUIState(
     val fixedOffsetX: Int = 0,
     val resizeInitialFloating: Boolean = false,
     val resizeInitialSplit: Boolean = false,
+    val resizeInitialWidthDp: Int = 0,
     val resizeInitialX: Int = 0,
     val resizeInitialY: Int = 0,
     val associationEnabled: Boolean = false,

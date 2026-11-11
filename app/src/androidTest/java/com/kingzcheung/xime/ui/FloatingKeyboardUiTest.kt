@@ -1,6 +1,7 @@
 package com.kingzcheung.xime.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.requiredSize
@@ -22,11 +23,13 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.test.espresso.Espresso
 import com.kingzcheung.xime.ui.keyboard.FloatingKeyboardContainer
 import com.kingzcheung.xime.ui.keyboard.KeyboardDockTarget
 import com.kingzcheung.xime.ui.keyboard.KeyButton
 import com.kingzcheung.xime.ui.keyboard.KeyboardInputPreferences
+import com.kingzcheung.xime.ui.keyboard.KeyboardKeyMetrics
 import com.kingzcheung.xime.ui.keyboard.LocalKeyboardInputPreferences
 import com.kingzcheung.xime.ui.keyboard.KeyboardResizeOverlay
 import com.kingzcheung.xime.ui.keyboard.SwipeableKeyButton
@@ -38,16 +41,18 @@ class FloatingKeyboardUiTest {
     @get:Rule val rule = createComposeRule()
     private var density = 1f
     private var docks = 0
+    private var releasedDragY = 0f
 
-    private fun showFloating() {
+    private fun showFloating(hostHeightDp: Int = 328) {
         rule.setContent {
             density = LocalDensity.current.density
             MaterialTheme {
                 var floating by remember { mutableStateOf(true) }
-                Box(Modifier.size(340.dp, 328.dp).testTag("floating-window")) {
+                Box(Modifier.size(340.dp, hostHeightDp.dp).testTag("floating-window")) {
                     FloatingKeyboardContainer(
                         isFloatingMode = floating, scaleFactor = 0.85f, fontScaleFactor = 1f,
-                        contentHeightDp = 300, offsetX = 0, offsetY = 0, onDrag = { _, _ -> }, onDragEnd = {},
+                        contentHeightDp = 300, offsetX = 0, offsetY = 0,
+                        onDrag = { dx, dy -> releasedDragY = dy; android.util.Log.i("FloatingDockTest", "released dx=$dx dy=$dy host=$hostHeightDp") }, onDragEnd = {},
                         onDock = { docks++; floating = false },
                         dockTarget = KeyboardDockTarget(340, 328, 0, 0, 0),
                     ) { Box(Modifier.fillMaxSize().testTag("keyboard-content")) }
@@ -105,7 +110,8 @@ class FloatingKeyboardUiTest {
     }
 
     @Test fun leavingTheEdgeAndReleasingBeforeRecompositionDoesNotDock() {
-        showFloating()
+        // 328dp card in a 400dp host has 72dp of upward travel, beyond the 12dp bottom edge zone.
+        showFloating(hostHeightDp = 400)
         rule.onNodeWithTag("floating-drag-bar").performTouchInput {
             down(center); moveBy(Offset(24f * density, 0f))
         }
@@ -116,23 +122,26 @@ class FloatingKeyboardUiTest {
         rule.onNodeWithTag("floating-drag-bar").performTouchInput {
             moveBy(Offset(0f, -80f * density)); up()
         }
-        rule.runOnIdle { assertEquals(0, docks) }
+        rule.runOnIdle {
+            assertTrue("release must have moved the card beyond the bottom edge: $releasedDragY", releasedDragY > 12f)
+            assertEquals(0, docks)
+        }
         rule.mainClock.advanceTimeByFrame()
         rule.onNodeWithTag("floating-drag-bar").assertIsDisplayed()
     }
 
-    @Test fun leavingAndReturningInOneFrameRestartsTheHalfSecondHold() {
-        showFloating()
+    @Test fun leavingAndReturningInOneFrameRestartsTheHold() {
+        showFloating(hostHeightDp = 400)
         rule.mainClock.autoAdvance = false
         rule.onNodeWithTag("floating-drag-bar").performTouchInput {
             down(center); moveBy(Offset(24f * density, 0f))
         }
-        rule.mainClock.advanceTimeBy(400L)
+        rule.mainClock.advanceTimeBy(650L)
         rule.onNodeWithTag("floating-drag-bar").performTouchInput {
             moveBy(Offset(0f, -80f * density))
             moveBy(Offset(0f, 80f * density))
         }
-        rule.mainClock.advanceTimeBy(160L)
+        rule.mainClock.advanceTimeBy(200L)
         rule.onNodeWithTag("floating-drag-bar").performTouchInput { up() }
         rule.runOnIdle { assertEquals(0, docks) }
     }
@@ -140,18 +149,39 @@ class FloatingKeyboardUiTest {
     @Test fun unspecifiedControlFontUsesReadableDefault() {
         rule.setContent {
             MaterialTheme {
-                CompositionLocalProvider(LocalKeyboardInputPreferences provides KeyboardInputPreferences(keyTextScale = 1f)) {
-                KeyButton("符号", {}, Color.Gray, Color.White,
-                    modifier = Modifier.size(64.dp, 48.dp), fontSize = TextUnit.Unspecified)
+                Column {
+                    @androidx.compose.runtime.Composable
+                    fun Sample(label: String, fontScale: Float, prefs: KeyboardInputPreferences, font: TextUnit) {
+                        CompositionLocalProvider(LocalDensity provides Density(1f, fontScale),
+                            LocalKeyboardInputPreferences provides prefs) {
+                            KeyButton(label, {}, Color.Gray, Color.White,
+                                modifier = Modifier.size(64.dp, 48.dp), fontSize = font)
+                        }
+                    }
+                    Sample("符号", 1f, KeyboardInputPreferences(keyTextScale = 1f), TextUnit.Unspecified)
+                    Sample("字母", 1f, KeyboardInputPreferences(keyTextScale = 1f), 14.sp)
+                    Sample("数字", 1f, KeyboardInputPreferences(keyTextScale = 1.2f), TextUnit.Unspecified)
+                    Sample("设置", 1f, KeyboardInputPreferences(), TextUnit.Unspecified)
+                    Sample("大字", 1.3f, KeyboardInputPreferences(keyTextScale = 1f), TextUnit.Unspecified)
                 }
             }
         }
-        val layouts = mutableListOf<TextLayoutResult>()
-        rule.onNodeWithText("符号", useUnmergedTree = true)
-            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        assertEquals(16f, layouts.single().layoutInput.style.fontSize.value, 0.01f)
-        val layout = layouts.single()
-        assertFalse("textSize=${layout.size}, paragraph=${layout.multiParagraph.width}x${layout.multiParagraph.height}, constraints=${layout.layoutInput.constraints}, style=${layout.layoutInput.style}", layout.hasVisualOverflow)
+        fun layout(label: String): TextLayoutResult {
+            val layouts = mutableListOf<TextLayoutResult>()
+            rule.onNodeWithText(label, useUnmergedTree = true)
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            return layouts.single().also {
+                assertFalse("$label: size=${it.size}, paragraph=${it.multiParagraph.width}x${it.multiParagraph.height}, constraints=${it.layoutInput.constraints}, style=${it.layoutInput.style}", it.hasVisualOverflow)
+            }
+        }
+        val baseline = layout("符号").layoutInput.style.fontSize.value
+        assertEquals(18f, KeyboardKeyMetrics.LabelSize.value, 0f)
+        assertEquals(KeyboardKeyMetrics.LabelSize.value, baseline, 0.01f)
+        assertEquals(14f, layout("字母").layoutInput.style.fontSize.value, 0.01f)
+        assertEquals(baseline * 1.2f, layout("数字").layoutInput.style.fontSize.value, 0.01f)
+        assertEquals(baseline * 1.15f, layout("设置").layoutInput.style.fontSize.value, 0.01f)
+        val accessible = layout("大字").layoutInput.style.fontSize.value
+        assertTrue("larger system font should increase rendered size", accessible * 1.3f > baseline)
     }
 
     @Test fun compressedKeyKeepsTheNumberHintInsideItsBounds() {
@@ -184,8 +214,8 @@ class FloatingKeyboardUiTest {
         assertEquals(reset.center.y, toggle.center.y, 1f)
         assertTrue(toggle.left > reset.right && toggle.right < confirm.left)
         rule.onNodeWithTag("keyboard-opacity-slider").performSemanticsAction(SemanticsActions.SetProgress) { it(0.4f) }
-        rule.runOnIdle { assertEquals(0.6f, previewOpacity, 0.01f); assertEquals(1f, savedOpacity, 0f) }
-        rule.onNodeWithText("完成").performClick()
+        rule.runOnIdle { assertEquals(0.6f, previewOpacity, 0.01f); assertEquals(1f, savedOpacity, 0f); assertEquals(0, confirms) }
+        rule.onNodeWithContentDescription("确认").assertIsDisplayed().performClick()
         rule.runOnIdle { assertEquals(0.6f, savedOpacity, 0.01f); assertEquals(1, confirms) }
     }
 
@@ -199,10 +229,18 @@ class FloatingKeyboardUiTest {
 
     @Test fun resetRestoresOpacityBeforeConfirmation() {
         var opacity = 0.5f
-        showResize(initialOpacity = opacity, onOpacity = { opacity = it })
+        var savedOpacity = 0.5f
+        var confirms = 0
+        showResize(initialOpacity = opacity, onOpacity = { opacity = it },
+            onConfirm = { savedOpacity = it; confirms++ })
+        val label = rule.onNodeWithTag("keyboard-opacity-overlay-label", useUnmergedTree = true)
+        label.assertIsDisplayed().assertTextEquals("透明度 50%")
+        rule.runOnIdle { assertEquals(0.5f, opacity, 0f); assertEquals(0.5f, savedOpacity, 0f); assertEquals(0, confirms) }
         rule.onNodeWithContentDescription("重置").performClick()
-        rule.runOnIdle { assertEquals(1f, opacity, 0f) }
-        rule.onNodeWithText("0%").assertIsDisplayed()
+        rule.runOnIdle { assertEquals(1f, opacity, 0f); assertEquals(0.5f, savedOpacity, 0f); assertEquals(0, confirms) }
+        label.assertIsDisplayed().assertTextEquals("透明度 0%")
+        rule.onNodeWithContentDescription("确认").assertIsDisplayed().performClick()
+        rule.runOnIdle { assertEquals(1f, savedOpacity, 0f); assertEquals(1, confirms) }
     }
 
     private fun showResize(initialOpacity: Float = 1f, onOpacity: (Float) -> Unit = {},

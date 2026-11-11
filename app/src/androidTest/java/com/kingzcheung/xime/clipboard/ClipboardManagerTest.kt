@@ -1,8 +1,11 @@
 package com.kingzcheung.xime.clipboard
 
 import android.content.Context
+import android.os.Build
+import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
-import com.kingzcheung.xime.clipboard.db.ClipboardDatabase
+import com.kingzcheung.xime.MainActivity
+import com.kingzcheung.xime.clipboard.db.ClipboardEntry
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -18,31 +21,49 @@ class ClipboardManagerTest {
 
     private lateinit var context: Context
     private lateinit var clipboardManager: ClipboardManager
+    private lateinit var storageFixture: ClipboardManagerOwnedStorageFixture
+    private lateinit var scenario: ActivityScenario<MainActivity>
+    private lateinit var systemClipboard: android.content.ClipboardManager
+    private var previousClip: android.content.ClipData? = null
 
     @Before
     fun setup() {
         context = InstrumentationRegistry.getInstrumentation().targetContext
-        clearClipboardPrefs()
-        runBlocking {
-            ClipboardDatabase.getInstance(context).clipboardDao().deleteAll()
-        }
-        clipboardManager = ClipboardManager.getInstance(context)
+        val intent = requireNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName))
+        scenario = ActivityScenario.launch(intent)
+        awaitCondition({
+            var focused = false
+            scenario.onActivity { focused = it.hasWindowFocus() }
+            focused
+        })
+        systemClipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        previousClip = systemClipboard.primaryClip
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) systemClipboard.clearPrimaryClip()
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        storageFixture = ClipboardManagerOwnedStorageFixture(context)
+        context = storageFixture.context
+        clipboardManager = storageFixture.manager
+        clipboardManager.resetHistoryWindow()
+        // Await production startup migration before a test can seed legacy preferences.
+        runBlocking { clipboardManager.exportItems() }
         awaitCondition({ clipboardManager.clipboardItems.value.isEmpty() && clipboardManager.quickSendItems.value.isEmpty() })
     }
 
     @After
     fun tearDown() {
-        clearClipboardPrefs()
-        runBlocking {
-            ClipboardDatabase.getInstance(context).clipboardDao().deleteAll()
+        try {
+            if (::storageFixture.isInitialized) runBlocking { storageFixture.close() }
+        } finally {
+            try {
+                if (::systemClipboard.isInitialized) {
+                    if (previousClip != null) systemClipboard.setPrimaryClip(previousClip!!)
+                    else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) systemClipboard.clearPrimaryClip()
+                    InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                }
+            } finally {
+                if (::scenario.isInitialized) scenario.close()
+            }
         }
-    }
-
-    private fun clearClipboardPrefs() {
-        context.getSharedPreferences("clipboard_prefs", Context.MODE_PRIVATE)
-            .edit()
-            .clear()
-            .commit()
     }
 
     private fun awaitCondition(condition: () -> Boolean, timeoutMs: Long = 5000) {
@@ -57,8 +78,9 @@ class ClipboardManagerTest {
 
     @Test
     fun getInstanceReturnsSingleton() {
-        val instance1 = ClipboardManager.getInstance(context)
-        val instance2 = ClipboardManager.getInstance(context)
+        // The same production Provider supplies the application singleton and scoped stores.
+        val instance1 = storageFixture.provider.getInstance()
+        val instance2 = storageFixture.provider.getInstance()
 
         assertEquals(instance1, instance2)
     }
@@ -151,15 +173,19 @@ class ClipboardManagerTest {
     @Test
     fun splitItemSplitsTextIntoCharacters() {
         clipboardManager.addItem("你好")
-        awaitCondition({ clipboardManager.clipboardItems.value.isNotEmpty() })
-        val itemId = clipboardManager.clipboardItems.value[0].id
+        awaitCondition({ clipboardManager.clipboardItems.value.any { it.text == "你好" } })
+        val itemId = clipboardManager.clipboardItems.value.single { it.text == "你好" }.id
 
         clipboardManager.splitItem(itemId)
 
-        awaitCondition({ clipboardManager.clipboardItems.value.size == 2 })
+        // Wait for this operation, not merely a size that unrelated rows can satisfy.
+        awaitCondition({
+            val texts = clipboardManager.clipboardItems.value.map { it.text }
+            "你好" !in texts && "好" in texts && "你" in texts
+        })
         val items = clipboardManager.clipboardItems.value
-        assertEquals("你", items[0].text)
-        assertEquals("好", items[1].text)
+        // Split characters receive increasing timestamps; history is shown newest first.
+        assertEquals(listOf("好", "你"), items.map { it.text })
     }
 
     @Test
@@ -324,10 +350,27 @@ class ClipboardManagerTest {
 
     @Test
     fun copyToSystemClipboardSetsClipboardText() {
-        clipboardManager.copyToSystemClipboard("Copied text")
-
-        val text = clipboardManager.getCurrentClipboardText()
-        assertEquals("Copied text", text)
+        val intent = requireNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName))
+        ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+            // Android 10+ only allows clipboard reads while the app has focus (or is the default IME).
+            awaitCondition({
+                var focused = false
+                scenario.onActivity { focused = it.hasWindowFocus() }
+                focused
+            })
+            val systemClipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val previousClip = systemClipboard.primaryClip
+            try {
+                clipboardManager.copyToSystemClipboard("Copied text")
+                assertEquals("Copied text", clipboardManager.getCurrentClipboardText())
+            } finally {
+                if (previousClip != null) {
+                    systemClipboard.setPrimaryClip(previousClip)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    systemClipboard.clearPrimaryClip()
+                }
+            }
+        }
     }
 
     @Test
@@ -386,11 +429,20 @@ class ClipboardManagerTest {
 
     @Test
     fun maxItemsLimitEnforced() {
-        for (i in 1..1010) {
-            clipboardManager.addItem("Item $i")
+        // The old 1000-item cap was replaced by a byte-based capacity and paged history.
+        clipboardManager.resetHistoryWindow()
+        runBlocking {
+            storageFixture.database.clipboardDao().insertAll(
+                (1..1000).map { ClipboardEntry(text = "Item $it", searchKey = "item$it") }
+            )
         }
-
-        awaitCondition({ clipboardManager.clipboardItems.value.size in 990..1000 })
-        assertTrue("Should cap at 1000 items", clipboardManager.clipboardItems.value.size in 990..1000)
+        awaitCondition({ clipboardManager.unpinnedCount.value == 1000 })
+        clipboardManager.addItem("Beyond the old limit")
+        awaitCondition({ clipboardManager.unpinnedCount.value == 1001 }, timeoutMs = 15000)
+        awaitCondition({ clipboardManager.clipboardItems.value.any { it.text == "Beyond the old limit" } })
+        assertEquals(ClipboardManager.HISTORY_PAGE, clipboardManager.clipboardItems.value.size)
+        assertEquals(1001, runBlocking { clipboardManager.exportItems().size })
+        clipboardManager.loadMoreHistory()
+        awaitCondition({ clipboardManager.clipboardItems.value.size == ClipboardManager.HISTORY_PAGE * 2 })
     }
 }

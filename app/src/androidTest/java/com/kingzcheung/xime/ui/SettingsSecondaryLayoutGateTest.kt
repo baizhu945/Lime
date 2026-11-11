@@ -73,12 +73,24 @@ class SettingsSecondaryLayoutGateTest {
 
     @Test fun practicalSettingsPrecedeDecorations() {
         val page = mutableStateOf(0)
+        val route = mutableStateOf<String?>(null)
+        val candidateEntry = ApplicationProvider.getApplicationContext<Context>()
+            .getString(com.kingzcheung.xime.R.string.item_candidates_title)
         rule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f, 1f)) {
                 MaterialTheme {
                     Box(Modifier.requiredSize(360.dp, 640.dp).testTag("priority-host")) {
                         if (page.value == 0) com.kingzcheung.xime.ui.settings.KeyEffectSettingsContent(onBack = {})
-                        else com.kingzcheung.xime.ui.settings.LayoutDisplaySettingsContent(onBack = {})
+                        else if (route.value == null) com.kingzcheung.xime.ui.settings.SettingsMainContent(
+                            onNavigateToSchema = {}, onNavigateToTheme = {}, onNavigateToKeyEffect = {},
+                            onNavigateToLayoutDisplay = {}, onNavigateToDictionary = {}, onNavigateToPlugins = {},
+                            onNavigateToSmartPrediction = {}, onNavigateToSpeechToText = {}, onNavigateToAbout = {},
+                            onNavigateToRoute = { route.value = it }
+                        )
+                        else com.kingzcheung.xime.ui.settings.LayoutDisplaySettingsContent(
+                            onBack = { route.value = null },
+                            initialPage = android.net.Uri.parse(route.value).getQueryParameter("page")
+                        )
                     }
                 }
             }
@@ -86,7 +98,10 @@ class SettingsSecondaryLayoutGateTest {
         rule.onNodeWithText("按键音效").assertIsDisplayed()
         rule.onAllNodesWithText("按键视觉效果").assertCountEquals(0)
         rule.runOnIdle { page.value = 1 }
-        rule.onNodeWithText("候选词").assertIsDisplayed()
+        rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(candidateEntry))
+        rule.onNodeWithText(candidateEntry).assertIsDisplayed().performClick()
+        rule.runOnIdle { assertEquals("${com.kingzcheung.xime.ui.settings.SettingsRoutes.LayoutDisplay}?page=candidates", route.value) }
+        rule.onNodeWithText("候选字大小").assertIsDisplayed()
         rule.onAllNodesWithText("键盘底部样式").assertCountEquals(0)
     }
 
@@ -168,7 +183,7 @@ class SettingsSecondaryLayoutGateTest {
         for (v in viewports) {
             rule.runOnIdle { viewport.value = v }
             rule.assertGeometry("language-host", "语言管理顶部 $v")
-            rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("language-drag:en"))
+            rule.onNodeWithTag("language-settings-list").performScrollToNode(hasTestTag("language-drag:en"))
             val card = rule.onNodeWithTag("language-drag:en").assertIsDisplayed()
             assertInside("language-host", card, "语言管理末项卡片 $v")
             assertTrue("语言卡片拖动区域高度不足 $v", card.fetchSemanticsNode().size.height >= 71)
@@ -257,7 +272,7 @@ class SettingsSecondaryLayoutGateTest {
             rule.runOnIdle { viewport.value = v }
             rule.assertGeometry("storage-host", "存储空间顶部 $v")
             rule.onNode(hasScrollToIndexAction()).performScrollToIndex(1)
-            val lastCategory = rule.onNodeWithText("用户配置索引、联想词频缓存等")
+            val lastCategory = rule.onNodeWithTag("storage-category:${com.kingzcheung.xime.settings.StorageStats.ID_OTHER}:description")
                 .performScrollTo().assertIsDisplayed()
             assertInside("storage-host", lastCategory, "存储空间末项 $v")
             rule.assertGeometry("storage-host", "存储空间末项 $v")

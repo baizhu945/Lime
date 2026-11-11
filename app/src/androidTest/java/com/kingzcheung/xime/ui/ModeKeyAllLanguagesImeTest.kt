@@ -1,5 +1,6 @@
 package com.kingzcheung.xime.ui
 
+import android.content.ComponentName
 import android.content.Context
 import android.os.ParcelFileDescriptor
 import android.provider.Settings
@@ -19,6 +20,7 @@ import com.kingzcheung.xime.rime.RimeEngine
 import com.kingzcheung.xime.settings.InputLanguage
 import com.kingzcheung.xime.settings.LanguagePreferences
 import com.kingzcheung.xime.settings.SettingsPreferences
+import com.kingzcheung.xime.settings.SchemaManager
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -42,18 +44,55 @@ class ModeKeyAllLanguagesImeTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val prefs = SettingsPreferences.getPrefsPublic(context)
-        val saved = prefs.all.toMap()
+        val addJapanese = enableJapanese && InputLanguage.JAPANESE !in LanguagePreferences.enabled(context)
+        val ownedKeys = setOf("current_schema", "current_schema_dual",
+            "last_input_mode_${InputLanguage.forSchema(schema).id}", "floating_mode",
+            "input_text_location", "mode_change_target", "deployment_done", "deployment_hash") +
+            if (addJapanese) setOf(LanguagePreferences.KEY, "input_language_order") else emptySet()
+        val saved = ownedKeys.associateWith { prefs.all[it] }.toMutableMap()
         val previousIme = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+        val previousSubtype = Settings.Secure.getInt(context.contentResolver, Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE, -1)
+        val imeComponent = ComponentName(context, "com.kingzcheung.xime.service.XimeInputMethodService")
+        val ime = "${context.packageName}/com.kingzcheung.xime.service.XimeInputMethodService"
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        val previouslyEnabled = imm.enabledInputMethodList.any { ComponentName.unflattenFromString(it.id) == imeComponent }
         val engine = RimeEngine.getInstance()
+        var oldSchema: String? = if (RimeEngine.isInitialized()) engine.getCurrentSchema().takeIf { it.isNotBlank() } else null
+        var oldAscii: Boolean? = if (oldSchema != null) engine.isAsciiMode() else null
+        var oldUserAscii: Boolean? = if (oldSchema != null) engine.getUserConfigBool("var/option/ascii_mode") else null
+        var oldEnabledSchemas: List<String>? = null
         lateinit var editor: EditText
+        var editorCreated = false
         try {
-            if (enableJapanese && InputLanguage.JAPANESE !in LanguagePreferences.enabled(context)) {
+            // ?123 returns to the last-used page; this fixture specifically exercises numbers.
+            SettingsPreferences.setModeChangeTarget(context, com.kingzcheung.xime.keyboard.ModeChangeTarget.NUMBER)
+            if (addJapanese) {
+                val schemas = SchemaManager.getEnabledSchemas(context)
+                oldEnabledSchemas = schemas
+                // save() may choose a native fallback and remember its language too.
+                val nextLanguages = LanguagePreferences.enabled(context) + InputLanguage.JAPANESE
+                val current = SettingsPreferences.getCurrentSchema(context)
+                if (current == com.kingzcheung.xime.settings.InputModes.ENGLISH ||
+                    InputLanguage.forSchema(current) !in nextLanguages) {
+                    val available = (schemas + com.kingzcheung.xime.settings.JapaneseSchemas.ids).distinct()
+                    val fallback = available.firstOrNull {
+                        it.isNotBlank() && it != com.kingzcheung.xime.settings.InputModes.ENGLISH &&
+                            InputLanguage.forSchema(it) in nextLanguages
+                    } ?: available.firstOrNull {
+                        it.isNotBlank() && it != com.kingzcheung.xime.settings.InputModes.ENGLISH
+                    } ?: "rime_ice"
+                    val key = "last_input_mode_${InputLanguage.forSchema(fallback).id}"
+                    if (key !in saved) saved[key] = prefs.all[key]
+                }
                 LanguagePreferences.save(context, InputLanguage.JAPANESE, true)
             }
             val (user, shared) = RimeConfigHelper.initializeRimeDataAsync(context)
             engine.initialize(user, shared)
             assertTrue("部署失败", RimeConfigHelper.ensureDeployment(context))
             assertTrue("Rime session 未就绪", engine.ensureSession())
+            if (oldSchema == null) oldSchema = engine.getCurrentSchema()
+            if (oldAscii == null) oldAscii = engine.isAsciiMode()
+            if (oldUserAscii == null) oldUserAscii = engine.getUserConfigBool("var/option/ascii_mode")
             assertTrue("方案不可用: $schema", engine.switchSchema(schema))
             engine.setOption("ascii_mode", expectedAscii)
             engine.setUserConfigBool("var/option/ascii_mode", expectedAscii)
@@ -63,13 +102,23 @@ class ModeKeyAllLanguagesImeTest {
             shell("ime enable ${context.packageName}/com.kingzcheung.xime.service.XimeInputMethodService")
             shell("ime set ${context.packageName}/com.kingzcheung.xime.service.XimeInputMethodService")
             rule.setContent {
-                AndroidView(factory = { EditText(it).also { edit -> editor = edit } },
+                AndroidView(factory = { EditText(it).also { edit -> editor = edit; editorCreated = true } },
                     modifier = Modifier.fillMaxWidth().height(120.dp))
             }
             rule.runOnUiThread {
                 editor.requestFocus()
                 (context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
                     .showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
+            }
+            rule.waitUntil(60_000) {
+                rule.onAllNodesWithTag("configured-mode-key", useUnmergedTree = true)
+                    .fetchSemanticsNodes().isNotEmpty() ||
+                    rule.onAllNodesWithTag("hardware-toolbar-keyboard", useUnmergedTree = true)
+                        .fetchSemanticsNodes().isNotEmpty()
+            }
+            if (rule.onAllNodesWithTag("hardware-toolbar-keyboard", useUnmergedTree = true)
+                    .fetchSemanticsNodes().isNotEmpty()) {
+                rule.onNodeWithTag("hardware-toolbar-keyboard", useUnmergedTree = true).performClick()
             }
             rule.waitUntil(60_000) {
                 rule.onAllNodesWithTag("configured-mode-key", useUnmergedTree = true)
@@ -86,9 +135,20 @@ class ModeKeyAllLanguagesImeTest {
             assertEquals("?123 不应切换输入语言/ASCII 状态", expectedAscii, engine.isAsciiMode())
         } finally {
             runCatching { engine.clearComposition() }
-            prefs.edit().clear().also { edit ->
+            runCatching {
+                if (editorCreated) rule.runOnUiThread {
+                    imm.hideSoftInputFromWindow(editor.windowToken, 0)
+                    editor.clearFocus()
+                }
+            }
+            oldEnabledSchemas?.let { runCatching { SchemaManager.setEnabledSchemas(context, it) } }
+            oldSchema?.let { runCatching { engine.switchSchema(it) } }
+            oldAscii?.let { runCatching { engine.setOption("ascii_mode", it) } }
+            oldUserAscii?.let { runCatching { engine.setUserConfigBool("var/option/ascii_mode", it) } }
+            prefs.edit().also { edit ->
                 saved.forEach { (k, v) ->
                     when (v) {
+                        null -> edit.remove(k)
                         is String -> edit.putString(k, v)
                         is Int -> edit.putInt(k, v)
                         is Float -> edit.putFloat(k, v)
@@ -99,6 +159,8 @@ class ModeKeyAllLanguagesImeTest {
                 }
             }.commit()
             if (!previousIme.isNullOrBlank()) shell("ime set $previousIme")
+            if (!previouslyEnabled) shell("ime disable $ime")
+            shell("settings put secure selected_input_method_subtype $previousSubtype")
         }
     }
 

@@ -1,6 +1,11 @@
 package com.kingzcheung.xime.ui
 
+import android.app.Activity
+import android.app.Instrumentation
+import android.content.Intent
+import android.content.IntentFilter
 import androidx.activity.ComponentActivity
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.kingzcheung.xime.settings.SettingsPreferences
@@ -17,8 +22,19 @@ class PluginSettingsNavigationTest {
         rule.setContent { XimeTheme { SettingsScreen(initialRoute = "plugins") } }
         rule.onNodeWithText("插件管理").assertIsDisplayed()
         rule.onNodeWithText("安装插件").assertDoesNotExist()
-        rule.onNodeWithContentDescription("更多").performClick()
-        rule.onNodeWithText("从文件安装插件").assertIsDisplayed()
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val filter = IntentFilter(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            addDataType("*/*")
+        }
+        val picker = instrumentation.addMonitor(filter,
+            Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null), true)
+        try {
+            rule.onNodeWithContentDescription("从文件安装插件")
+                .assertIsDisplayed().assertHasClickAction().performClick()
+            rule.waitForIdle()
+            assertEquals("file import must launch the system document picker", 1, picker.hits)
+        } finally { instrumentation.removeMonitor(picker) }
     }
 
     @Test fun clipboardSetupIsReachableBeforeSyncIsEnabled() {
@@ -27,9 +43,9 @@ class PluginSettingsNavigationTest {
         try {
             SettingsPreferences.setClipboardSyncEnabled(rule.activity, false)
             rule.setContent { XimeTheme { ClipboardSyncSettingsContent({}, { manages++ }) } }
-            rule.onNodeWithText("附近电脑").assertExists()
+            rule.onNodeWithTag("windows-scan-connect").assertIsDisplayed().assertIsEnabled()
             rule.onNodeWithText("安装插件").assertDoesNotExist()
-            rule.onNodeWithText("其他服务与旧版兼容连接").performScrollTo().performClick()
+            rule.onNodeWithText("备用：手动连接与其他服务").performScrollTo().performClick()
             rule.onNodeWithText("管理其他同步服务").performScrollTo().performClick()
             rule.onNodeWithText("同步服务").assertExists()
             assertEquals(1, manages)
