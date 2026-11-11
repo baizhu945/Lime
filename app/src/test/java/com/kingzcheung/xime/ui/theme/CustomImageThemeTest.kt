@@ -107,6 +107,25 @@ class CustomImageThemeTest {
         assertNull(CustomImageTheme.build(context, themes))
     }
 
+    @Test fun temporaryImageInheritsExplicitFunctionAndEnterColorsFromSameBase() {
+        val base = SoftBlueTheme.create("imported", "Imported").copy(
+            specialKeyDark = androidx.compose.ui.graphics.Color.Red,
+            specialKeyTextColorDark = androidx.compose.ui.graphics.Color.Green,
+            enterKeyDark = androidx.compose.ui.graphics.Color.Blue,
+            useThemeColors = false,
+        )
+        val catalogue = themes + base
+        val preview = CustomImageTheme.preview(catalogue, base.id, "themes/pending.jpg", ThemeImagePlacement())!!
+        assertEquals(base.id, CustomImageTheme.previewColorThemeId(catalogue, base.id))
+        assertEquals(base.specialKeyDark, preview.specialKeyDark)
+        assertEquals(base.specialKeyTextColorDark, preview.specialKeyTextColorDark)
+        assertEquals(base.enterKeyDark, preview.enterKeyDark)
+        assertEquals(androidx.compose.ui.graphics.Color.Yellow,
+            resolvedSpecialKeyColor(preview, true, androidx.compose.ui.graphics.Color.Yellow))
+        assertEquals(resolvedSpecialKeyColor(base, true, androidx.compose.ui.graphics.Color.Yellow),
+            resolvedSpecialKeyColor(preview, true, androidx.compose.ui.graphics.Color.Yellow))
+    }
+
     /** 第一次选图时主题表里还没有「我的图片」：调整页预览按沿用的主题取键色，不能落到全局的半透明白键。 */
     @Test fun previewTakesKeyColoursFromTheBaseBeforeTheImageIsSaved() {
         val id = CustomImageTheme.previewColorThemeId(themes, PureBlackTheme.ID)

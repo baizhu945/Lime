@@ -602,9 +602,9 @@
       "pairwise_lower_priority_in_this_fixture": [
         "打西边"
       ],
-      "target_rank_requirement": 1,
+      "target_max_rank": 3,
       "require_target_recall": true,
-      "note": "同码读音与词搭配",
+      "note": "无上下文时允许同码的发一遍在前；打一遍须在前三且优先于打西边",
       "result": "NOT_RUN"
     },
     {

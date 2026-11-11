@@ -25,6 +25,8 @@ import com.kingzcheung.xime.ui.keyboard.CandidateBar
 import com.kingzcheung.xime.ui.keyboard.CandidateBarCallbacks
 import com.kingzcheung.xime.ui.keyboard.CandidateBarState
 import com.kingzcheung.xime.ui.keyboard.CandidateBarVisuals
+import com.kingzcheung.xime.ui.keyboard.EdgeButtonStyle
+import com.kingzcheung.xime.ui.keyboard.LocalEdgeButtonStyle
 import com.kingzcheung.xime.ui.settings.LayoutDisplaySettingsContent
 import org.junit.After
 import org.junit.Assert.*
@@ -49,7 +51,9 @@ class CandidateBarOptionsTest {
         // 用户 10-31：默认打开。
         assertTrue(SettingsPreferences.shouldShowCandidateCancelButton(context))
         rule.setContent {
-            CompositionLocalProvider(LocalContext provides context) {
+            // 44dp is the circular button's 40dp slot plus 4dp spacing; the default
+            // capsule style uses a wider, measured slot. Keep this geometry deterministic.
+            CompositionLocalProvider(LocalContext provides context, LocalEdgeButtonStyle provides EdgeButtonStyle.CIRCLE) {
                 MaterialTheme {
                     CandidateBar(composing, visuals = visuals,
                         callbacks = CandidateBarCallbacks(onCandidateSelect = { selects++ }, onCancelInput = { cancels++ }),
@@ -72,6 +76,24 @@ class CandidateBarOptionsTest {
         assertEquals(enabledLeft, rule.onNodeWithText("你好").fetchSemanticsNode().boundsInRoot.left, 1f)
         rule.onNodeWithText("你好").performClick()
         rule.runOnIdle { assertEquals(1, selects) }
+    }
+
+    @Test fun defaultCapsuleCancelButtonUsesItsMeasuredSlot() {
+        rule.setContent {
+            CompositionLocalProvider(LocalContext provides context) {
+                MaterialTheme {
+                    CandidateBar(composing, visuals = visuals,
+                        callbacks = CandidateBarCallbacks(onCandidateSelect = {}, onCancelInput = {}),
+                        modifier = Modifier.width(320.dp))
+                }
+            }
+        }
+        rule.onNodeWithContentDescription("取消输入").assertIsDisplayed()
+        val enabledLeft = rule.onNodeWithText("你好").fetchSemanticsNode().boundsInRoot.left
+        rule.runOnIdle { SettingsPreferences.setShowCandidateCancelButton(context, false) }
+        rule.onNodeWithContentDescription("取消输入").assertDoesNotExist()
+        val disabledLeft = rule.onNodeWithText("你好").fetchSemanticsNode().boundsInRoot.left
+        assertEquals(48f * context.resources.displayMetrics.density, enabledLeft - disabledLeft, 2f)
     }
 
     @Test fun clipboardRetainsItsOwnReturnButtonWithOptionOff() {
@@ -165,7 +187,9 @@ class CandidateBarOptionsTest {
             }
         }
         val layouts = mutableListOf<TextLayoutResult>()
-        rule.onNodeWithText("ni'hao", useUnmergedTree = true).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        // Multiline preedit inserts a zero-width break after each visible separator.
+        rule.onNodeWithText("ni'\u200Bhao", useUnmergedTree = true).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertEquals("ni'\u200Bhao", layouts.single().layoutInput.text.text)
         assertEquals(18.sp, layouts.single().layoutInput.style.fontSize)
         rule.onNodeWithTag("candidate-preedit").assertIsDisplayed().performClick()
         rule.runOnIdle { assertEquals(1, edits); showPreview.value = false }
@@ -192,9 +216,11 @@ class CandidateBarOptionsTest {
         assertTrue(preview.positionOnScreen.y >= 0f)
         assertTrue(preview.positionOnScreen.y + preview.size.height <= screen.height + 1f)
         screen.recycle()
-        rule.onNodeWithText(text.value, useUnmergedTree = true).performTouchInput { swipeLeft() }
+        // The multiline preview inserts a zero-width break after every apostrophe.
+        val displayedLongText = "xiu'\u200Bgai'\u200Bshu'\u200Bru'\u200B".repeat(20)
+        rule.onNodeWithText(displayedLongText, useUnmergedTree = true).performTouchInput { swipeLeft() }
         rule.runOnIdle { text.value = "ni'hao" }
-        rule.onNodeWithText("ni'hao", useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithText("ni'\u200Bhao", useUnmergedTree = true).assertIsDisplayed()
         rule.onAllNodesWithTag("candidate-preedit").assertCountEquals(1)
     }
 }

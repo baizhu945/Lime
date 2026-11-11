@@ -36,8 +36,9 @@ class KeyboardSwipeIntegrationTest {
     private val app = ApplicationProvider.getApplicationContext<Application>()
     private val prefs = SettingsPreferences.getPrefsPublic(app)
     private val preferenceKeys = listOf("cursor_gesture_mode", "symbol_input_mode", "reverse_symbol_swipe",
-        "neighbor_correction", "fourteen_letter_swipe", SettingsPreferences.KEY_SPLIT_KEYBOARD,
-        SettingsPreferences.KEY_SHOW_PRESS_BUBBLE)
+        "neighbor_correction", "fourteen_letter_swipe", "flick_direction_disc", "flick_direction_disc_v2",
+        "letter_long_press_menu",
+        SettingsPreferences.KEY_SPLIT_KEYBOARD, SettingsPreferences.KEY_SHOW_PRESS_BUBBLE)
     private var originalPreferences: Map<String, Any?> = emptyMap()
     private val schema = mutableStateOf("rime_ice")
     private val commits = mutableListOf<String>()
@@ -52,6 +53,10 @@ class KeyboardSwipeIntegrationTest {
             .putString("symbol_input_mode", SymbolInputMode.SWIPE_UP.name)
             .putBoolean("reverse_symbol_swipe", false).putBoolean("neighbor_correction", false)
             .putBoolean("fourteen_letter_swipe", true)
+            // Axis lock: with the direction disc on, a 14-key pair may re-aim mid-drag.
+            .putBoolean("flick_direction_disc", false)
+            .putBoolean("flick_direction_disc_v2", false)
+            .putBoolean("letter_long_press_menu", true)
             .putBoolean(SettingsPreferences.KEY_SPLIT_KEYBOARD, false)
             .putBoolean(SettingsPreferences.KEY_SHOW_PRESS_BUBBLE, false).commit()
         KeysConfigHelper.loadConfig(app)

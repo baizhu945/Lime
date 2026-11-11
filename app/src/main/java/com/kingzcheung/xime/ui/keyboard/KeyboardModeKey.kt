@@ -5,6 +5,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.platform.testTag
@@ -34,6 +36,10 @@ internal fun KeyboardModeKey(
     onCtrlShortcut: ((Char) -> Unit)? = null,
 ) {
     val target = modeSlotTarget(page, slot, LocalTextModeLabel.current)
+    val textGeometry = LocalTextModeNavigationGeometry.current
+    val slotModifier = if (page == KeyboardInputPage.TEXT && textGeometry != null) {
+        modifier.onGloballyPositioned { textGeometry.record(slot, it.boundsInRoot()) }
+    } else modifier
     androidx.compose.runtime.CompositionLocalProvider(LocalKeyboardPunctuation provides null) {
     if (ctrlTargets != null && onCtrlShortcut != null && target.action == "symbol") CtrlSymbolKeyButton(
         text = target.label,
@@ -44,7 +50,7 @@ internal fun KeyboardModeKey(
         onPressDown = { onKeyPressDown?.invoke("mode_change") },
         backgroundColor = backgroundColor,
         textColor = textColor,
-        modifier = modifier.testTag("mode-slot-$slot"),
+        modifier = slotModifier.testTag("mode-slot-$slot"),
         shadowEnabled = shadowEnabled,
         shadowElevation = shadowElevation,
         shadowShapeRadius = shadowShapeRadius,
@@ -55,7 +61,7 @@ internal fun KeyboardModeKey(
         onPress = { onKeyPressDown?.invoke("mode_change") },
         backgroundColor = backgroundColor,
         textColor = textColor,
-        modifier = modifier.testTag("mode-slot-$slot").semantics { if (target.action == "abc") contentDescription = "返回键盘" },
+        modifier = slotModifier.testTag("mode-slot-$slot").semantics { if (target.action == "abc") contentDescription = "返回键盘" },
         shadowEnabled = shadowEnabled,
         shadowElevation = shadowElevation,
         shadowShapeRadius = shadowShapeRadius,

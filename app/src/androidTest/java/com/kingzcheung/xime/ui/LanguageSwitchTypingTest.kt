@@ -34,9 +34,36 @@ class LanguageSwitchTypingTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val prefs = SettingsPreferences.getPrefsPublic(context)
-        val saved = prefs.all.toMap()
+        // Include only settings written by setup/language switching, never records or models.
+        val ownedKeys = setOf(
+            "enabled_input_languages", "input_language_order", "japanese_language_added_v1",
+            "current_schema", "current_schema_dual", "floating_mode", "input_text_location",
+            "builtin_schemas_merged", "japanese_schemas_added_v1", "cyime_chinese_defaults_v1",
+            "cyime_double_pinyin_defaults_v1", "deployment_done", "deployment_hash",
+            RimeConfigHelper.DEPLOYMENT_REVISION, RimeConfigHelper.DEPLOYMENT_PROBLEM,
+        ) + InputLanguage.entries.flatMap { listOf("last_input_mode_${it.id}", "selected_input_profile_${it.id}") }
+        val saved = ownedKeys.associateWith { key ->
+            prefs.all[key].let { if (it is Set<*>) it.toSet() else it }
+        }
+        val imeId = android.content.ComponentName(
+            context.packageName, "com.kingzcheung.xime.service.XimeInputMethodService",
+        ).flattenToShortString()
+        val inputMethods = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        val wasImeEnabled = inputMethods.enabledInputMethodList.any { it.id == imeId }
         val previousIme = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
         val engine = RimeEngine.getInstance()
+        var previousSchema: String? = null
+        var previousSelectedSchema: String? = null
+        var previousAscii: Boolean? = null
+        var previousPersistentAscii: Boolean? = null
+        fun captureNativeState() {
+            if (previousAscii != null || engine.getCurrentSchema().isBlank()) return
+            previousSchema = engine.getCurrentSchema()
+            previousSelectedSchema = engine.getUserConfigString("var/previously_selected_schema")
+            previousAscii = engine.getOption("ascii_mode")
+            previousPersistentAscii = engine.getUserConfigBool("var/option/ascii_mode")
+        }
+        if (RimeEngine.isInitialized()) captureNativeState()
         lateinit var editor: EditText
         try {
             // 不手工开启日语：默认配置就应让语言键能循环到日语。
@@ -47,6 +74,7 @@ class LanguageSwitchTypingTest {
             engine.initialize(user, shared)
             assertTrue(RimeConfigHelper.ensureDeployment(context))
             assertTrue(engine.ensureSession())
+            captureNativeState()
             assertTrue(engine.switchSchema("rime_ice"))
             SettingsPreferences.setCurrentSchema(context, "rime_ice")
             SettingsPreferences.setFloatingMode(context, false)
@@ -64,7 +92,17 @@ class LanguageSwitchTypingTest {
             }
             rule.waitUntil(60_000) {
                 rule.onAllNodesWithTag("configured-earth-key").fetchSemanticsNodes().isNotEmpty() ||
-                    rule.onAllNodesWithTag("qwerty-key:q").fetchSemanticsNodes().isNotEmpty()
+                    rule.onAllNodesWithTag("qwerty-key:q").fetchSemanticsNodes().isNotEmpty() ||
+                    rule.onAllNodesWithTag("hardware-toolbar-keyboard", useUnmergedTree = true)
+                        .fetchSemanticsNodes().isNotEmpty()
+            }
+            if (rule.onAllNodesWithTag("configured-earth-key").fetchSemanticsNodes().isEmpty() &&
+                rule.onAllNodesWithTag("qwerty-key:q").fetchSemanticsNodes().isEmpty()) {
+                rule.onNodeWithTag("hardware-toolbar-keyboard", useUnmergedTree = true).performClick()
+                rule.waitUntil(30_000) {
+                    rule.onAllNodesWithTag("configured-earth-key").fetchSemanticsNodes().isNotEmpty() ||
+                        rule.onAllNodesWithTag("qwerty-key:q").fetchSemanticsNodes().isNotEmpty()
+                }
             }
             fun tap(tag: String) {
                 rule.onNodeWithTag(tag).performTouchInput { down(center); up() }
@@ -118,19 +156,43 @@ class LanguageSwitchTypingTest {
             throw t
         } finally {
             runCatching { engine.clearComposition() }
-            prefs.edit().clear().also { edit ->
+            runCatching {
+                previousSchema?.takeIf { it.isNotBlank() && it != engine.getCurrentSchema() }
+                    ?.let { engine.switchSchema(it) }
+                previousSelectedSchema?.let {
+                    if (engine.getUserConfigString("var/previously_selected_schema") != it)
+                        engine.setUserConfigString("var/previously_selected_schema", it)
+                }
+                previousPersistentAscii?.let {
+                    if (engine.getUserConfigBool("var/option/ascii_mode") != it)
+                        engine.setUserConfigBool("var/option/ascii_mode", it)
+                }
+                previousAscii?.let { if (engine.getOption("ascii_mode") != it) engine.setOption("ascii_mode", it) }
+            }
+            prefs.edit().also { edit ->
                 saved.forEach { (k, v) ->
+                    if (prefs.all[k] == v) return@forEach
                     when (v) {
+                        null -> edit.remove(k)
                         is String -> edit.putString(k, v)
                         is Int -> edit.putInt(k, v)
                         is Float -> edit.putFloat(k, v)
                         is Long -> edit.putLong(k, v)
                         is Boolean -> edit.putBoolean(k, v)
-                        is Set<*> -> edit.putStringSet(k, v.filterIsInstance<String>().toSet())
+                        is Set<*> -> edit.putStringSet(k, v.map { it as String }.toSet())
                     }
                 }
             }.commit()
-            if (!previousIme.isNullOrBlank()) shell("ime set $previousIme")
+            try {
+                if (!previousIme.isNullOrBlank() && Settings.Secure.getString(
+                        context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD) != previousIme) {
+                    shell("ime set $previousIme")
+                }
+            } finally {
+                if (!wasImeEnabled && inputMethods.enabledInputMethodList.any { it.id == imeId }) {
+                    shell("ime disable $imeId")
+                }
+            }
         }
     }
 

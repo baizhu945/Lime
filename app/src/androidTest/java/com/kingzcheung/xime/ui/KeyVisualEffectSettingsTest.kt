@@ -49,7 +49,11 @@ class KeyVisualEffectSettingsTest {
                 val layouts = mutableListOf<TextLayoutResult>()
                 rule.onNodeWithText(label, useUnmergedTree = true).performScrollTo()
                     .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-                assertFalse("$label at font=$scale", layouts.single().hasVisualOverflow)
+                val layout = layouts.single()
+                assertFalse("$label at font=$scale size=${layout.size} constraints=${layout.layoutInput.constraints} " +
+                    "lines=${layout.lineCount} overflow=${layout.hasVisualOverflow} " +
+                    "widthOverflow=${layout.didOverflowWidth} heightOverflow=${layout.didOverflowHeight}",
+                    layout.hasVisualOverflow)
             }
         }
     }

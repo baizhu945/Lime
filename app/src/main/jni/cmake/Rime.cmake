@@ -29,8 +29,21 @@ if(CYIME_RIME_VERBOSE_TRACE)
   add_compile_definitions(CYIME_RIME_VERBOSE_TRACE=1)
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/T9WorkCounters.cmake")
-# Every CyIME change to librime; the same file as patches/cyime-librime.patch, which Gradle applies first.
+# The base patch is also applied by Gradle. Keep the new Context patch separate
+# so checkouts with the older base patch already applied can upgrade in place.
 cyime_apply_patch("${CMAKE_SOURCE_DIR}/librime" "${CMAKE_CURRENT_LIST_DIR}/RimeDictionary.patch")
+cyime_apply_patch("${CMAKE_SOURCE_DIR}/librime" "${CMAKE_CURRENT_LIST_DIR}/RimeTableValidation.patch")
+cyime_apply_patch("${CMAKE_SOURCE_DIR}/librime" "${CMAKE_CURRENT_LIST_DIR}/RimeTableBuildRelocation.patch")
+# Upgrade a checkout with the previous Context patch before checking the full patch.
+set(_context_upgrade "${CMAKE_CURRENT_LIST_DIR}/RimeContextEditUpgrade.patch")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_context_upgrade}")
+execute_process(COMMAND "${GIT_EXECUTABLE}" apply --check "${_context_upgrade}"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/librime" RESULT_VARIABLE _context_old
+    OUTPUT_QUIET ERROR_QUIET)
+if(_context_old EQUAL 0)
+  cyime_apply_patch("${CMAKE_SOURCE_DIR}/librime" "${_context_upgrade}")
+endif()
+cyime_apply_patch("${CMAKE_SOURCE_DIR}/librime" "${CMAKE_CURRENT_LIST_DIR}/RimeContextEdit.patch")
 add_subdirectory(librime)
 include("${CMAKE_CURRENT_LIST_DIR}/CyimeRimeSources.cmake")
 target_compile_options(

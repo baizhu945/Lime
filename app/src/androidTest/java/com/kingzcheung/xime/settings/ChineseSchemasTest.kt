@@ -20,7 +20,13 @@ class ChineseSchemasTest {
         override fun getSharedPreferences(name: String, mode: Int) = super.getSharedPreferences("chinese_test_$name", mode)
     }
     @Before fun before() { File(directory, "rime").mkdirs(); SettingsPreferences.getPrefsPublic(context).edit().clear().commit() }
-    @After fun after() { directory.deleteRecursively(); SettingsPreferences.getPrefsPublic(context).edit().clear().commit(); CustomKeyboardLayouts.load(base) }
+    @After fun after() {
+        // Loading a missing file creates it; never create a layout file in the user's data.
+        if (File(base.filesDir, "custom-keyboard-layouts.json").exists()) CustomKeyboardLayouts.load(base)
+        else { File(directory, "custom-keyboard-layouts.json").writeText("[]"); CustomKeyboardLayouts.load(context) }
+        directory.deleteRecursively()
+        SettingsPreferences.getPrefsPublic(context).edit().clear().commit()
+    }
 
     @Test fun freshPhoneAndTabletDefaultsLeaveSampleOptional() {
         // Defaults must not vary with screen dimensions or whether the sample file exists.
@@ -43,6 +49,7 @@ class ChineseSchemasTest {
 
     @Test fun migrationAddsOnlyMissingChineseModesOnceAndPreservesOrdering() {
         File(directory, "custom-keyboard-layouts.json").writeText("""[{"id":"pinyin_qwjrtk","name":"个人双指","rows":"q,w,j,r,t,k,u,i,o,p/a,s,d,f,g,h,e,n,l/z,x,c,y,b,v,m","redVowels":false}]""")
+        CustomKeyboardLayouts.load(context)
         ChineseSchemas.installAssets(context, File(directory, "rime"))
         assertTrue(File(directory, "rime/${QwjrtkLayout.ID}.schema.yaml").isFile)
         assertEquals("个人双指", CustomKeyboardLayouts.find(QwjrtkLayout.ID)?.name)
@@ -56,12 +63,14 @@ class ChineseSchemasTest {
     }
     @Test fun absentLanguagePreferenceKeepsJapaneseDisabledAfterSetup() {
         SettingsPreferences.setSetupCompleted(context, true)
-        assertEquals(setOf(InputLanguage.CHINESE, InputLanguage.ENGLISH), LanguagePreferences.enabled(context))
+        assertEquals(setOf(InputLanguage.CHINESE, InputLanguage.ENGLISH, InputLanguage.UNSPECIFIED), LanguagePreferences.enabled(context))
         LanguagePreferences.initialize(context)
-        assertEquals(setOf(InputLanguage.CHINESE, InputLanguage.ENGLISH), LanguagePreferences.enabled(context))
+        assertEquals(setOf(InputLanguage.CHINESE, InputLanguage.ENGLISH, InputLanguage.UNSPECIFIED), LanguagePreferences.enabled(context))
+        LanguagePreferences.initialize(context)
+        assertEquals(setOf(InputLanguage.CHINESE, InputLanguage.ENGLISH, InputLanguage.UNSPECIFIED), LanguagePreferences.enabled(context))
         SettingsPreferences.getPrefsPublic(context).edit()
             .putStringSet(LanguagePreferences.KEY, setOf("zh", "ja")).commit()
-        assertEquals(setOf(InputLanguage.CHINESE, InputLanguage.JAPANESE, InputLanguage.ENGLISH), LanguagePreferences.enabled(context))
+        assertEquals(setOf(InputLanguage.CHINESE, InputLanguage.JAPANESE, InputLanguage.ENGLISH, InputLanguage.UNSPECIFIED), LanguagePreferences.enabled(context))
     }
     @Test(expected = IllegalArgumentException::class)
     fun englishCannotBeDisabled() {

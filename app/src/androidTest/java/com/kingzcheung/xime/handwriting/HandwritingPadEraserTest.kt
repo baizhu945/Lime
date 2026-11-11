@@ -16,7 +16,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
 import com.kingzcheung.xime.ui.keyboard.HandwritingKeyboardLayout
-import org.junit.Assert.assertFalse
+import kotlin.math.abs
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -48,10 +48,18 @@ class HandwritingPadEraserTest {
             e.recycle()
             rule.mainClock.advanceTimeByFrame()
         }
-        fun blank(): Boolean {
-            rule.mainClock.advanceTimeByFrame()
-            val px = canvas.captureToImage().toPixelMap()
-            return (10 until px.width - 10 step 3).all { x -> (10 until px.height - 10 step 3).all { y -> px[x, y].red > 0.9f } }
+        fun image() = canvas.captureToImage().toPixelMap()
+        // 画布上叠有语言提示胶囊，并非纯白。以落笔前的画面为基准，只检查每条线所在的区域。
+        val baseline = image()
+        fun hasInkNear(px: androidx.compose.ui.graphics.PixelMap, x: Float): Boolean {
+            val cx = (x - b.left).toInt()
+            val y0 = (b.height * 0.55f).toInt()
+            val y1 = (b.height * 0.65f).toInt()
+            return (cx - 8..cx + 8).any { col -> (y0..y1).any { row ->
+                val a = baseline[col, row]
+                val c = px[col, row]
+                abs(a.red - c.red) > 0.15f || abs(a.green - c.green) > 0.15f || abs(a.blue - c.blue) > 0.15f
+            } }
         }
 
         val top = b.top + b.height * 0.2f
@@ -63,13 +71,15 @@ class HandwritingPadEraserTest {
             for (i in 1..6) send(d, MotionEvent.ACTION_MOVE, x, top + (bottom - top) * i / 6, 0)
             send(d, MotionEvent.ACTION_UP, x, bottom, 0)
         }
-        assertFalse("三笔竖线应已画出", blank())
+        val drawn = image()
+        xs.forEachIndexed { i, x -> assertTrue("第 ${i + 1} 笔竖线应已画出", hasInkNear(drawn, x)) }
 
         val y = (top + bottom) / 2
         val d = SystemClock.uptimeMillis()
         send(d, MotionEvent.ACTION_DOWN, b.left + 10, y, MotionEvent.BUTTON_STYLUS_PRIMARY)
         for (i in 1..12) send(d, MotionEvent.ACTION_MOVE, b.left + 10 + (b.width - 20) * i / 12, y, MotionEvent.BUTTON_STYLUS_PRIMARY)
         send(d, MotionEvent.ACTION_UP, b.right - 10, y, MotionEvent.BUTTON_STYLUS_PRIMARY)
-        assertTrue("一次拖动应擦掉路过的三笔", blank())
+        val erased = image()
+        xs.forEachIndexed { i, x -> assertTrue("一次拖动应擦掉第 ${i + 1} 笔", !hasInkNear(erased, x)) }
     }
 }

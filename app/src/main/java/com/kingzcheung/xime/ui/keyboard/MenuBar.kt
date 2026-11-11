@@ -114,7 +114,9 @@ fun MenuBar(
     val menuItems = actions.map { action ->
         val toggle = (action.item as? ToolbarButtonItem.Builtin)?.button in ToolbarButton.TOGGLES
         MenuItem(label = action.item.stateLabel(action.active), action = action.onClick, id = action.item.id,
-            currentState = if (toggle) (if (action.active) "已开启" else "已关闭") else null,
+            currentState = if ((action.item as? ToolbarButtonItem.Builtin)?.button == ToolbarButton.FULL_SHAPE)
+                action.item.stateLabel(action.active)
+                else if (toggle) (if (action.active) "已开启" else "已关闭") else null,
             selected = if (toggle) action.active else null, toolbarItem = action.item, onLongClick = action.onLongClick)
     }
     BoxWithConstraints(modifier.fillMaxWidth().keyboardPanelBackground(state.backgroundColor)) {

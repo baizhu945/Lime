@@ -53,7 +53,7 @@ internal data class KeyGestureActions(
      */
     val freeDirection: Boolean = false,
     val onTapAt: ((Offset) -> Unit)? = null,
-    /** 概率字母区：按下时的触点，用来在密度面上画出这次采样的分布。 */
+    /** 概率字母区：按下时的触点，用来记录这次采样的分布。 */
     val onPressAt: ((Offset) -> Unit)? = null,
 )
 

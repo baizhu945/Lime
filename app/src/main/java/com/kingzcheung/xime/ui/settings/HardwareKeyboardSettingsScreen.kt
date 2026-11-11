@@ -77,14 +77,18 @@ private fun HardwareOption(title: String, detail: String, checked: Boolean, onCh
 @Composable
 private fun CandidatePageOption(title: String, detail: String, key: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer) {
-        Row(Modifier.settingsSearchAnchor(title, bleed = 8.dp, bleedVertical = 4.dp).fillMaxWidth().testTag("hardware-$key")
-            .toggleable(checked, role = Role.Checkbox, onValueChange = onChange)
-            .padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                Text(title, style = MaterialTheme.typography.titleSmall)
-                Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // Keep the search anchor on an outer node so its testTag does not replace the
+        // hardware option's own tag on the same semantics node.
+        Box(Modifier.settingsSearchAnchor(title, bleed = 8.dp, bleedVertical = 4.dp).fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().testTag("hardware-$key")
+                .toggleable(checked, role = Role.Checkbox, onValueChange = onChange)
+                .padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleSmall)
+                    Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Checkbox(checked = checked, onCheckedChange = null)
             }
-            Checkbox(checked = checked, onCheckedChange = null)
         }
     }
 }

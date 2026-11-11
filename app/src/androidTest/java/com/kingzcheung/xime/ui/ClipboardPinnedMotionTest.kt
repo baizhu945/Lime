@@ -59,6 +59,10 @@ class ClipboardPinnedMotionTest {
         rule.onNodeWithTag("clipboard-card:text:3").assertDoesNotExist()
         rule.mainClock.autoAdvance = false
         rule.onNodeWithTag("clipboard-pins-toggle").performClick()
+        // Lazy item animations are registered during layout, after the click's
+        // recomposition. Render that layout before starting the sampling interval.
+        rule.mainClock.advanceTimeByFrame()
+        capture("pins-opening-start.png")
         rule.mainClock.advanceTimeBy(80)
         val opening = capture("pins-opening.png")
         rule.mainClock.advanceTimeBy(320)
@@ -74,14 +78,17 @@ class ClipboardPinnedMotionTest {
         val fullColor = expanded.getPixel(x, y)
         val openingColor = opening.getPixel(x, y)
         assertTrue("fixture distinguishes empty background from a pinned card", distance(emptyColor, fullColor) > 12)
-        assertTrue("opening must show a partial fade rather than the final row immediately",
+        assertTrue("opening must show a partial fade rather than the final row immediately: x=$x y=$y empty=${Integer.toHexString(emptyColor)} opening=${Integer.toHexString(openingColor)} full=${Integer.toHexString(fullColor)}",
             distance(openingColor, emptyColor) > 2 && distance(openingColor, fullColor) > 2)
         assertEquals(controls, rule.onNodeWithTag("clipboard-controls").fetchSemanticsNode().boundsInRoot)
         rule.onNodeWithTag("clipboard-pins-toggle").performClick()
+        rule.mainClock.advanceTimeByFrame()
+        capture("pins-closing-start.png")
         rule.mainClock.advanceTimeBy(80)
         val closing = capture("pins-closing.png")
         val closingColor = closing.getPixel(x, y)
-        assertTrue("removed pin must remain painted during fade-out",
+        android.util.Log.i("ClipboardPinnedMotion", "x=$x y=$y empty=${Integer.toHexString(emptyColor)} opening=${Integer.toHexString(openingColor)} full=${Integer.toHexString(fullColor)} closing=${Integer.toHexString(closingColor)}")
+        assertTrue("removed pin must remain painted during fade-out: x=$x y=$y empty=${Integer.toHexString(emptyColor)} closing=${Integer.toHexString(closingColor)} full=${Integer.toHexString(fullColor)}",
             distance(closingColor, emptyColor) > 2 && distance(closingColor, fullColor) > 2)
         rule.mainClock.advanceTimeBy(320)
         val collapsedAgain = capture("pins-collapsed-again.png")

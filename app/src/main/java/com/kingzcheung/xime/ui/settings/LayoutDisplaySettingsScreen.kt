@@ -116,7 +116,8 @@ private fun LayoutDisplayPage(
             modifier = Modifier.settingsGutterScroll(listState)
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp)
+                .testTag("layout-display-list"),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (page == null) item {

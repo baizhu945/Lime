@@ -48,7 +48,9 @@ class OfflineEditionTest {
 
     @Test fun freshLanguageSettingsOfferChineseAndRequiredEnglish() {
         val app = ApplicationProvider.getApplicationContext<Context>()
+        val directory = File(app.cacheDir, "language-test-${System.nanoTime()}").apply { mkdirs() }
         val fresh = object : ContextWrapper(app) {
+            override fun getFilesDir() = directory
             override fun getSharedPreferences(name: String, mode: Int) = app.getSharedPreferences("language-test-$name", mode)
         }
         val prefs = SettingsPreferences.getPrefsPublic(fresh)
@@ -82,11 +84,15 @@ class OfflineEditionTest {
             // 设备默认不改用户存的选择（是否真用在线还要看在线接口是否测试通过）。
             assertFalse(prefs.getBoolean(SettingsPreferences.KEY_STT_USE_LOCAL, true))
             assertEquals(!glow, prefs.getBoolean("key_glow_enabled", glow))
-            assertEquals(setOf(InputLanguage.CHINESE, InputLanguage.ENGLISH), LanguagePreferences.enabled(fresh))
+            assertEquals(setOf(InputLanguage.CHINESE, InputLanguage.ENGLISH,
+                InputLanguage.UNSPECIFIED), LanguagePreferences.enabled(fresh))
             val choices = InputModes.languageChoices(listOf(SchemaInfo("rime_ice", "中文26键", "", "", "")), "rime_ice",
                 emptyMap(), InputModes.languageOrder(fresh))
             assertEquals(listOf(InputLanguage.CHINESE, InputLanguage.ENGLISH), choices.map { it.language })
-        } finally { prefs.edit().clear().commit() }
+        } finally {
+            prefs.edit().clear().commit()
+            directory.deleteRecursively()
+        }
     }
 
     @Test fun whiteKeyLabelsStillProduceVisibleInkOnWhitePaper() {

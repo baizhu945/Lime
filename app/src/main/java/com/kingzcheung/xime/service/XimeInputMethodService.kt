@@ -540,6 +540,10 @@ class XimeInputMethodService : InputMethodService(), LifecycleOwner, SavedStateR
 
     /** Expanded candidates belong to an engine revision and editor session, never display text. */
     internal fun refreshExpandedCandidates() {
+        if (!keyboardViewModel.candidatePageExpanded.value &&
+            !keyboardViewModel.candidateStripExtended.value &&
+            candidateState.value.expandedCandidates.isEmpty() &&
+            !candidateState.value.expandedCandidatesLoaded) return
         expandedCandidateLoader.cancel()
         keyboardViewModel.setCandidateStripExtended(false)
         candidateState.value = candidateState.value.copy(expandedCandidates = emptyList(), expandedCandidatesLoaded = false)
@@ -2309,8 +2313,20 @@ class XimeInputMethodService : InputMethodService(), LifecycleOwner, SavedStateR
                                            this@XimeInputMethodService, floatingMode, screenIsLandscape,
                                            newHeight, effectiveScreenH,
                                        )
-                                       val savedWidth = preview.resizePreviewWidthDp
-                                           .takeIf { floatingMode && it > 0 } ?: preview.floatingWidthDp
+                                       // Opening the resize panel seeds resizePreviewWidthDp with the
+                                       // automatic width. Confirming without moving the width handle
+                                       // must not turn that default into a saved fixed width: otherwise
+                                       // switching between T9 and QWERTY cards can no longer apply the
+                                       // 1.2x landscape width contract.
+                                       val storedWidth = SettingsPreferences.getFloatingWidthDp(
+                                           this@XimeInputMethodService, screenIsLandscape)
+                                       val widthChanged = floatingMode && preview.resizePreviewWidthDp > 0 &&
+                                           preview.resizePreviewWidthDp != preview.resizeInitialWidthDp
+                                       val savedWidth = when {
+                                           widthChanged -> preview.resizePreviewWidthDp
+                                           storedWidth > 0 -> storedWidth
+                                           else -> 0
+                                       }
                                        if (floatingMode) {
                                            SettingsPreferences.setFloatingWidthDp(this@XimeInputMethodService, savedWidth, screenIsLandscape)
                                            SettingsPreferences.setFloatingOffsetX(this@XimeInputMethodService, preview.floatingOffsetX, screenIsLandscape)
@@ -2547,7 +2563,12 @@ class XimeInputMethodService : InputMethodService(), LifecycleOwner, SavedStateR
             availableWidthDp, if (split) availableWidthDp else width, requestedHeight,
             if (reset) 0 else if (floating) state.floatingOffsetX else state.fixedOffsetX,
             KeyboardAspectLimits.forLayout(state.inputProfile.layout.kind, split, splitGap),
-            customSize = !reset && (preview || savedWidth > 0 || KeyboardHeightProfiles.hasSavedHeight(this, floating, landscape)),
+            // Landscape floating defaults already carry the T9/QWERTY 1.2x width
+            // contract. Do not let the letter-grid proportion default re-derive a
+            // different width for one of the two layouts on small screens.
+            customSize = !reset && (preview || savedWidth > 0 ||
+                KeyboardHeightProfiles.hasSavedHeight(this, floating, landscape) ||
+                (floating && landscape)),
             letterDefaults = letterKeyboardDefaults(state.inputProfile, availableHeight, state.isAsciiMode, floating,
                 split = split,
                 physicalMetrics = physicalMetrics,

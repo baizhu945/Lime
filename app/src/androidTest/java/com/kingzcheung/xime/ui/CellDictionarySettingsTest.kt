@@ -41,13 +41,18 @@ class CellDictionarySettingsTest {
         }
         for (scale in listOf(1f, 1.5f, 2f)) {
             rule.runOnIdle { fontScale = scale; state = state.copy(dictionaries = state.dictionaries.copy(selected = emptySet())) }
-            rule.onNodeWithText("词库已同步").assertIsNotEnabled()
-            rule.onNodeWithText("搜索词库或分类").performScrollTo().performTextReplacement(offer.name)
-            rule.onNodeWithContentDescription("启用${offer.name}").performScrollTo().assertIsOff().performClick().assertIsOn()
-            rule.onNodeWithText("应用词库更改").assertIsDisplayed().assertIsEnabled().performClick()
+            // The current panel hides the apply action entirely when there are no pending changes.
+            rule.onNodeWithText("应用更改").assertDoesNotExist()
+            rule.onNode(hasSetTextAction()).performScrollTo().performTextReplacement(offer.name)
+            rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasContentDescription("启用${offer.name}"))
+            rule.onNodeWithContentDescription("启用${offer.name}").assertIsOff().performClick().assertIsOn()
+            rule.onNodeWithText("应用更改").assertIsDisplayed().assertIsEnabled().performClick()
             rule.runOnIdle { assertTrue(state.dictionaries.applied.isEmpty()) }
             val layouts = mutableListOf<TextLayoutResult>()
-            rule.onNodeWithText(offer.name).performScrollTo()
+            rule.onNode(
+                hasText(offer.name) and !hasSetTextAction() and !hasAnyAncestor(hasSetTextAction()),
+                useUnmergedTree = true,
+            ).performScrollTo()
                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             assertFalse(layouts.single().hasVisualOverflow)
         }

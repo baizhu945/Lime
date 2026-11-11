@@ -40,7 +40,7 @@ class ReportedLayoutsTest {
             val keys = listOf("delete", "，", "。", "enter", "space", "number", "symbol", "ime_switch")
                 .map { rule.onNodeWithTag("handwriting-key:$it").fetchSemanticsNode().boundsInRoot }
             val canvas = rule.onNodeWithTag("handwriting-canvas").fetchSemanticsNode().boundsInRoot
-            keys.forEach { assertEquals((h.value - 8f) * .15f, it.height, 1f); assertFalse(it.overlaps(canvas)) }
+            keys.forEach { assertEquals((h.value - 8f) / 5f, it.height, 1f); assertFalse(it.overlaps(canvas)) }
             save("handwriting-panel", "handwriting-compact-${h.value.toInt()}.png")
             for (label in listOf("!@#", "123", "，", "。")) {
                 val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
@@ -48,7 +48,7 @@ class ReportedLayoutsTest {
                     androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
                 assertTrue("$label at $h must fit: ${layouts.map { "size=${it.size},paragraph=${it.multiParagraph.width}x${it.multiParagraph.height},font=${it.layoutInput.style.fontSize},line=${it.layoutInput.style.lineHeight}" }}", layouts.all { !it.didOverflowHeight && (0 until it.lineCount).all { line -> it.getLineRight(line) - it.getLineLeft(line) <= it.size.width + 1f } })
             }
-            assertEquals((h.value - 8f) * .85f, canvas.height, 1f)
+            assertEquals((h.value - 8f) * 4f / 5f, canvas.height, 1f)
             assertEquals(keys[3].bottom, keys[4].bottom, 1f)
             save("handwriting-panel", "handwriting-compact-${h.value.toInt()}.png")
         }
@@ -84,9 +84,11 @@ class ReportedLayoutsTest {
         try {
             prefs.edit().putStringSet(com.kingzcheung.xime.settings.LanguagePreferences.KEY, setOf("zh", "ja", "en")).commit()
             InputModes.saveLanguageOrder(context, listOf("zh", "ja", "en"))
+            var currentSchema by mutableStateOf("rime_ice")
             rule.setContent { MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme()) {
                 SchemaListView(listOf(SchemaInfo("rime_ice", "中文26键", "", "", ""), SchemaInfo("t9_pinyin", "中文九键", "", "", "")),
-                    "rime_ice", Color(0xFF191D25), Color(0xFFB1C9F5), Color.White, Color(0xFF303540), {},
+                    currentSchema, Color(0xFF191D25), Color(0xFFB1C9F5), Color.White, Color(0xFF303540),
+                    { currentSchema = it },
                     modifier = Modifier.size(360.dp, 260.dp).testTag("modes-preview"))
             } }
             save("modes-preview", "chinese-mode-order.png")

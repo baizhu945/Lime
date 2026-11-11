@@ -4,6 +4,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PinyinEditBufferTest {
+    @Test fun t9AutomaticSeparatorDeletionDoesNotDeleteDigit() {
+        assertEquals("nihao" to 2, t9DeleteAutomaticSeparator("ni'hao", 3, "64426"))
+        assertNull(t9DeleteAutomaticSeparator("ni'hao", 2, "64426"))
+        assertNull(t9DeleteAutomaticSeparator("ni'hao", 3, "64'426"))
+        assertNull(t9DeleteAutomaticSeparator("ni'hao", 0, "64426"))
+    }
     @Test fun limitsEditingToPhoneticChineseModes() {
         listOf("rime_ice", "t9_pinyin", "pinyin_14jian", "double_pinyin_flypy").forEach { assertTrue(PinyinEditBuffer.supports(it)) }
         listOf("japanese", "japanese_kana", "wubi86", "english").forEach { assertFalse(PinyinEditBuffer.supports(it)) }
@@ -27,6 +33,16 @@ class PinyinEditBufferTest {
         assertEquals("nih", PinyinEditDisplay("nih", "ni'hao").text)
         assertEquals("nihk", PinyinEditDisplay("nihk", "ni'hao").text)
         assertEquals("ni'426", PinyinEditBuffer.normalizedT9("ni 426"))
+    }
+    @Test fun nineKeyDeleteKeepsDigitCaretAndUsesNewAmbiguousReading() {
+        val before = "nihao"
+        val caret = 2
+        assertEquals(2, codeKeysBefore(before, caret))
+        val remainingDigits = "64426".removeRange(caret - 1, caret)
+        assertEquals("6426", remainingDigits)
+        val display = PinyinEditDisplay(remainingDigits, "niao", isT9 = true)
+        assertEquals("niao", display.text)
+        assertEquals(1, display.displayOffset(caret - 1))
     }
     @Test fun nineKeyDigitsShowEngineReadingWithReversibleCaretOffsets() {
         val display = PinyinEditDisplay("ni'426", "ni'hao", true)

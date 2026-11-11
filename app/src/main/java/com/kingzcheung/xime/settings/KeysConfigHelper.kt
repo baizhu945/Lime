@@ -276,8 +276,13 @@ object KeysConfigHelper {
         CustomKeyboardLayouts.find(layout.id)?.typingRows() ?: when {
             layout.kind == LayoutKind.MERGED || layout.kind == LayoutKind.ZHUYIN -> _mergedRows[layout.id].orEmpty()
             // 有自己排列的字母键盘（西班牙语多一个 ñ）按它自己的行画。
-            layout.kind == LayoutKind.ALPHABETIC -> _mergedRows[layout.id]
-                ?: if (language == InputLanguage.ENGLISH) _enRowsBase else _zhRowsBase
+            // 配置里的字母 section 含 shift/delete/?123 等控制键；预览必须先
+            // 去掉这些多字符动作，否则控制行会被当成超宽字母行拉长整张缩略图。
+            layout.kind == LayoutKind.ALPHABETIC -> {
+                val source = _mergedRows[layout.id] ?: if (language == InputLanguage.ENGLISH) _enRowsBase else _zhRowsBase
+                val letters = source.map { row -> row.filter { it.length == 1 } }.filter { it.isNotEmpty() }
+                if (com.kingzcheung.xime.ui.keyboard.letterKeyboardFrame(letters) != null) letters else source
+            }
             else -> emptyList()
         }
     

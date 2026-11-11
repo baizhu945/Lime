@@ -24,6 +24,10 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -42,7 +46,40 @@ data class ClipboardItem(
     val consumed: Boolean = false
 )
 
-class ClipboardManager private constructor(private val context: Context) {
+class ClipboardManager private constructor(
+    private val context: Context,
+    private val database: ClipboardDatabase,
+    val images: ClipboardImages,
+    private val groups: ClipboardGroupStore,
+    private val sharedLifetime: Boolean
+) {
+    /**
+     * A scoped singleton using explicit storage. Does not own [database] or [images].
+     * Close its manager before closing those dependencies; discard the provider after close.
+     */
+    class Provider private constructor(
+        private val context: Context,
+        private val database: ClipboardDatabase,
+        private val images: ClipboardImages,
+        private val groups: ClipboardGroupStore,
+        private val sharedLifetime: Boolean
+    ) {
+        constructor(context: Context, database: ClipboardDatabase, images: ClipboardImages) :
+            this(context.applicationContext, database, images, ClipboardGroupStore.create(context), false)
+
+        private val manager by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+            ClipboardManager(context, database, images, groups, sharedLifetime)
+        }
+
+        fun getInstance(): ClipboardManager = manager
+
+        internal companion object {
+            fun shared(context: Context): Provider = Provider(
+                context.applicationContext, ClipboardDatabase.getInstance(context),
+                ClipboardImages.getInstance(context), ClipboardGroupStore.getInstance(context), true
+            )
+        }
+    }
 
     companion object {
         private const val TAG = "ClipboardManager"
@@ -74,12 +111,13 @@ class ClipboardManager private constructor(private val context: Context) {
             code.isNotEmpty() && textBeforeCursor != null && textBeforeCursor.endsWith(code)
 
         @Volatile
-        private var instance: ClipboardManager? = null
+        private var provider: Provider? = null
 
         fun getInstance(context: Context): ClipboardManager {
-            return instance ?: synchronized(this) {
-                instance ?: ClipboardManager(context.applicationContext).also { instance = it }
+            val current = provider ?: synchronized(this) {
+                provider ?: Provider.shared(context).also { provider = it }
             }
+            return current.getInstance()
         }
     }
 
@@ -87,7 +125,8 @@ class ClipboardManager private constructor(private val context: Context) {
     private var lastSmsClipTimestamp = -1L
     /** Clips first read while private; reading them again later (another field, incognito off) never saves them. */
     private val privateClips = PrivateClipMemory()
-    val images = ClipboardImages.getInstance(context)
+    private val handler = Handler(Looper.getMainLooper())
+    @Volatile private var closed = false
 
     private val clipboardListener = AndroidClipboardManager.OnPrimaryClipChangedListener {
         readClipboard()
@@ -111,7 +150,7 @@ class ClipboardManager private constructor(private val context: Context) {
     private fun noticeIncognitoCopy() {
         if (incognitoCopyNoticed) return
         incognitoCopyNoticed = true
-        Handler(Looper.getMainLooper()).post {
+        handler.post {
             runCatching {
                 android.widget.Toast.makeText(context, INCOGNITO_COPY_NOTICE, android.widget.Toast.LENGTH_LONG).show()
             }
@@ -119,6 +158,7 @@ class ClipboardManager private constructor(private val context: Context) {
     }
 
     private fun readClipboard(retries: Int = 3) {
+        if (closed) return
         try {
             val clipData = androidClipboardManager.primaryClip
             if (clipData != null && clipData.itemCount > 0) {
@@ -174,7 +214,6 @@ class ClipboardManager private constructor(private val context: Context) {
                             expireSmsCode(timestamp)
                         } else if (lastSmsClipTimestamp != timestamp) {
                             lastSmsClipTimestamp = timestamp
-                            val handler = Handler(Looper.getMainLooper())
                             val now = System.currentTimeMillis()
                             if (smsCodeSuggested(timestamp, now)) {
                                 _verificationCode.value = ClipboardItem(text = text, timestamp = timestamp)
@@ -191,7 +230,7 @@ class ClipboardManager private constructor(private val context: Context) {
                 }
             }
             if (retries > 0) {
-                Handler(Looper.getMainLooper()).postDelayed({ readClipboard(retries - 1) }, 100L)
+                handler.postDelayed({ readClipboard(retries - 1) }, 100L)
             } else {
                 Log.w(TAG, "Failed to read clipboard after all retries")
             }
@@ -222,7 +261,6 @@ class ClipboardManager private constructor(private val context: Context) {
         }.onFailure { Log.w(TAG, "Could not clear expired SMS code", it) }
     }
 
-    private val database = ClipboardDatabase.getInstance(context)
     private val dao = database.clipboardDao()
     private val scope = ClipboardDatabase.scope()
     private val clipboardPinsReady = CompletableDeferred<Unit>()
@@ -328,7 +366,6 @@ class ClipboardManager private constructor(private val context: Context) {
             }
             clip.group?.let { joins.getOrPut(it) { mutableListOf() }.add("text:${row.id}") }
         }
-        val groups = ClipboardGroupStore.getInstance(context)
         for ((name, keys) in joins) {
             val id = groups.idForName(name) ?: continue
             // A record already in a group stays where the user put it.
@@ -522,7 +559,25 @@ class ClipboardManager private constructor(private val context: Context) {
     }
 
     fun release() {
-        // Singleton — no cleanup needed.
+        // Shared by the IME/UI — releasing a consumer must not close the manager.
+    }
+
+    /**
+     * Detaches and joins this provider's work, but never closes supplied storage.
+     * Application singletons retain their process lifetime. Do not race close with API calls.
+     */
+    suspend fun close() {
+        if (sharedLifetime) return
+        withContext(NonCancellable) {
+            withContext(Dispatchers.Main.immediate) {
+                closed = true
+                androidClipboardManager.removePrimaryClipChangedListener(clipboardListener)
+                com.kingzcheung.xime.settings.SettingsPreferences.getPrefsPublic(context)
+                    .unregisterOnSharedPreferenceChangeListener(incognitoSwitchListener)
+                handler.removeCallbacksAndMessages(null)
+            }
+            scope.coroutineContext[Job]!!.cancelAndJoin()
+        }
     }
 
     fun addItem(text: String, fromDevice: Boolean = false) {
@@ -649,7 +704,7 @@ class ClipboardManager private constructor(private val context: Context) {
             // Text already saved is fixed in place and needs no room.
             if (dao.findSameText(text) == null && !hasRoomFor(text, key)) return@launch
             val id = dao.addPinned(text, code.trim(), System.currentTimeMillis(), key)
-            groupId?.let { ClipboardGroupStore.getInstance(context).assign(setOf("text:$id"), it) }
+            groupId?.let { groups.assign(setOf("text:$id"), it) }
         }
     }
 

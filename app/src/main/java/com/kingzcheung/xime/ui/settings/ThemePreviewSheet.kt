@@ -288,11 +288,15 @@ internal fun ThemeKeyboardPreview(
     val accent = if (isDark) theme.accentDark else theme.accentLight
 
     val kbColors = KeysConfigHelper.getKeyboardColors()
-    val longToColor: (Long) -> Color = { if (it > 0xFFFFFF) Color(it) else Color(0xFF000000 or it) }
-    val specialKeyColor = com.kingzcheung.xime.ui.theme.resolvedSpecialKeyColor(theme, isDark,
-        (if (isDark) kbColors.specialKeyBgColorDark else kbColors.specialKeyBgColor)?.let(longToColor))
+    val longToColor: (Long) -> Color = {
+        if (it > 0xFFFFFF) Color(it.toInt()) else Color((0xFF000000 or it).toInt())
+    }
+    // The image editor passes an unregistered temporary theme for its background;
+    // all key colors must instead come from the same registered base theme.
+    val colorPalette = com.kingzcheung.xime.ui.theme.resolveKeyboardPalette(colorThemeId, isDark)
+    val specialKeyColor = colorPalette.function
     val enterKeyColor = KeyboardThemes.getEnterKeyColor(colorThemeId, isDark)
-    val specialTextColor = if (isDark) Color.White else KeyboardThemes.getSpecialKeyTextColor(colorThemeId, false)
+    val specialTextColor = com.kingzcheung.xime.ui.theme.resolvedSpecialKeyTextColor(colorThemeId, isDark)
     val textColor = KeyboardThemes.getKeyTextColorOverride(colorThemeId, isDark)
         ?: if (isDark) longToColor(kbColors.keyTextColorDark) else longToColor(kbColors.keyTextColor)
     val keyColor = KeyboardThemes.getKeyBgColorOverride(colorThemeId, isDark)
@@ -309,6 +313,8 @@ internal fun ThemeKeyboardPreview(
 
     CompositionLocalProvider(
         LocalKeyCornerRadius provides cornerRadius,
+        com.kingzcheung.xime.ui.theme.LocalKeyboardPalette provides
+            colorPalette.copy(key = keyColor, function = specialKeyColor),
     ) {
         Box(
             modifier = modifier
@@ -519,7 +525,8 @@ private fun RowScope.PreviewKey(
             .fillMaxWidth()
             .then(shadowModifier)
             .clip(RoundedCornerShape(LocalKeyCornerRadius.current))
-            .background(frostedKeyColor(color, textColor, glass)),
+            .background(frostedKeyColor(color, textColor, glass,
+                opacityScale = com.kingzcheung.xime.ui.keyboard.glassFunctionKeyScale(color))),
         contentAlignment = Alignment.Center,
     ) {
         if (icon != null) {

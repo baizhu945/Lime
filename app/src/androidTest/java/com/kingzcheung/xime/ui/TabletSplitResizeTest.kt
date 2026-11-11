@@ -36,6 +36,7 @@ import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
+import kotlin.math.roundToInt
 
 class TabletSplitResizeTest {
     @get:Rule val rule = createComposeRule()
@@ -153,9 +154,19 @@ class TabletSplitResizeTest {
         rule.onNodeWithTag("keyboard-resize-position-handle").assertDoesNotExist()
         assertTrue(panel.top >= root.top + 24f)
         assertTrue(panel.bottom <= floating.top)
-        assertTrue(floating.bottom < split.top)
+        assertEquals(floating.top, split.top, 1f)
+        assertEquals(floating.bottom, split.bottom, 1f)
+        assertTrue(floating.right < split.left)
         assertTrue(split.bottom <= root.bottom)
-        for (label in listOf("分体", "悬浮", "0%")) {
+        listOf(floating, split).forEach { button ->
+            assertTrue("Compact action retains a real 30px target: $button", button.width >= 30f && button.height >= 30f)
+            assertTrue(button.left >= root.left && button.right <= root.right)
+        }
+        rule.onNodeWithTag("keyboard-resize-floating-button", useUnmergedTree = true).assertContentDescriptionEquals("悬浮键盘")
+        rule.onNodeWithTag("keyboard-resize-split-button", useUnmergedTree = true).assertContentDescriptionEquals("分体键盘")
+        rule.onAllNodesWithText("分体", useUnmergedTree = true).assertCountEquals(0)
+        rule.onAllNodesWithText("悬浮", useUnmergedTree = true).assertCountEquals(0)
+        for (label in listOf("透明度 0%")) {
             val layout = textLayout(label)
             val details = "$label: size=${layout.size}, paragraph=${layout.multiParagraph.width}x${layout.multiParagraph.height}, " +
                 "width=${layout.didOverflowWidth}, height=${layout.didOverflowHeight}, lines=${layout.lineCount}, " +
@@ -163,10 +174,9 @@ class TabletSplitResizeTest {
                 "fontScale=${layout.layoutInput.density.fontScale}, constraints=${layout.layoutInput.constraints}, style=${layout.layoutInput.style}"
             assertFalse(details, layout.hasVisualOverflow)
             assertEquals(details, label.length, layout.getLineEnd(0))
-            if (label.length == 2) {
-                val twoEmsPx = with(layout.layoutInput.density) { layout.layoutInput.style.fontSize.toPx() } * 2f
-                assertTrue("Two glyphs need $twoEmsPx px; $details", layout.layoutInput.constraints.maxWidth >= twoEmsPx)
-            }
+            assertTrue("Complete opacity label retains its readable minimum; $details", layout.layoutInput.style.fontSize.value >= 16f)
+            assertTrue("Every glyph must fit the allocated label width; $details",
+                layout.getLineLeft(0) >= 0f && layout.getLineRight(0) <= layout.layoutInput.constraints.maxWidth)
         }
         save("resize-narrow-split-controls", "resize-test-root")
         rule.onNodeWithTag("keyboard-resize-split-button", useUnmergedTree = true).performClick()
@@ -176,17 +186,18 @@ class TabletSplitResizeTest {
     @Test fun fixedResizeUsesExplicitHandlesAndUpdatesBeforeRelease() {
         val heights = mutableListOf<Int>()
         val gaps = mutableListOf<Int>()
-        setResize(heights = heights, gaps = gaps)
-        rule.onNodeWithTag("keyboard-resize-frame", useUnmergedTree = true).performTouchInput {
-            down(Offset(40f, 45f)); moveBy(Offset(0f, -40f), 80)
+        val rect = setResize(heights = heights, gaps = gaps)
+        val root = rule.onNodeWithTag("resize-test-root", useUnmergedTree = true)
+        root.performTouchInput {
+            down(Offset(rect.value.centerX, rect.value.bottom - 2f)); moveBy(Offset(0f, -40f), 80)
         }
         rule.runOnIdle { assertTrue("bottom gap must preview before pointer up", gaps.last() > 0) }
-        rule.onNodeWithTag("keyboard-resize-frame", useUnmergedTree = true).performTouchInput { up() }
-        rule.onNodeWithTag("keyboard-resize-frame", useUnmergedTree = true).performTouchInput {
-            down(Offset(width / 2f, 4f)); moveBy(Offset(0f, -40f), 80)
+        root.performTouchInput { up() }
+        root.performTouchInput {
+            down(Offset(rect.value.centerX, rect.value.top + 2f)); moveBy(Offset(0f, -40f), 80)
         }
         rule.runOnIdle { assertTrue("height must preview before pointer up", heights.last() > 240) }
-        rule.onNodeWithTag("keyboard-resize-frame", useUnmergedTree = true).performTouchInput { up() }
+        root.performTouchInput { up() }
     }
 
     @Test fun floatingPositionHandleMovesContinuouslyWithoutChangingHeight() {
@@ -194,77 +205,88 @@ class TabletSplitResizeTest {
         val gaps = mutableListOf<Int>()
         val positions = mutableListOf<Offset>()
         var ends = 0
-        setResize(true, heights, gaps, { x, y -> positions.add(Offset(x, y)) }, { ends++ })
-        rule.onNodeWithTag("keyboard-resize-frame", useUnmergedTree = true).performTouchInput {
-            down(Offset(40f, 45f)); moveBy(Offset(40f, -30f), 80)
-        }
+        val rect = setResize(true, heights, gaps, { x, y -> positions.add(Offset(x, y)) }, { ends++ })
+        val original = rect.value
+        val handle = rule.onNodeWithTag("keyboard-resize-move-bar", useUnmergedTree = true)
+        handle.performTouchInput { down(center); moveBy(Offset(40f, -30f), 80) }
         rule.runOnIdle {
-            assertTrue(positions.isNotEmpty()); assertTrue(positions.last().x > 0); assertTrue(positions.last().y > 0)
+            assertTrue("A real draft position must be emitted", positions.isNotEmpty())
+            assertTrue(positions.last().x > 0); assertTrue(positions.last().y > 0)
+            assertEquals(original.width, rect.value.width, 0f)
+            assertEquals(original.height, rect.value.height, 0f)
             assertEquals(0, ends); assertTrue(gaps.isEmpty()); assertTrue(heights.isEmpty())
         }
-        rule.onNodeWithTag("keyboard-resize-frame", useUnmergedTree = true).performTouchInput { up() }
+        handle.performTouchInput { up() }
         rule.runOnIdle { assertEquals(1, ends) }
     }
 
     @Test fun repeatedMovesFollowRealOverlayGeometryBeforePointerUp() {
-        val gap = mutableIntStateOf(0)
-        val height = mutableIntStateOf(240)
-        rule.setContent {
-            CompositionLocalProvider(LocalDensity provides Density(1f)) {
-                MaterialTheme {
-                    Box(Modifier.size(360.dp, 600.dp).testTag("moving-resize-root")) {
-                        KeyboardResizeOverlay(240, 240, 0, false,
-                            onHeightChange = { height.intValue = it },
-                            onBottomPaddingChange = { gap.intValue = it }, onOpacityChange = {}, onReset = {},
-                            onConfirm = { _, _, _, _ -> }, onCancel = {},
-                            modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter)
-                                .offset(y = (-gap.intValue).dp).height(height.intValue.dp))
-                    }
-                }
-            }
-        }
-        val handle = rule.onNodeWithTag("keyboard-resize-frame", useUnmergedTree = true)
-        val initial = handle.fetchSemanticsNode().boundsInRoot
-        val root = rule.onNodeWithTag("moving-resize-root", useUnmergedTree = true)
-        val origin = root.fetchSemanticsNode().boundsInRoot.topLeft
-        root.performTouchInput { down(initial.topLeft + Offset(40f, 40f) - origin); moveBy(Offset(0f, -35f), 80) }
+        val rect = setResize(heights = mutableListOf(), gaps = mutableListOf())
+        val initial = rect.value
+        val card = rule.onNodeWithTag("resize-preview-card", useUnmergedTree = true)
+        val initialBounds = card.fetchSemanticsNode().boundsInRoot
+        val root = rule.onNodeWithTag("resize-test-root", useUnmergedTree = true)
+        root.performTouchInput { down(Offset(initial.centerX, initial.bottom - 2f)); moveBy(Offset(0f, -35f), 80) }
         rule.waitForIdle()
-        val first = handle.fetchSemanticsNode().boundsInRoot
-        assertTrue("position must change during the drag", first.top < initial.top)
+        val first = card.fetchSemanticsNode().boundsInRoot
+        assertTrue("position must change during the drag", first.top < initialBounds.top)
         root.performTouchInput { moveBy(Offset(0f, -20f), 80) }
         rule.waitForIdle()
-        val second = handle.fetchSemanticsNode().boundsInRoot
+        val second = card.fetchSemanticsNode().boundsInRoot
         assertEquals("moving coordinate space must not double or discard drag deltas", 20f, first.top - second.top, 2f)
         root.performTouchInput { moveBy(Offset(0f, -10f), 80) }
         rule.waitForIdle()
-        val third = handle.fetchSemanticsNode().boundsInRoot
+        val third = card.fetchSemanticsNode().boundsInRoot
         assertEquals(10f, second.top - third.top, 2f)
         root.performTouchInput { up() }
-        val heightHandle = rule.onNodeWithTag("keyboard-resize-frame", useUnmergedTree = true)
-        val beforeResize = heightHandle.fetchSemanticsNode().boundsInRoot
-        root.performTouchInput { down(beforeResize.topLeft + Offset(beforeResize.width / 2, 4f) - origin); moveBy(Offset(0f, -35f), 80) }
+        val beforeResize = rect.value
+        val beforeResizeBounds = card.fetchSemanticsNode().boundsInRoot
+        root.performTouchInput { down(Offset(beforeResize.centerX, beforeResize.top + 2f)); moveBy(Offset(0f, -35f), 80) }
         rule.waitForIdle()
-        val resized = heightHandle.fetchSemanticsNode().boundsInRoot
-        assertTrue(resized.top < beforeResize.top)
+        val resized = card.fetchSemanticsNode().boundsInRoot
+        assertTrue(resized.top < beforeResizeBounds.top)
         root.performTouchInput { moveBy(Offset(0f, -20f), 80) }
         rule.waitForIdle()
-        assertEquals(20f, resized.top - heightHandle.fetchSemanticsNode().boundsInRoot.top, 2f)
+        assertEquals(20f, resized.top - card.fetchSemanticsNode().boundsInRoot.top, 2f)
         root.performTouchInput { up() }
     }
 
     private fun setResize(floating: Boolean = false, heights: MutableList<Int>, gaps: MutableList<Int>,
-        onMove: ((Float, Float) -> Unit)? = null, onEnd: (() -> Unit)? = null) {
+        onMove: ((Float, Float) -> Unit)? = null, onEnd: (() -> Unit)? = null): MutableState<ResizeRect> {
+        val bounds = ResizeRect(0f, 0f, 360f, 600f)
+        val initial = if (floating) ResizeRect(40f, 260f, 320f, 500f + FLOATING_DRAG_BAR_HEIGHT_DP)
+            else fixedKeyboardRect(360f, 600f, 240f, 0f, 0f)
+        val rect = mutableStateOf(initial)
+        val padding = mutableIntStateOf(0)
+        var contentHeight = 240
         rule.setContent {
-            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+            CompositionLocalProvider(LocalDensity provides Density(1f), LocalContext provides context,
+                LocalKeyboardResizePreviewState provides KeyboardResizePreviewState(
+                    rect = rect.value, initialRect = initial, bounds = bounds,
+                    bottomPaddingDp = padding.intValue,
+                    onRectChange = { next ->
+                        rect.value = next
+                        val height = (next.height - if (floating) FLOATING_DRAG_BAR_HEIGHT_DP else padding.intValue).roundToInt()
+                        if (height != contentHeight) { contentHeight = height; heights.add(height) }
+                        if (floating) onMove?.invoke(next.left - initial.left, initial.top - next.top)
+                    },
+                    onBottomPaddingChange = { padding.intValue = it; gaps.add(it) },
+                    onDragEnd = { onEnd?.invoke() },
+                )) {
                 MaterialTheme {
-                    KeyboardResizeOverlay(240, 240, 0, floating,
-                        onHeightChange = { heights.add(it) }, onBottomPaddingChange = { gaps.add(it) },
-                        onOpacityChange = {}, onReset = {}, onConfirm = { _, _, _, _ -> }, onCancel = {},
-                        modifier = Modifier.size(360.dp, 300.dp).testTag("resize-test-root"),
-                        onPositionDrag = onMove, onPositionDragEnd = onEnd)
+                    Box(Modifier.size(360.dp, 600.dp).testTag("resize-test-root")) {
+                        Box(Modifier.offset(x = rect.value.left.dp, y = rect.value.top.dp)
+                            .size(rect.value.width.dp, rect.value.height.dp)
+                            .background(MaterialTheme.colorScheme.surface).testTag("resize-preview-card"))
+                        KeyboardResizeOverlay(240, 240, 0, floating,
+                            onHeightChange = { heights.add(it) }, onBottomPaddingChange = { gaps.add(it) },
+                            onOpacityChange = {}, onReset = {}, onConfirm = { _, _, _, _ -> }, onCancel = {},
+                            modifier = Modifier.fillMaxSize())
+                    }
                 }
             }
         }
+        return rect
     }
     private fun textLayout(text: String, ignoreCase: Boolean = false): TextLayoutResult {
         val results = mutableListOf<TextLayoutResult>()

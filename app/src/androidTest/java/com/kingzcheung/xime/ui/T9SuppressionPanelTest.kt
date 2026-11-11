@@ -42,9 +42,9 @@ class T9SuppressionPanelTest {
             assertTrue(engine.forgetCandidateAtRevision(0, revision, global = true) != 0)
             rule.setContent { MaterialTheme { Surface { T9SuppressionPanel() } } }
             rule.waitUntil(10_000) {
-                rule.onAllNodes(androidx.compose.ui.test.hasText("暂无屏蔽的候选")).fetchSemanticsNodes().isNotEmpty()
+                rule.onAllNodes(androidx.compose.ui.test.hasText("没有删掉的候选")).fetchSemanticsNodes().isNotEmpty()
             }
-            rule.onNodeWithText("暂无屏蔽的候选").assertIsDisplayed()
+            rule.onNodeWithText("没有删掉的候选").assertIsDisplayed()
             instrumentation.uiAutomation.takeScreenshot().let { bitmap ->
                 File(context.getExternalFilesDir(null), "t9-feedback-panel.png").outputStream().use {
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)

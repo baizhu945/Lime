@@ -40,7 +40,9 @@ fun KeyboardLayoutScreen(
         FileLogger.d("XimeKeyboard", "render keyboard: $keyboardState, ui ascii=${uiState.isAsciiMode}")
     }
     val kbColors = KeysConfigHelper.getKeyboardColors()
-    val longToColor: (Long) -> Color = { if (it > 0xFFFFFF) Color(it) else Color(0xFF000000 or it) }
+    val longToColor: (Long) -> Color = {
+        if (it > 0xFFFFFF) Color(it.toInt()) else Color((0xFF000000 or it).toInt())
+    }
     val themeScheme = KeyboardThemes.getRenderingScheme(uiState.themeId)
     val themeBgColor =
         themeScheme.keyboardBackground?.let { resolveSolidColor(it, uiState.isDarkTheme) }
@@ -58,8 +60,7 @@ fun KeyboardLayoutScreen(
         themeScheme, uiState.isDarkTheme,
         (if (uiState.isDarkTheme) kbColors.specialKeyBgColorDark else kbColors.specialKeyBgColor)?.let(longToColor)
     )
-    val specialKeyTextColor = if (uiState.isDarkTheme) Color.White
-    else KeyboardThemes.getSpecialKeyTextColor(uiState.themeId, false)
+    val specialKeyTextColor = com.kingzcheung.xime.ui.theme.resolvedSpecialKeyTextColor(uiState.themeId, uiState.isDarkTheme)
     val kbShadow = KeysConfigHelper.getKeyboardShadow()
     val kbKey = KeysConfigHelper.getKeyboardKeyConfig()
     val accentColor = KeyboardThemes.getAccentColor(uiState.themeId, uiState.isDarkTheme)

@@ -53,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.painter.Painter
@@ -146,6 +147,10 @@ fun LanguageKeyButton(
 ) {
     val actions = LocalKeyboardInputActions.current
     val context = LocalContext.current
+    // Default arguments can leave these Unspecified; never feed that sentinel into
+    // key-feedback color math, which expects a real sRGB value.
+    val effectiveTextColor = if (textColor.isSpecified) textColor else MaterialTheme.colorScheme.onSurface
+    val effectiveIconColor = if (iconColor.isSpecified) iconColor else effectiveTextColor
     val schemas by rememberUpdatedState(com.kingzcheung.xime.settings.InputModes.languageChoices(
         actions.schemas, actions.currentInputModeId,
         com.kingzcheung.xime.settings.InputModes.rememberedModes(context, actions.schemas),
@@ -239,7 +244,7 @@ fun LanguageKeyButton(
     }
     Box(
         modifier.fillMaxWidth().fillMaxHeight()
-            .onGloballyPositioned {
+                        .onGloballyPositioned {
                 keyWindowBounds = it.boundsInWindow()
                 keyScreenPosition = it.positionOnScreen()
             }
@@ -249,11 +254,15 @@ fun LanguageKeyButton(
                     if (down.isConsumed) return@awaitEachGesture
                     var chosenId: String? = null
                     var keepOpen = false
+                    var moved = false
                     // 按在语言键上就不让键盘的滑动移光标接手，菜单弹出前后都一样。
                     suppressCursorMove.value = true
                     val menuJob = if (hasMenu) scope.launch {
                         delay((menuHoldSeconds * 1000).roundToLong())
                         menuSchemas = schemas
+                        // The current mode is shown through the card's selectedId fallback;
+                        // keeping this null means releasing without moving leaves the menu
+                        // open instead of committing a choice.
                         selectedId = null
                         viewport = Rect.Zero
                         pointer = Offset.Unspecified
@@ -269,8 +278,10 @@ fun LanguageKeyButton(
                             if (change.isConsumed) break
                             if (menuOpen) {
                                 change.consume()
+                                if (change.position != down.position) moved = true
                                 pointer = keyScreenPosition + change.position
-                                selectedId = languageMenuSelection(menuSchemas, pointer, viewport, scroll.value, rowHeight, selectedId)
+                                selectedId = languageMenuSelection(menuSchemas, pointer, viewport, scroll.value, rowHeight,
+                                    if (moved) selectedId ?: actions.currentInputModeId else null)
                                 if (!change.pressed) {
                                     chosenId = selectedId
                                     // 菜单弹出后还没滑进列表就松手：菜单留着，再点一项选择（用户 10-24 定）。
@@ -282,7 +293,13 @@ fun LanguageKeyButton(
                                 // 只有滑出键外才取消。原来超过 touchSlop 就取消，平板上手指一滚就弹不出列表。
                                 val p = change.position
                                 val inside = p.x >= 0f && p.y >= 0f && p.x <= size.width && p.y <= size.height
-                                if (!change.pressed || !inside) break
+                                if (!inside) {
+                                    // The language key owns cancellation: consume so the
+                                    // inner swipeable button cannot turn it into a tap.
+                                    change.consume()
+                                    break
+                                }
+                                if (!change.pressed) break
                             }
                         }
                     } finally {
@@ -301,7 +318,7 @@ fun LanguageKeyButton(
             text = languageLabel ?: "语言切换",
             icon = if (languageLabel == null) rememberVectorPainter(Icons.Default.Language) else null, onClick = onClick,
             backgroundColor = backgroundColor,
-            textColor = if (icon != null) iconColor else textColor,
+            textColor = if (icon != null) effectiveIconColor else effectiveTextColor,
             modifier = Modifier.fillMaxSize().testTag("language-key-control"), layoutMode = ButtonLayout.STANDARD,
             fontSize = fontSize, swipeFontSize = swipeFontSize,
             swipeText = null, swipeDownText = null,
@@ -405,7 +422,10 @@ private fun rememberLanguageMenuBlurAvailable(): Boolean {
 }
 
 /** 语言菜单的底色和文字色。底色取主题键帽色（字母键与功能键之间）；文字不够清楚时向黑/白调，不再退回 Material 白底。 */
-internal data class LanguageMenuColors(val surface: Color, val text: Color, val secondary: Color, val accent: Color)
+internal data class LanguageMenuColors(
+    val surface: Color, val text: Color, val secondary: Color, val accent: Color,
+    val selectedSurface: Color,
+)
 
 /**
  * 不开玻璃或没有实时模糊时菜单不透明，盖住下面按键的字。
@@ -424,8 +444,32 @@ internal fun languageMenuColors(
         val legible = glass.legibleOver(opaque, listOf(opaque to text), GLASS_LABEL_CONTRAST + 0.1f)
         frostedKeyColor(opaque, text, legible).compositeOver(opaque.copy(alpha = legible.normalized().backgroundOpacity))
     } else opaque
-    // 次要文字也不透明（玻璃上淡化的字会透出后面），只向底色靠一点。
-    return LanguageMenuColors(surface, text, lerp(text, opaque, 0.28f), palette?.accent ?: fallbackAccent)
+    val accent = palette?.accent ?: fallbackAccent
+    val pages = listOf(Color.Black, Color.White)
+    val target = GLASS_LABEL_CONTRAST + 0.1f
+    // A selection tint must not erase the main label's contrast over either possible host.
+    val selected = readableMenuBlend(lerp(surface, accent.copy(alpha = 1f), 0.22f), surface) { fill ->
+        pages.all { textContrast(text, fill.compositeOver(it)) >= target }
+    }
+    val seenSurfaces = listOf(surface, selected).flatMap { fill -> pages.map { fill.compositeOver(it) } }
+    // Opaque does not by itself mean readable: constrain the muted caption against the
+    // actual translucent surfaces, keeping as much of its secondary tone as contrast allows.
+    val secondary = readableMenuBlend(lerp(text, opaque, 0.28f), text) { foreground ->
+        seenSurfaces.all { textContrast(foreground, it) >= target }
+    }
+    return LanguageMenuColors(surface, text, secondary, accent, selected)
+}
+
+private fun readableMenuBlend(candidate: Color, fallback: Color, readable: (Color) -> Boolean): Color {
+    if (readable(candidate)) return candidate
+    if (!readable(fallback)) return fallback
+    var low = 0f
+    var high = 1f
+    repeat(12) {
+        val middle = (low + high) / 2f
+        if (readable(lerp(candidate, fallback, middle))) high = middle else low = middle
+    }
+    return lerp(candidate, fallback, high)
 }
 
 @Composable
@@ -447,7 +491,7 @@ internal fun LanguageMenuCard(
     val menuText = colors.text
     val accent = colors.accent
     // 选中行：菜单底向强调色偏一点，再加强调色细边，玻璃开关都一样。
-    val selectedBackground = lerp(colors.surface, accent.copy(alpha = 1f), 0.22f)
+    val selectedBackground = colors.selectedSurface
     Surface(
         shape = CompactMenuStyle.Shape, tonalElevation = 0.dp, shadowElevation = CompactMenuStyle.Elevation,
         color = colors.surface,

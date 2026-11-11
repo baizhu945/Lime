@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.os.ParcelFileDescriptor
 import android.provider.Settings
+import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.activity.ComponentActivity
@@ -33,16 +34,34 @@ class SandboxTypingSmokeTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val prefs = SettingsPreferences.getPrefsPublic(context)
-        val saved = prefs.all.toMap()
+        val saved = listOf("current_schema", "current_schema_dual", "last_input_mode_zh",
+            "floating_mode", "input_text_location").associateWith { prefs.all[it] }
         val previousIme = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
         val engine = RimeEngine.getInstance()
+        var previousSchema = ""
+        var previousAscii = false
+        var previousSavedAscii = false
         lateinit var editor: EditText
+        var imeService: com.kingzcheung.xime.service.XimeInputMethodService? = null
+        var expandedCompactToolbar = false
+        fun findService(view: View): com.kingzcheung.xime.service.XimeInputMethodService? {
+            var candidate: Context? = view.context
+            while (candidate != null) {
+                if (candidate is com.kingzcheung.xime.service.XimeInputMethodService) return candidate
+                candidate = (candidate as? android.content.ContextWrapper)?.baseContext?.takeUnless { it === candidate }
+            }
+            if (view is android.view.ViewGroup) for (i in 0 until view.childCount) findService(view.getChildAt(i))?.let { return it }
+            return null
+        }
         try {
-            val (user, shared) = RimeConfigHelper.initializeRimeDataAsync(context)
-            engine.initialize(user, shared)
-            assertTrue(RimeConfigHelper.ensureDeployment(context))
+            assertTrue(RimeConfigHelper.prepareEngine(context))
             assertTrue(engine.ensureSession())
+            previousSchema = engine.getCurrentSchema()
+            previousAscii = engine.isAsciiMode()
+            previousSavedAscii = engine.getUserConfigBool("var/option/ascii_mode")
             assertTrue(engine.switchSchema("rime_ice"))
+            engine.setOption("ascii_mode", false)
+            engine.setUserConfigBool("var/option/ascii_mode", false)
             SettingsPreferences.setCurrentSchema(context, "rime_ice")
             SettingsPreferences.setFloatingMode(context, false)
             SettingsPreferences.setInputTextLocation(context, SettingsPreferences.INPUT_TEXT_INPUT_BOX)
@@ -57,12 +76,29 @@ class SandboxTypingSmokeTest {
                 (context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
                     .showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
             }
-            rule.waitUntil(60_000) { rule.onAllNodesWithTag("qwerty-key:n").fetchSemanticsNodes().isNotEmpty() }
+            rule.waitUntil(60_000) {
+                imeService = android.view.inspector.WindowInspector.getGlobalWindowViews().firstNotNullOfOrNull(::findService)
+                imeService != null && rule.onAllNodesWithTag("qwerty-key:a", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() ||
+                    imeService?.uiState?.value?.isCompact == true &&
+                    rule.onAllNodesWithTag("hardware-toolbar-keyboard", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            val service = checkNotNull(imeService)
+            if (service.uiState.value.isCompact) {
+                expandedCompactToolbar = true
+                rule.onNodeWithTag("hardware-toolbar-keyboard", useUnmergedTree = true).performClick()
+                rule.waitUntil(15_000) { !service.uiState.value.isCompact }
+                rule.waitUntil(15_000) { rule.onAllNodesWithTag("qwerty-key:a", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+            }
             fun tap(tag: String) {
                 rule.onNodeWithTag(tag).performTouchInput { down(center); up() }
                 rule.waitForIdle()
             }
-            listOf("n", "i", "h", "a", "o").forEach { tap("qwerty-key:$it") }
+            listOf("n", "i", "h", "a", "o").forEach {
+                if (it == "n") {
+                    rule.onNodeWithText("n", ignoreCase = true).performTouchInput { down(center); up() }
+                    rule.waitForIdle()
+                } else tap("qwerty-key:$it")
+            }
             rule.waitUntil(15_000) { engine.getInput().isNotEmpty() }
             screenshot("typed")
             assertEquals("nihao", engine.getInput())
@@ -77,9 +113,18 @@ class SandboxTypingSmokeTest {
             throw t
         } finally {
             runCatching { engine.clearComposition() }
-            prefs.edit().clear().also { edit ->
+            if (expandedCompactToolbar && imeService?.uiState?.value?.isCompact == false) {
+                runCatching { shell("input keyevent KEYCODE_BACK") }
+            }
+            if (previousSchema.isNotEmpty()) {
+                engine.switchSchema(previousSchema)
+                engine.setOption("ascii_mode", previousAscii)
+                engine.setUserConfigBool("var/option/ascii_mode", previousSavedAscii)
+            }
+            prefs.edit().also { edit ->
                 saved.forEach { (k, v) ->
                     when (v) {
+                        null -> edit.remove(k)
                         is String -> edit.putString(k, v)
                         is Int -> edit.putInt(k, v)
                         is Float -> edit.putFloat(k, v)

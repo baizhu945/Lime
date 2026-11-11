@@ -90,6 +90,9 @@ set(LevelDb_LIBRARY leveldb CACHE STRING "" FORCE)
 set(LevelDb_STATIC TRUE CACHE BOOL "" FORCE)
 
 set(ENABLE_TOOLS OFF CACHE BOOL "" FORCE)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/CyimePatches.cmake")
+cyime_apply_patch("${CMAKE_CURRENT_SOURCE_DIR}/librime/deps/marisa-trie"
+  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/MarisaCacheValidation.patch")
 add_subdirectory(librime/deps/marisa-trie)
 target_compile_options(marisa PRIVATE "-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=.")
 

@@ -84,6 +84,7 @@ class ResizeControlsContrastTest {
         val vm = KeyboardViewModel(app)
         var opacity by mutableFloatStateOf(1f)
         var resizing by mutableStateOf(true)
+        lateinit var frameStyle: ResizeFrameStyle
         rule.setContent {
             val config = Configuration(LocalConfiguration.current).apply { screenWidthDp = 400; screenHeightDp = 700 }
             CompositionLocalProvider(LocalContext provides context, LocalConfiguration provides config,
@@ -92,6 +93,7 @@ class ResizeControlsContrastTest {
                     Box(Modifier.size(400.dp, 400.dp).background(Color.White).testTag("floating-opacity-root")) {
                         val controls: (@Composable () -> Unit)? = if (resizing) {
                             {
+                                frameStyle = resizeFrameStyle(LocalConfiguration.current.smallestScreenWidthDp)
                                 KeyboardResizeOverlay(260, 260, 0, true, initialWidthDp = 360,
                                     initialOpacity = opacity, onHeightChange = {}, onBottomPaddingChange = {},
                                     onOpacityChange = { opacity = it }, onReset = {},
@@ -108,17 +110,25 @@ class ResizeControlsContrastTest {
                 }
             }
         }
-        rule.onNodeWithTag("keyboard-opacity-overlay-label").performTouchInput { click() }
-        rule.onNodeWithTag("floating-drag-indicator").assertDoesNotExist()
+        rule.onNodeWithTag("keyboard-resize-frame").assertIsDisplayed()
+        rule.onNodeWithTag("floating-drag-indicator").assertIsDisplayed()
         val root = rule.onNodeWithTag("floating-opacity-root")
         val origin = root.fetchSemanticsNode().boundsInRoot.topLeft
         fun localBounds(tag: String) = rule.onNodeWithTag(tag, useUnmergedTree = true)
             .fetchSemanticsNode().boundsInRoot.translate(-origin.x, -origin.y)
         val card = localBounds("floating-keyboard-card")
         val body = localBounds("keyboard-underlay")
-        val excludedControls = listOf(localBounds("keyboard-resize-opacity-panel"), localBounds("keyboard-opacity-actions"))
-        val opacityButtons = listOf("返回", "完成").map { label ->
-            label to rule.onNodeWithText(label).fetchSemanticsNode().boundsInRoot.translate(-origin.x, -origin.y)
+        // Only actual opaque resize UI is outside the keyboard-card alpha layer.
+        // Density is explicitly 1 here. Edge ink uses the renderer's real style,
+        // not the whole 26dp touch band; all original content regions remain unchanged.
+        val topInk = maxOf(frameStyle.strokeDp, frameStyle.bracketThicknessDp, frameStyle.handleThicknessDp)
+        val bottomInk = maxOf(frameStyle.strokeDp, frameStyle.bracketThicknessDp)
+        val excludedControls = listOf(localBounds("keyboard-resize-opacity-panel"),
+            localBounds("keyboard-resize-actions"), localBounds("keyboard-resize-floating-move-pill"),
+            Rect(card.left, card.top, card.right, card.top + topInk),
+            Rect(card.left, card.bottom - bottomInk, card.right, card.bottom))
+        val opacityButtons = listOf("重置", "悬浮键盘", "分体键盘", "确认").map { label ->
+            label to rule.onNodeWithContentDescription(label).fetchSemanticsNode().boundsInRoot.translate(-origin.x, -origin.y)
         }
         val regions = listOf(
             "toolbar" to Rect(card.left + 24f, card.top + 3f, card.right - 24f, body.top - 2f),
@@ -128,6 +138,10 @@ class ResizeControlsContrastTest {
                 card.right - 24f, card.bottom - 2f),
         )
         val opaque = root.captureToImage().asAndroidBitmap()
+        rule.onNodeWithTag("keyboard-opacity-overlay-label").performTouchInput { click() }
+        rule.onNodeWithTag("keyboard-resize-frame").assertIsDisplayed()
+        rule.onNodeWithTag("keyboard-resize-actions").assertIsDisplayed()
+        rule.onNodeWithTag("keyboard-opacity-actions").assertDoesNotExist()
         rule.onNodeWithTag("keyboard-opacity-slider").performTouchInput {
             swipe(Offset(width * .25f, centerY), Offset(width * .72f, centerY), durationMillis = 250)
         }
@@ -176,13 +190,13 @@ class ResizeControlsContrastTest {
             assertTrue("$name must have actual dark pixels to validate alpha", changedPixels > 100)
             assertEquals("$name must receive exactly one shared opacity in preview", 0, incorrectChannels)
         }
-        rule.onNodeWithText("完成").performClick()
+        rule.onNodeWithContentDescription("确认").performClick()
         rule.onNodeWithTag("floating-drag-indicator").assertIsDisplayed()
         assertEquals("confirmation must retain the card rectangle", card, localBounds("floating-keyboard-card"))
         assertEquals("confirmation must retain the content rectangle", body, localBounds("keyboard-underlay"))
         val confirmed = root.captureToImage().asAndroidBitmap()
         saveBitmap("floating-opacity-confirmed", confirmed)
-        val excludedAfter = excludedControls + localBounds("floating-drag-indicator")
+        val excludedAfter = excludedControls
         for ((name, area) in regions) {
             var incorrectChannels = 0
             for (y in area.top.toInt() until area.bottom.toInt()) for (x in area.left.toInt() until area.right.toInt()) {
@@ -232,7 +246,11 @@ class ResizeControlsContrastTest {
         val before = button.captureToImage().asAndroidBitmap()
         rule.onNodeWithTag("keyboard-opacity-slider").performSemanticsAction(SemanticsActions.SetProgress) { it(0.7f) }
         save("resize-opacity-editing-$width-$height-$floating")
-        rule.onNodeWithText("返回").performClick()
+        rule.onNodeWithTag("keyboard-resize-frame").assertIsDisplayed()
+        rule.onNodeWithTag("keyboard-resize-actions").assertIsDisplayed()
+        rule.onNodeWithTag("keyboard-opacity-actions").assertDoesNotExist()
+        for (label in listOf("重置", "悬浮键盘", "分体键盘", "确认"))
+            rule.onNodeWithContentDescription(label).assertIsDisplayed()
         rule.waitForIdle()
         val after = button.captureToImage().asAndroidBitmap()
         // Save the complete layout before assertions so a failure always has visual evidence.
@@ -271,15 +289,16 @@ class ResizeControlsContrastTest {
         assertEquals(actions.left, opacityPanel.left, 1f)
         assertTrue("tablet action buttons must not stretch across the screen", reset.width <= 140f)
         assertEquals(controls.center.x, opacityPanel.center.x, 1f)
-        // 百分比在滑条右边、同一条中线上（设计图：左「透明度」、中滑轨、右百分比）。
-        assertTrue("opacity percentage must sit right of the slider", opacityLabel.left >= slider.right - 1f &&
-            opacityLabel.right <= opacityPanel.right)
+        // The current control keeps the complete label centered over the slider.
+        assertTrue("opacity label must stay inside the slider", opacityLabel.left >= slider.left - 1f &&
+            opacityLabel.right <= slider.right + 1f && opacityLabel.right <= opacityPanel.right)
+        assertEquals(slider.center.x, opacityLabel.center.x, 1f)
         assertEquals(slider.center.y, opacityLabel.center.y, 1f)
         assertTrue(slider.bottom <= reset.top)
         assertTrue(reset.right < mode.left && mode.right < confirm.left)
         assertEquals(reset.center.y, mode.center.y, 1f)
         val layouts = mutableListOf<TextLayoutResult>()
-        rule.onNodeWithText("70%", useUnmergedTree = true)
+        rule.onNodeWithText("透明度 70%", useUnmergedTree = true)
             .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         val layout = layouts.single()
         assertFalse("opacity label overflow at $width x $height, floating=$floating, font=$font: " +

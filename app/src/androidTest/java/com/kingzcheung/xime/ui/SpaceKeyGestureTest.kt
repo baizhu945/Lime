@@ -30,6 +30,7 @@ class SpaceKeyGestureTest {
     private var voices = 0
     private var voiceEnds = 0
     private var density = 1f
+    private var cursorUnit = 1f
     private val moves = mutableListOf<Int>()
     private val rows = mutableListOf<Int>()
     private val cursorHoldSeconds = mutableStateOf(0.2f)
@@ -38,6 +39,7 @@ class SpaceKeyGestureTest {
         cursor: CursorGestureMode = if (mode == SpaceHoldAction.CURSOR) CursorGestureMode.SPACE else CursorGestureMode.NONE) {
         rule.setContent {
             density = LocalDensity.current.density
+            cursorUnit = rememberCursorUnitPx()
             var cursorActive by remember { mutableStateOf(false) }
             CompositionLocalProvider(
                 LocalKeyboardInputPreferences provides KeyboardInputPreferences(spaceHold = mode, cursorGesture = cursor,
@@ -58,11 +60,11 @@ class SpaceKeyGestureTest {
         setKey(); rule.mainClock.autoAdvance = false
         rule.onNodeWithTag("space").performTouchInput { down(center) }
         rule.mainClock.advanceTimeBy(320L)
-        rule.onNodeWithTag("space").performTouchInput { moveTo(center + Offset(0f, 40f * density)) }
+        rule.onNodeWithTag("space").performTouchInput { moveTo(center + Offset(0f, 40f * cursorUnit)) }
         rule.runOnIdle { assertTrue(rows.isEmpty()) }
-        rule.onNodeWithTag("space").performTouchInput { moveTo(center + Offset(0f, 52f * density)) }
+        rule.onNodeWithTag("space").performTouchInput { moveTo(center + Offset(0f, 52f * cursorUnit)) }
         rule.runOnIdle { assertEquals(listOf(1), rows); assertTrue(moves.isEmpty()); assertEquals(0, spaces) }
-        rule.onNodeWithTag("space").performTouchInput { moveTo(center - Offset(0f, 140f * density)); up() }
+        rule.onNodeWithTag("space").performTouchInput { moveTo(center - Offset(0f, 140f * cursorUnit)); up() }
         rule.runOnIdle { assertEquals(listOf(1, -1), rows); assertEquals(0, spaces) }
     }
 

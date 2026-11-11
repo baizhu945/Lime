@@ -29,9 +29,11 @@ class TabletKeySizingTest {
     @Test fun smallFloatingLayoutWithLargeSystemFontRemainsReadableAndUnclipped() = checkLayout(280, 200, 1.3f, false)
 
     private fun checkLayout(width: Int, height: Int, fontScale: Float, tablet: Boolean) {
+        var gridMetrics: KeyVisualMetrics? = null
         rule.setContent {
             // Physical pixel bounds permit a tablet-sized layout on the dedicated phone emulator.
             CompositionLocalProvider(LocalDensity provides Density(1f, fontScale),
+                LocalKeyboardMetricsProbe provides { gridMetrics = it },
                 LocalKeyboardInputPreferences provides KeyboardInputPreferences(keyTextScale = 1f)) {
                 MaterialTheme {
                     JapaneseKanaKeyboardLayout({}, {}, Color(0xFF2C3036), Color.White, Color(0xFF405F91),
@@ -40,19 +42,28 @@ class TabletKeySizingTest {
             }
         }
         val labels = listOf("変換", "123", "!@#", "あ", "わ")
-        val sizes = labels.map { label ->
+        val sizes = labels.mapIndexed { index, label ->
             val results = mutableListOf<TextLayoutResult>()
             rule.onNodeWithText(label, useUnmergedTree = true)
                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
             val layout = results.single()
             assertFalse("$label overflow at $width x $height: ${layout.size}, width=${layout.didOverflowWidth}, height=${layout.didOverflowHeight}, paragraph=${layout.multiParagraph.width}x${layout.multiParagraph.height}, constraints=${layout.layoutInput.constraints}, style=${layout.layoutInput.style}", layout.hasVisualOverflow)
+            val metrics = requireNotNull(gridMetrics)
+            val sharedScale = KeyboardKeyMetrics.contentScale(metrics.capShortEdge, metrics.capShortEdge)
+            val expected = KeyboardKeyMetrics.labelSizeSp(label, if (index in 1..2) 16f else 18f,
+                layout.layoutInput.constraints.maxWidth.toFloat(), layout.layoutInput.constraints.maxHeight.toFloat(),
+                fontScale, scaleOverride = sharedScale)
+            assertEquals("$label must use the common grid scale and its real fitting bounds", expected,
+                layout.layoutInput.style.fontSize.value, 0.1f)
             layout.layoutInput.style.fontSize.value
         }
-        listOf(sizes[3], sizes[4]).forEach { assertEquals(sizes.first(), it, 0.1f) }
+        val kanaSize = sizes[3]
+        assertEquals(kanaSize, sizes[4], 0.1f)
         assertEquals("Mode labels share a compact size", sizes[1], sizes[2], 0.1f)
-        assertTrue("Mode labels are compact without becoming tiny", sizes[1] in sizes[0] * .8f..sizes[0])
-        if (tablet) assertTrue("tablet labels remain phone sized: $sizes", sizes.first() >= 24f)
-        else assertTrue("phone/floating labels enlarged unexpectedly: $sizes", sizes.first() <= 18f)
+        assertTrue("Conversion label remains readable without clipping", sizes[0] in kanaSize * .8f..kanaSize)
+        assertTrue("Mode labels are compact without becoming tiny", sizes[1] in kanaSize * .8f..kanaSize)
+        if (tablet) assertTrue("tablet labels remain phone sized: $sizes", minOf(sizes.first(), kanaSize) >= 24f)
+        else assertTrue("phone/floating labels enlarged unexpectedly: $sizes", maxOf(sizes.first(), kanaSize) <= 18f)
         val cells = listOf("kana-convert", "kana-number", "kana-symbol", "kana-key:a", "kana-key:wa", "kana-delete", "kana-space", "kana-enter")
             .map { rule.onNodeWithTag(it).fetchSemanticsNode().boundsInRoot }
         cells.forEach { assertEquals(cells.first().width, it.width, 1f); assertEquals(cells.first().height, it.height, 1f) }
