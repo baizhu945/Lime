@@ -161,9 +161,9 @@ class RimeEngine {
     @Volatile
     private var isInitialized = false
     /**
-     * The composition input is published by JNI immediately after process_key, before
-     * candidate preparation. getInput() may read it when the engine lock is busy so a
-     * long candidate page cannot make the key itself look late.
+     * JNI publishes input immediately after process_key, before candidate preparation.
+     * Every other completed mutation also refreshes it under the same engine lock.
+     * Busy getInput() readers must see the latest edit/clear, without waiting for candidates.
      */
     @androidx.annotation.Keep
     @Volatile
@@ -231,15 +231,20 @@ class RimeEngine {
 
     private val candidateRevision = java.util.concurrent.atomic.AtomicLong(1L)
 
+    /** Only called while rimeLock is owned; JNI still publishes keys before expensive candidates. */
+    private fun publishInputSnapshotLocked() {
+        publishedInput = if (isInitialized && nativeHasSession()) nativeGetInput().orEmpty() else ""
+    }
+
     /** A successful lock acquisition starts a mutation, invalidating previously published candidates. */
     private inline fun <T> mutateLocked(block: () -> T): T = locked {
         candidateRevision.incrementAndGet()
-        block()
+        try { block() } finally { publishInputSnapshotLocked() }
     }
 
     private inline fun <T> tryMutating(defaultValue: T, block: () -> T): T = tryLocked(defaultValue) {
         candidateRevision.incrementAndGet()
-        block()
+        try { block() } finally { publishInputSnapshotLocked() }
     }
 
     /**
