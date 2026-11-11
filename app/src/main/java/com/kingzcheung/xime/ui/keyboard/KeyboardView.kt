@@ -990,7 +990,8 @@ fun KeyboardView(
                     }
                 }
                 val candidateQwerty = remember(configVersion, keyboardState, state.inputProfile,
-                    inputPreferences.splitKeyboardEnabled, underlyingPage) {
+                    state.currentSchemaId, state.isVoiceMode, inputPreferences.qwertyCommaKey,
+                    inputPreferences.qwertyPeriodKey, inputPreferences.splitKeyboardEnabled, underlyingPage) {
                     val ascii = keyboardState is KeyboardLayoutState.English
                     val usesQwerty = underlyingPage == KeyboardPage.Main(MainType.FULL) &&
                         (ascii || keyboardState is KeyboardLayoutState.Chinese &&
@@ -999,10 +1000,25 @@ fun KeyboardView(
                                 com.kingzcheung.xime.settings.LayoutKind.MERGED))
                     if (!usesQwerty) null else {
                         val custom = KeysConfigHelper.letterLayout(state.currentSchemaId, ascii)
-                        candidateQwertyGeometry(custom?.typingRows() ?: KeysConfigHelper.getKeyRows(state.currentSchemaId, ascii),
-                            fourteenKey = !ascii && state.inputProfile.layout == com.kingzcheung.xime.settings.InputLayout.MERGED14,
+                        val bindings = { id: String -> KeysConfigHelper.getKeyGesture(id, ascii) }
+                        val configured = resolveTypingConfiguredControlRow(
+                            layout = KeysConfigHelper.getRowsLayout(ascii), profile = state.inputProfile,
+                            customLetters = custom != null, split = inputPreferences.splitKeyboardEnabled,
+                            comma = inputPreferences.qwertyCommaKey, voice = state.isVoiceMode,
+                            bindings = bindings,
+                        )
+                        val rows = configured?.letterRows ?: custom?.typingRows()
+                            ?: KeysConfigHelper.getKeyRows(state.currentSchemaId, ascii)
+                        val fourteenKey = !ascii && state.inputProfile.layout == com.kingzcheung.xime.settings.InputLayout.MERGED14
+                        val footer = configured?.let {
+                            configuredFooterWeights(letterKeyboardBottomRow(rows, fourteenKey),
+                                inputPreferences.qwertyPeriodKey, bindings)
+                        }
+                        candidateQwertyGeometry(rows,
+                            fourteenKey = fourteenKey,
                             custom = custom != null,
-                            split = inputPreferences.splitKeyboardEnabled && supportsSplitKeyboard(state.currentSchemaId, ascii))
+                            split = inputPreferences.splitKeyboardEnabled && supportsSplitKeyboard(state.currentSchemaId, ascii),
+                            configuredFooter = footer)
                     }
                 }
                 CandidatePage(

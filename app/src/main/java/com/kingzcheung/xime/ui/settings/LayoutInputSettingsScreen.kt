@@ -87,10 +87,10 @@ internal fun LayoutInputSettingsContent(category: LayoutInputCategory, onBack: (
                     HorizontalDivider()
                     QwertyStaggerSettings(settings) { settings = it; it.save(context) }
                     HorizontalDivider()
-                    Column(Modifier.settingsSearchAnchor("空格两侧的标点").padding(horizontal = 16.dp, vertical = 12.dp)) {
-                        Text("空格两侧的标点", style = MaterialTheme.typography.titleSmall)
-                        Text("只开句号：原逗号键移到空格右侧，点按句号、滑动逗号。两个都开：滑动输入另一种宽度，" +
-                            "全角时点按全角、半角时点按半角。", style = MaterialTheme.typography.bodySmall,
+                    Column(Modifier.settingsSearchAnchor("底排标点").padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Text("底排标点", style = MaterialTheme.typography.titleSmall)
+                        Text("标准 ?123 底排把句号放在逗号旁，并从 ?123 腾出空间；旧双模式键布局保留原位置。" +
+                            "两个都开时滑动输入另一种宽度，只开一个时滑动输入另一个标点。",  style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
                         SpacePunctuationIllustration(settings.qwertyCommaKey, settings.qwertyPeriodKey)
@@ -99,7 +99,7 @@ internal fun LayoutInputSettingsContent(category: LayoutInputCategory, onBack: (
                         checked = settings.qwertyCommaKey, onCheckedChange = {
                             settings = settings.copy(qwertyCommaKey = it); settings.save(context)
                         })
-                    SettingsToggleItem(Icons.TwoTone.SpaceBar, "空格右侧句号键", "开启后空格让出一个键宽。",
+                    SettingsToggleItem(Icons.TwoTone.SpaceBar, "底排句号键", "标准 ?123 布局中位于逗号旁，缩短 ?123，不挤压空格。",
                         checked = settings.qwertyPeriodKey, onCheckedChange = {
                             settings = settings.copy(qwertyPeriodKey = it); settings.save(context)
                         })

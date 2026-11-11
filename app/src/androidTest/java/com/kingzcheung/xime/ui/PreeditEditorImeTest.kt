@@ -27,6 +27,9 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.text.AnnotatedString
 import android.graphics.Bitmap
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.After
@@ -198,12 +201,51 @@ class PreeditEditorImeTest {
         rule.onNodeWithTag("preedit-editor-code").performSemanticsAction(SemanticsActions.SetText) { assertTrue(it(AnnotatedString(value))) }
         rule.onNodeWithTag("preedit-editor-code").performSemanticsAction(SemanticsActions.SetSelection) { assertTrue(it(caret, caret, false)) }
     }
+    private fun assertInputWhileEngineBusy(expected: String) {
+        assertEquals("native editor input before the busy read", expected,
+            engine.readPinyinEditSnapshot().firstOrNull())
+        val acquired = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val failure = AtomicReference<Throwable?>()
+        val holder = Thread {
+            try {
+                // Hold the real engine lock without applying an edit or replacing native state.
+                engine.editPinyinAndReadState {
+                    acquired.countDown()
+                    check(release.await(5_000, TimeUnit.MILLISECONDS))
+                    false
+                }
+            } catch (error: Throwable) {
+                failure.set(error)
+            }
+        }
+        holder.start()
+        try {
+            assertTrue("real engine reader must own the lock", acquired.await(5_000, TimeUnit.MILLISECONDS))
+            val observed = engine.getInput()
+            println("PREEDIT_BUSY_INPUT expected=$expected observed=$observed")
+            assertEquals("a busy read must retain the latest native edit", expected, observed)
+        } finally {
+            release.countDown()
+            holder.join(5_000)
+            assertFalse("engine lock reader must finish", holder.isAlive)
+        }
+        failure.get()?.let { throw it }
+    }
     private fun applyDraft() {
         rule.onNodeWithTag("preedit-editor-close").performClick()
         rule.waitUntil(5000) { rule.onAllNodesWithTag("preedit-editor").fetchSemanticsNodes().isEmpty() }
     }
     private fun selectExpandedCandidate(value: String) {
-        val candidates = engine.getAllCandidates().toList()
+        val deadline = android.os.SystemClock.uptimeMillis() + 5_000
+        fun remaining() = (deadline - android.os.SystemClock.uptimeMillis()).coerceAtLeast(1)
+        var candidates = emptyList<com.kingzcheung.xime.rime.RimeCandidate>()
+        // getAllCandidates() is nonblocking: an empty result can mean the engine is busy.
+        // Candidate readiness and the existing UI waits share the original five-second budget.
+        rule.waitUntil(remaining()) {
+            candidates = engine.getAllCandidates().toList()
+            candidates.any { it.text == value }
+        }
         val index = candidates.indexOfFirst { it.text == value }
         assertNotNull("Rime 全量候选缺少 $value，input=${engine.getInput()} candidates=${candidates.take(30)}",
             index.takeIf { it >= 0 })
@@ -221,7 +263,7 @@ class PreeditEditorImeTest {
         // panel that opens scrolled does not hide the row (annotations are width-dependent).
         val tag = "expanded-candidate:$index"
         rule.onNodeWithTag("candidate-expansion").performTouchInput { click() }
-        rule.waitUntil(5000) { rule.onAllNodesWithTag("expanded-candidates").fetchSemanticsNodes().isNotEmpty() }
+        rule.waitUntil(remaining()) { rule.onAllNodesWithTag("expanded-candidates").fetchSemanticsNodes().isNotEmpty() }
         val panel = rule.onNodeWithTag("expanded-candidates")
         try {
             val rows = panel.fetchSemanticsNode()
@@ -232,7 +274,7 @@ class PreeditEditorImeTest {
                 rule.waitForIdle()
                 if (rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()) break
             }
-            rule.waitUntil(5000) { rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
+            rule.waitUntil(remaining()) { rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
             rule.onNodeWithTag(tag).performTouchInput { click() }
         } catch (failure: Throwable) {
             screenshot("candidate-$value-failure")
@@ -334,12 +376,14 @@ class PreeditEditorImeTest {
         assertEquals("nimhao", engine.getInput())
         openEditor(); draft("womf")
         rule.waitUntil(5000) { engine.getInput() == "womf" }
+        assertInputWhileEngineBusy("womf")
         shell("input keyevent 4")
         rule.waitUntil(5000) { rule.onAllNodesWithTag("preedit-editor").fetchSemanticsNodes().isEmpty() }
         rule.onNodeWithTag("language-key-control", useUnmergedTree = true).assertExists()
         assertEquals("womf", engine.getInput()); assertEquals("前文", text())
         rule.runOnUiThread { assertTrue(editor.hasFocus()) }
         engine.clearQueuedComposition()
+        assertInputWhileEngineBusy("")
     }
 
     @Test fun spaceDragEditsPinyinAndDeletingAllClosesEditorWithoutMovingHostCaret() {

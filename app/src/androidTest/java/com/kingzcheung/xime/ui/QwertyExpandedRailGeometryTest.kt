@@ -26,6 +26,7 @@ import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import kotlin.math.roundToInt
 
 class QwertyExpandedRailGeometryTest {
     @get:Rule val rule = createComposeRule()
@@ -34,7 +35,9 @@ class QwertyExpandedRailGeometryTest {
     }
     private var previousRows = emptyList<Any?>()
     private var rowLayoutOverridden = false
+    private var restoreModernBindings: (() -> Unit)? = null
     @After fun restoreLayout() {
+        restoreModernBindings?.invoke()
         if (rowLayoutOverridden) rowFields.zip(previousRows).forEach { (field, value) ->
             field.set(KeysConfigHelper, value)
         }
@@ -96,6 +99,7 @@ class QwertyExpandedRailGeometryTest {
         val vm = KeyboardViewModel(app)
         var window by mutableStateOf(windows.first())
         var expanded by mutableStateOf(false)
+        var modernFooter by mutableStateOf<ConfiguredFooterWeights?>(null)
         var deletes = 0
         var enters = 0
         var filters = 0
@@ -114,7 +118,8 @@ class QwertyExpandedRailGeometryTest {
                     else CandidatePage(CandidatePageState(backgroundColor = Color.Black, textColor = Color.White,
                         keyBackgroundColor = Color.DarkGray, floating = window.floating,
                         candidates = List(300) { CandidateEntry("候选$it", globalIndex = it) },
-                        qwertyGeometry = candidateQwertyGeometry(KeysConfigHelper.getKeyRows(false), false, false, window.split)),
+                        qwertyGeometry = candidateQwertyGeometry(KeysConfigHelper.getKeyRows(false), false, false,
+                            window.split, configuredFooter = modernFooter)),
                         CandidatePageCallbacks(onCandidateSelect = {}, onDelete = { deletes++ },
                             onEnter = { enters++ }, onToggleSingleCharFilter = { filters++ }), modifier)
                     }
@@ -166,6 +171,93 @@ class QwertyExpandedRailGeometryTest {
             assertEquals(windows.size, deletes)
             assertEquals(windows.size, enters)
             assertEquals(windows.size, filters)
+        }
+
+        // Independent modern fixture: canonical configured controls, default comma + period,
+        // and deliberately empty bindings (not the default Xime width overrides).
+        val modernRows = listOf(
+            "qwertyuiop".map(Char::toString), "asdfghjkl".map(Char::toString),
+            listOf("shift") + "zxcvbnm".map(Char::toString) + "delete",
+            listOf("mode_change", "comma", "space", "earth", "enter"),
+        )
+        val modernLayout = com.kingzcheung.xime.settings.KeyboardRowsLayout(
+            modernRows.map { com.kingzcheung.xime.settings.KeyboardRow(it) })
+        val gesturesField = KeysConfigHelper::class.java.getDeclaredField("_keyGestureConfig")
+            .apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val gestures = gesturesField.get(KeysConfigHelper) as
+            MutableState<Map<String, com.kingzcheung.xime.settings.KeyGestureConfig>>
+        val previousGestures = gestures.value
+        restoreModernBindings = { gestures.value = previousGestures }
+        rule.runOnIdle {
+            rowFields.first().set(KeysConfigHelper, modernLayout)
+            rowFields.drop(1).forEach { it.set(KeysConfigHelper, modernRows) }
+            gestures.value = emptyMap()
+            val bindings = { id: String -> KeysConfigHelper.getKeyGesture(id, false) }
+            val configured = requireNotNull(resolveTypingConfiguredControlRow(
+                modernLayout, KeyboardUiState(currentSchemaId = "rime_ice").inputProfile,
+                customLetters = false, split = false, comma = true, voice = false, bindings = bindings))
+            modernFooter = configuredFooterWeights(
+                letterKeyboardBottomRow(configured.letterRows, false), true, bindings).also { footer ->
+                // Empty bindings: 1.4 mode + 1 comma + 1 period + 2.9 space + 1 earth + 1.7 enter.
+                assertEquals(1.4f, footer.mode, .0001f)
+                assertEquals(1f, footer.period, .0001f)
+                assertEquals(9f, footer.total, .0001f)
+            }
+        }
+        fun modernIntegerWidths(width: Int): List<Int> {
+            // Independent reference for Row's nearest-pixel children and signed residual allocation.
+            val weights = listOf(1.4f, 1f, 1f, 2.9f, 1f, 1.7f)
+            val pixels = weights.map { (width * it / 9f).roundToInt() }.toMutableList()
+            var residual = width - pixels.sum()
+            for (index in pixels.indices) {
+                val correction = residual.compareTo(0)
+                pixels[index] += correction
+                residual -= correction
+            }
+            assertEquals(0, residual)
+            return pixels
+        }
+        assertEquals(listOf(28, 19, 19, 55, 19, 32), modernIntegerWidths(172))
+        for (size in windows.filterNot { it.split }) {
+            rule.runOnIdle { window = size; expanded = false }
+            rule.onNodeWithTag("configured-control-row", true).assertExists()
+            rule.onNodeWithTag("mode-slot-1", true).assertDoesNotExist()
+            rule.onNodeWithTag("mode-slot-2", true).assertDoesNotExist()
+            val mode = bounds(MODE_KEY_TAG)
+            val comma = bounds("qwerty-punctuation-key")
+            val period = bounds("qwerty-period-key")
+            val space = bounds("space-key")
+            val delete = bounds("qwerty-delete-key")
+            val enter = bounds("qwerty-enter-key")
+            val row = bounds("configured-control-row")
+            val integerWidths = modernIntegerWidths(row.width.roundToInt())
+            assertEquals("$size modern mode uses the integer nine-weight footer", integerWidths.first().toFloat(), mode.width, 1f)
+            assertEquals("$size modern enter uses the integer nine-weight footer", integerWidths.last().toFloat(), enter.width, 1f)
+            assertEquals("$size period is beside comma", comma.right, period.left, 1f)
+            assertEquals("$size period is before space", period.right, space.left, 1f)
+            assertEquals("$size punctuation widths", comma.width, period.width, 1f)
+            rule.runOnIdle { expanded = true }
+            val filter = bounds("expanded-filter-key")
+            val expandedDelete = bounds("expanded-delete-key")
+            val expandedEnter = bounds("expanded-enter-key")
+            assertEquals("$size modern left edge", mode.left, filter.left, 1f)
+            assertEquals("$size modern left width", mode.width, filter.width, 1f)
+            assertEquals("$size modern bottom row top", mode.top, filter.top, 1f)
+            assertEquals("$size modern bottom row height", mode.height, filter.height, 1f)
+            assertEquals("$size modern delete right edge", enter.right, expandedDelete.right, 1f)
+            assertEquals("$size modern delete width", enter.width, expandedDelete.width, 1f)
+            assertEquals("$size modern delete height", delete.height, expandedDelete.height, 1f)
+            assertEquals("$size modern enter right edge", enter.right, expandedEnter.right, 1f)
+            assertEquals("$size modern enter width", enter.width, expandedEnter.width, 1f)
+            assertEquals("$size modern enter top", enter.top, expandedEnter.top, 1f)
+            assertEquals("$size modern enter height", enter.height, expandedEnter.height, 1f)
+            for (tag in listOf("expanded-delete-key", "expanded-page-previous", "expanded-page-next", "expanded-enter-key")) {
+                val key = bounds(tag)
+                assertEquals("$size modern right rail edge", enter.right, key.right, 1f)
+                assertEquals("$size modern right rail width", enter.width, key.width, 1f)
+                assertEquals("$size modern right rail height", enter.height, key.height, 1f)
+            }
         }
     }
 }

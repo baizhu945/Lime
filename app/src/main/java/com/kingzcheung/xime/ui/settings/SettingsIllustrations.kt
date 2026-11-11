@@ -306,7 +306,7 @@ internal fun QwertyStaggerIllustration(stagger: Float) {
     }
 }
 
-/** 底排预览：模式键、空格两侧标点、语言键与回车，按设置实时变化。 */
+/** 标准 ?123 底排预览：句号紧邻逗号，仅从模式键借位，按设置实时变化。 */
 @Composable
 internal fun SpacePunctuationIllustration(comma: Boolean, period: Boolean) {
     val (left, right) = com.kingzcheung.xime.ui.keyboard.spacePunctuationKeys(comma, period, fullWidth = true)
@@ -322,13 +322,13 @@ internal fun SpacePunctuationIllustration(comma: Boolean, period: Boolean) {
             }
         }
     }
+    val mode = com.kingzcheung.xime.ui.keyboard.configuredPeriodWeights(2.4f, 0.8f, period)
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        RowScopeKey("!@#", null, 1.2f, this)
-        RowScopeKey("123", null, 1.2f, this)
-        if (comma) RowScopeKey(left?.primary ?: "，", left?.alternate ?: "。", 1f, this, accent = true)
-        RowScopeKey("空格", null, 3.9f + 1f - (if (comma) 1 else 0) - (if (period) 1 else 0), this)
-        if (right != null) RowScopeKey(right.primary, right.alternate, 1f, this, accent = true)
-        RowScopeKey("中", null, 1f, this)
-        RowScopeKey("↵", null, 1.7f, this)
+        RowScopeKey("?123", null, mode.mode, this)
+        if (comma) RowScopeKey(left?.primary ?: "，", left?.alternate ?: "。", 0.8f, this, accent = true)
+        if (right != null) RowScopeKey(right.primary, right.alternate, mode.period, this, accent = true)
+        RowScopeKey("空格", null, 3f + if (comma) 0f else 0.8f, this)
+        RowScopeKey("中", null, 0.8f, this)
+        RowScopeKey("↵", null, 1.2f, this)
     }
 }

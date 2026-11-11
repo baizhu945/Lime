@@ -20,13 +20,14 @@ internal fun resolvedQwertyStagger(
     QwertyStaggerMode.CUSTOM -> custom.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f
 }
 
-/** 空格两侧的一个标点键：点按输入 [primary]，滑动输入 [alternate]。 */
+/** 底排的一个标点键：点按输入 [primary]，滑动输入 [alternate]。 */
 internal data class SpacePunctuationKey(val primary: String, val alternate: String)
 
 /**
- * 空格左侧逗号、右侧句号，各自独立开关；整个键盘只有这两个键跟随全角/半角。
+ * 底排逗号、句号各自独立开关；标准 ?123 布局相邻，旧双模式键布局仍分居空格两侧。
+ * 整个键盘只有这两个键跟随全角/半角。
  * - 两个都开：点按输入当前宽度，滑动输入另一种宽度（日文的全角逗号是 、）。
- * - 只开一个：角标（滑动/长按）换成缺的那个符号，同宽度，保证逗号句号都能打（默认只开逗号）。
+ * - 只开一个：角标（滑动/长按）换成缺的那个符号，同宽度，保证逗号句号都能打；默认两键都开。
  * 英文输入不分全角半角：两个都开时只有 , 和 .，没有副字符；只开一个时角标是另一个。
  */
 internal fun spacePunctuationKeys(comma: Boolean, period: Boolean, fullWidth: Boolean, english: Boolean = false,
