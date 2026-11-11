@@ -26,15 +26,21 @@ class CandidateQwertyGeometryTest {
         assertEquals(QwertyBottomRowWeights.Legacy.mode / QwertyBottomRowWeights.Legacy.total, custom.modeFraction, 0f)
     }
 
-    @Test fun splitRowsIncludePanelFractionAndDeleteStaggerWithoutUsingScreenWidth() {
-        val split = candidateQwertyGeometry(rows, false, false, true)
-        assertEquals(.9f, split.widthFraction, 0f)
-        assertEquals(4f, split.innerInsetDp, 0f)
-        for (width in listOf(224f, 344f, 800f)) {
-            assertEquals(width * .45f * 16f / 45f, width * split.modeFraction, .001f)
-            assertEquals(width * split.enterFraction, split.deleteWidth(width), .001f)
+    @Test fun splitRowsFollowTypingWeightsAndResolvedGapWithoutExtraInset() {
+        val template = candidateQwertyGeometry(rows, false, false, true)
+        val bottom = letterKeyboardBottomRow(rows, false)
+        assertEquals(1f, template.widthFraction, 0f) // Normalized until the viewport resolves its gap.
+        assertEquals(0f, template.innerInsetDp, 0f)
+        for (width in listOf(224f, 344f, 800f)) for (gap in listOf(.1f, .2f, .3f)) {
+            val gutter = SplitKeyboardGeometry.gutterDp(false)
+            val frameWidth = width + 2f * gutter
+            val split = template.copy(widthFraction = SplitKeyboardGeometry.keyWidthFraction(frameWidth, gap, gutter))
+            val keyWidth = width - frameWidth * gap
+            assertEquals(keyWidth * bottom.mode / bottom.total,
+                width * split.widthFraction * split.modeFraction, .001f)
+            assertEquals(width * split.widthFraction * split.enterFraction, split.deleteWidth(width), .001f)
             assertEquals(0f, split.deleteEndInsetDp, 0f)
-            assertEquals(width * .45f * 1.2f / (2f + 1.2f + .8f + 1.2f), width * split.enterFraction, .001f)
+            assertEquals(keyWidth * bottom.enter / bottom.total, split.deleteWidth(width), .001f)
             assertTrue(split.deleteWidth(width) + split.deleteEndInsetDp < width / 2f)
         }
     }

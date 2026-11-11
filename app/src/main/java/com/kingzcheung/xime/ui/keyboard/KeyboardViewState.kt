@@ -109,7 +109,8 @@ sealed interface KeyboardDispatchAction {
     data class ModeChange(val targetIsNumber: Boolean, val isAsciiMode: Boolean) : KeyboardDispatchAction
 
     /** ASCII 模式由外部（Rime）改变 */
-    data class AsciiModeChanged(val isAsciiMode: Boolean, val schemaId: String) : KeyboardDispatchAction
+    data class AsciiModeChanged(val isAsciiMode: Boolean, val schemaId: String,
+        val explicitLanguageChoice: Boolean = false) : KeyboardDispatchAction
 
     /** 输⼊会话开始 */
     data class InputSessionStarted(val isAsciiMode: Boolean, val schemaId: String) : KeyboardDispatchAction

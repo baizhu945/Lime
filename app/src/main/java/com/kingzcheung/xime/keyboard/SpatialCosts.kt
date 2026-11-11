@@ -127,12 +127,14 @@ object SpatialCosts {
     /** One record per composition character. Empty when no tap carried a measured cost. */
     fun encode(records: List<Map<Char, Float>>): String {
         if (records.isEmpty() || records.all { it.isEmpty() }) return ""
-        return records.joinToString(";") { tap ->
-            tap.entries.sortedBy { it.key }.joinToString(",") { (letter, cost) ->
-                String.format(Locale.US, "%c=%.4f", letter, cost)
-            }
-        }
+        return records.joinToString(";") { encodeRecord(it) }
     }
+
+    /** One tap's ordered `letter=cost` list; lets the input log append in O(keys). */
+    fun encodeRecord(tap: Map<Char, Float>): String =
+        tap.entries.sortedBy { it.key }.joinToString(",") { (letter, cost) ->
+            String.format(Locale.US, "%c=%.4f", letter, cost)
+        }
 }
 
 /** Touch samples offered on the UI thread and consumed, in order, on the input thread. */
@@ -168,6 +170,8 @@ internal class SpatialInputLog {
     private val typed = StringBuilder()
     private var pending: List<Map<Char, Float>>? = null
     private var pendingTyped: String? = null
+    private var pendingEncoded: String? = null
+    private var encoded = ""
     private var disabled = false
 
     fun beforeAppend(letter: Char, costs: Map<Char, Float>): String {
@@ -175,7 +179,12 @@ internal class SpatialInputLog {
         val next = records + costs
         pending = next
         pendingTyped = typed.toString() + letter
-        return SpatialCosts.encode(next)
+        // Append one tap instead of re-encoding the whole composition. Reuse this
+        // string after the engine confirms the key (previously encoded twice/key).
+        val record = SpatialCosts.encodeRecord(costs)
+        val text = if (records.isEmpty()) record else encoded + ";" + record
+        pendingEncoded = text
+        return text
     }
 
     fun afterInput(input: String): String {
@@ -187,20 +196,24 @@ internal class SpatialInputLog {
         val normalized = input.filter { it.isLetter() }.lowercase()
         val predicted = pending
         val typedNow = pendingTyped
+        val confirmedEncoded = pendingEncoded
         pending = null
         pendingTyped = null
+        pendingEncoded = null
         if (predicted != null && typedNow != null) {
             if (normalized != typedNow) {
                 disabled = true
                 records.clear()
                 typed.setLength(0)
+                encoded = ""
                 return ""
             }
             records.clear()
             records.addAll(predicted)
             typed.setLength(0)
             typed.append(typedNow)
-            return SpatialCosts.encode(records)
+            encoded = confirmedEncoded ?: SpatialCosts.encode(records)
+            return encoded
         }
         // A key without a measure (backspace, candidate, hardware): keep the records aligned
         // with the letters the engine still has.
@@ -210,7 +223,8 @@ internal class SpatialInputLog {
         } else {
             clear()
         }
-        return SpatialCosts.encode(records)
+        encoded = SpatialCosts.encode(records)
+        return encoded
     }
 
     fun clear() {
@@ -218,6 +232,8 @@ internal class SpatialInputLog {
         typed.setLength(0)
         pending = null
         pendingTyped = null
+        pendingEncoded = null
+        encoded = ""
         disabled = false
     }
 }

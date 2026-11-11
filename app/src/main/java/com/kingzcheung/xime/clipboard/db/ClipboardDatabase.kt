@@ -72,17 +72,17 @@ abstract class ClipboardDatabase : RoomDatabase() {
 
         fun getInstance(context: Context): ClipboardDatabase {
             return instance ?: synchronized(this) {
-                instance ?: Room.databaseBuilder<ClipboardDatabase>(
-                    context.applicationContext,
-                    DATABASE_NAME
-                )
-                    .setDriver(AndroidSQLiteDriver())
-                    .setQueryCoroutineContext(Dispatchers.IO)
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
-                    .build()
-                    .also { instance = it }
+                instance ?: create(context, DATABASE_NAME).also { instance = it }
             }
         }
+
+        /** Opens an independent database with the production schema/migrations. Caller owns closing it. */
+        fun create(context: Context, name: String): ClipboardDatabase =
+            Room.databaseBuilder<ClipboardDatabase>(context.applicationContext, name)
+                .setDriver(AndroidSQLiteDriver())
+                .setQueryCoroutineContext(Dispatchers.IO)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .build()
 
         fun scope(): CoroutineScope {
             return CoroutineScope(SupervisorJob() + Dispatchers.IO)

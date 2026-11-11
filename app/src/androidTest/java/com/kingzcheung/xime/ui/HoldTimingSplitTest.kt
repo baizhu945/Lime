@@ -26,6 +26,8 @@ import com.kingzcheung.xime.ui.keyboard.LocalKeyboardInputActions
 import com.kingzcheung.xime.ui.keyboard.LocalKeyboardInputPreferences
 import com.kingzcheung.xime.ui.keyboard.SpaceHoldAction
 import com.kingzcheung.xime.ui.keyboard.SpaceKeyButton
+import com.kingzcheung.xime.ui.theme.KeyboardPalette
+import com.kingzcheung.xime.ui.theme.LocalKeyboardPalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -41,6 +43,10 @@ class HoldTimingSplitTest {
         assertEquals(0.15f, prefs.languageMenuHoldSeconds, 0f)
         rule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f),
+                LocalKeyboardPalette provides KeyboardPalette(
+                    background = Color(0xFF202124), key = Color(0xFF30343C), text = Color.White,
+                    accent = Color(0xFF8AB4F8), function = Color(0xFF454C5B), functionText = Color.White,
+                    enter = Color(0xFF454C5B), candidateText = Color.White, selectedText = Color.White),
                 LocalKeyboardInputPreferences provides prefs,
                 LocalKeyboardInputActions provides KeyboardInputActions(
                     schemas = listOf(SchemaInfo("first", "中文", "", "", "", language = InputLanguage.CHINESE),
@@ -54,6 +60,7 @@ class HoldTimingSplitTest {
                                     SpaceKeyButton(onClick = { spaces++ }, backgroundColor = Color.Gray, textColor = Color.White)
                                 }
                                 LanguageKeyButton(onClick = {}, backgroundColor = Color.Gray,
+                                    textColor = Color.White, iconColor = Color.White,
                                     modifier = Modifier.size(44.dp).testTag("language-key"))
                             }
                         }

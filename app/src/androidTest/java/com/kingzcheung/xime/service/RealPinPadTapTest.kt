@@ -78,7 +78,7 @@ class RealPinPadTapTest {
             Field("numberPassword", numberPassword),
             Field("numberPassword+noLearning", numberPassword, EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING),
             Field("numberPassword+secureWindow", numberPassword, secureWindow = true),
-            Field("textPassword+noLearning (digits)", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD,
+            Field("textPassword+noLearning", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD,
                 EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING),
             Field("numberPassword(after text)", numberPassword),
             Field("numberPassword(key events only)", numberPassword, keyEventsOnly = true),
@@ -106,7 +106,10 @@ class RealPinPadTapTest {
                     rule.runOnUiThread { service = WindowInspector.getGlobalWindowViews().firstNotNullOfOrNull(::findService) }
                     service?.currentInputEditorInfo?.fieldId == fieldId && service?.inputReadiness?.ticket() != null
                 }
-                Thread.sleep(1500)
+                // The Compose test rule controls the frame clock, including the IME's
+                // ComposeView in this process. Sleeping does not advance a pending frame:
+                // the model can be on the new page while old keys are still rendered.
+                rule.waitForIdle()
                 // The emulator's host keyboard counts as a physical keyboard; show the on-screen
                 // pad as the toolbar's "展开屏幕键盘" button would.
                 rule.runOnUiThread {
@@ -114,7 +117,10 @@ class RealPinPadTapTest {
                         com.kingzcheung.xime.keyboard.OverlayRoute::class.java)
                         .apply { isAccessible = true }.invoke(service, null)
                 }
-                Thread.sleep(1500)
+                rule.waitForIdle()
+                rule.runOnUiThread {
+                    android.util.Log.i("RealPinPadTapTest", "${field.name} fieldId=$fieldId page=${service?.keyboardViewModel?.page?.value} lifecycle=${service?.lifecycle?.currentState} compact=${service?.uiState?.value?.isCompact}")
+                }
                 // Manual inspection mode: keep the field open so the pad can be driven over adb.
                 InstrumentationRegistry.getArguments().getString("holdSeconds")?.toLongOrNull()?.let { hold ->
                     android.util.Log.i("RealPinPadTapTest", "holding ${field.name}")
@@ -127,12 +133,13 @@ class RealPinPadTapTest {
                     }
                 }
                 shell("screencap -p /sdcard/Download/pin-${fieldId}.png")
-                // Text passwords open the letter keyboard; tap its digit row via the number key instead.
-                val tapped = listOf("1", "2", "3").map { digit -> tapImeKey(digit) }
-                Thread.sleep(1500)
+                // The text-password editor must really show and accept letters before the
+                // next field switches to the number pad; otherwise a stale pad can pass.
+                val expected = if (field.name.startsWith("textPassword")) "abc" else "123"
+                val tapped = expected.map { key -> tapImeKey(key.toString()).also { rule.waitForIdle() } }
                 var actual = ""
                 rule.runOnUiThread { actual = editor.text.toString() }
-                results[field.name] = "found=${tapped.count { it }}/3 typedLength=${actual.length} digitsOnly=${actual.all { it.isDigit() }} " +
+                results[field.name] = "found=${tapped.count { it }}/${tapped.size} typedLength=${actual.length} matches=${actual == expected} " +
                     "policy=${service?.editorInputPolicy?.field?.kind}"
                 android.util.Log.i("RealPinPadTapTest", "${field.name}: ${results[field.name]}")
             }
@@ -140,10 +147,9 @@ class RealPinPadTapTest {
             rule.runOnUiThread { rule.activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
             if (!previousIme.isNullOrBlank()) shell("ime set $previousIme")
         }
-        // Every PIN-style field must receive all three tapped digits.
+        // Every numeric field receives 123; the intervening text field receives abc.
         for ((name, summary) in results) {
-            if (name.startsWith("textPassword")) continue
-            assertEquals("$name -> $summary", true, summary.startsWith("found=3/3 typedLength=3 digitsOnly=true"))
+            assertEquals("$name -> $summary", true, summary.startsWith("found=3/3 typedLength=3 matches=true"))
         }
     }
 
@@ -154,6 +160,7 @@ class RealPinPadTapTest {
         val root = window.root ?: return false
         val node = findExact(root, label) ?: return false
         val bounds = Rect().also { node.getBoundsInScreen(it) }
+        android.util.Log.i("RealPinPadTapTest", "tap label=$label nodeBounds=$bounds x=${bounds.centerX()} y=${bounds.centerY()} clickable=${node.isClickable}")
         shell("input tap ${bounds.centerX()} ${bounds.centerY()}")
         Thread.sleep(300)
         return true

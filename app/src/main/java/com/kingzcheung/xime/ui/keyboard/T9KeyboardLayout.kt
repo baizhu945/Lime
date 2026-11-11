@@ -282,6 +282,7 @@ private fun T9KeyboardSwipeOverlay(
                         onSwipeStateChange = ::processSwipeState,
                         onDelete = onDelete,
                         compactMode = true,
+                        specialKeyTextColor = specialKeyTextColor,
                         candidateState = candidateState,
                         onGestureAction = onGestureAction,
                         dragArea = { keyboardBounds },
@@ -317,6 +318,7 @@ private fun T9KeyboardSwipeOverlay(
                         onSwipeStateChange = ::processSwipeState,
                         onDelete = onDelete,
                         compactMode = false,
+                        specialKeyTextColor = specialKeyTextColor,
                         candidateState = candidateState,
                         onGestureAction = onGestureAction,
                         dragArea = { keyboardBounds },
@@ -342,6 +344,7 @@ private fun T9KeyboardContent(
     keyBackgroundColor: Color,
     keyTextColor: Color,
     specialKeyBackgroundColor: Color,
+    specialKeyTextColor: Color,
     accentColor: Color,
     shadowEnabled: Boolean,
     shadowElevation: Dp,
@@ -357,8 +360,6 @@ private fun T9KeyboardContent(
 ) {
     val t9DigitFontSize = if (compactMode) 13.sp else 16.sp
     val ctrlFontSize = if (compactMode) 11.sp else androidx.compose.ui.unit.TextUnit.Unspecified
-    val specialKeyTextColor = if (uiState.isDarkTheme) Color.White
-        else KeyboardThemes.getSpecialKeyTextColor(uiState.themeId, false)
 
     // 数字键滑动手势（keyboard.t9.keys，热重载经 configVersion 感知）：
     // 上滑默认直接上屏数字（T9 模式 onKeyPress(数字) 会进拼音数字码组合，须走 onCommitText），
@@ -449,8 +450,10 @@ private fun T9KeyboardContent(
                     ?: remember(configVersion) { KeysConfigHelper.getT9SideSymbols() }
                 val displayItems: List<String> = if (showCandidates) {
                     currentFirstOptions.map { it.pinyin }
-                } else {
+                } else if (customSymbols != null) {
                     t9SideSymbols
+                } else {
+                    t9SideSymbols.map { presetPanelSymbol(it) }
                 }
                 // One four-slot scale for letters and syllables, independent of option count.
                 val metrics = t9CandidateMetrics(maxWidth.value, maxHeight.value,
@@ -829,7 +832,7 @@ private fun T9DigitKey(
         backgroundColor = backgroundColor,
         textColor = textColor,
         fontSize = fontSize,
-        modifier = modifier,
+        modifier = modifier.testTag("t9-key:$letters"),
         onPress = { currentOnPress?.invoke() },
         // 长按弹字母气泡和 26/14 键共用“长按弹出字母气泡”开关，默认关（用户 10-21）；拂动模式长按出数字，不受影响。
         longPressItems = if (flick || inputPreferences.letterLongPressMenu) longPressItems else emptyList(),

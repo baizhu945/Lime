@@ -155,14 +155,14 @@ class ResizeTransactionImeTest {
         rule.onNodeWithTag("keyboard-resize-floating-button", useUnmergedTree = true).performClick()
         rule.onNodeWithTag("keyboard-opacity-slider", useUnmergedTree = true)
             .performSemanticsAction(SemanticsActions.SetProgress) { it(0.6f) }
-        rule.onNodeWithText("完成").performClick()
+        rule.onNodeWithContentDescription("确认").performClick()
         rule.waitUntil(5000) { rule.onAllNodesWithTag("keyboard-resize-frame", useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
         assertTrue(SettingsPreferences.isFloatingMode(context, landscape))
         assertEquals(0.4f, SettingsPreferences.getKeyboardOpacity(context), 0.001f)
 
         rule.onNodeWithContentDescription("键盘调节").performClick()
         rule.onNodeWithTag("keyboard-resize-floating-button", useUnmergedTree = true).performClick()
-        rule.onNodeWithText("0%").assertIsDisplayed()
+        rule.onNodeWithText("透明度 0%").assertIsDisplayed()
         assertEquals("Preview must not persist before confirmation", 0.4f, SettingsPreferences.getKeyboardOpacity(context), 0.001f)
         shell("input keyevent KEYCODE_BACK")
         rule.waitUntil(5000) { rule.onAllNodesWithTag("keyboard-resize-frame", useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
@@ -171,7 +171,7 @@ class ResizeTransactionImeTest {
 
         rule.onNodeWithContentDescription("键盘调节").performClick()
         rule.onNodeWithTag("keyboard-resize-floating-button", useUnmergedTree = true).performClick()
-        rule.onNodeWithText("0%").assertIsDisplayed()
+        rule.onNodeWithText("透明度 0%").assertIsDisplayed()
         rule.onNodeWithContentDescription("确认").performClick()
         rule.waitUntil(5000) { rule.onAllNodesWithTag("keyboard-resize-frame", useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
         assertFalse(SettingsPreferences.isFloatingMode(context, landscape))
@@ -188,7 +188,9 @@ class ResizeTransactionImeTest {
             down(Offset(width / 2f, 4f)); moveBy(Offset(0f, -35f), 80); up()
         }
         rule.onNodeWithTag("keyboard-opacity-slider", useUnmergedTree = true).performSemanticsAction(SemanticsActions.SetProgress) { it(0.6f) }
-        rule.onNodeWithText("返回").performClick()
+        rule.onNodeWithTag("keyboard-resize-frame", useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithTag("keyboard-resize-actions", useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithTag("keyboard-opacity-actions", useUnmergedTree = true).assertDoesNotExist()
         rule.onNodeWithTag("keyboard-resize-floating-button", useUnmergedTree = true).performClick()
         rule.onNodeWithTag("floating-keyboard-card", useUnmergedTree = true).assertExists()
         shell("input keyevent KEYCODE_BACK")

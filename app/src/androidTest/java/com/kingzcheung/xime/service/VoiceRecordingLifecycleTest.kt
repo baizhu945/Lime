@@ -9,6 +9,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.rule.GrantPermissionRule
 import com.kingzcheung.xime.settings.SettingsPreferences
+import com.kingzcheung.xime.settings.InputLanguage
+import com.kingzcheung.xime.settings.SchemaInfo
 import com.kingzcheung.xime.speech.RecognitionState
 import org.junit.Assert.*
 import org.junit.Rule
@@ -26,7 +28,8 @@ class VoiceRecordingLifecycleTest {
         SettingsPreferences.setSttUseLocal(context, true)
         lateinit var editor: EditText
         lateinit var handler: VoiceRecognitionHandler
-        var state = InputUIState(inputSessionId = 1)
+        val schema = SchemaInfo("voice_test", "voice test", "", "", "", language = InputLanguage.CHINESE)
+        var state = InputUIState(inputSessionId = 1, currentSchemaId = schema.schemaId, schemas = listOf(schema))
         var completed = 0
         var initialized = false
         rule.setContent { AndroidView(factory = { EditText(it).also { view -> editor = view } }) }

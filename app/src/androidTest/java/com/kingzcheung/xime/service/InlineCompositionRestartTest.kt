@@ -77,14 +77,6 @@ class InlineCompositionRestartTest {
         fun type(keys: String) = keys.forEach { key ->
             rule.runOnUiThread { checkNotNull(service?.keyboardCallbacks).onKeyPress(key.toString(), false) }
         }
-        fun composePinyin(prefix: String): String {
-            rule.runOnUiThread { editor.setText(prefix); editor.setSelection(prefix.length) }
-            drain()
-            type("nihao")
-            drain()
-            rule.waitUntil(10_000) { checkNotNull(service).candidateState.value.isComposing && text().length > prefix.length }
-            return text().removePrefix(prefix)
-        }
         fun restartWith(newText: String, caret: Int) {
             val previous = checkNotNull(service).uiState.value.inputSessionId
             rule.runOnUiThread { editor.setText(newText); editor.setSelection(caret) }
@@ -93,6 +85,15 @@ class InlineCompositionRestartTest {
                 checkNotNull(service).uiState.value.inputSessionId != previous && checkNotNull(service).inputReadiness.ticket() != null
             }
             drain()
+        }
+        fun composePinyin(prefix: String): String {
+            // setText restarts the input connection asynchronously; don't submit the
+            // barrier or keystrokes under the session that it is about to replace.
+            restartWith(prefix, prefix.length)
+            type("nihao")
+            drain()
+            rule.waitUntil(10_000) { checkNotNull(service).candidateState.value.isComposing && text().length > prefix.length }
+            return text().removePrefix(prefix)
         }
         try {
             SettingsPreferences.setInputTextLocation(context, SettingsPreferences.INPUT_TEXT_INPUT_BOX)

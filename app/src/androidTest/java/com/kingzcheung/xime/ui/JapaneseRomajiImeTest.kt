@@ -35,16 +35,46 @@ class JapaneseRomajiImeTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val prefs = SettingsPreferences.getPrefsPublic(context)
-        val saved = prefs.all.toMap()
+        // Only fixture settings (including language-helper writes), never records or models.
+        val ownedKeys = setOf(
+            "enabled_input_languages", "input_language_order", "japanese_language_added_v1",
+            "current_schema", "current_schema_dual", "floating_mode", "keyboard_height_dp", "input_text_location",
+            "builtin_schemas_merged", "japanese_schemas_added_v1", "cyime_chinese_defaults_v1",
+            "cyime_double_pinyin_defaults_v1", "deployment_done", "deployment_hash",
+            RimeConfigHelper.DEPLOYMENT_REVISION, RimeConfigHelper.DEPLOYMENT_PROBLEM,
+        ) + InputLanguage.entries.map { "last_input_mode_${it.id}" }
+        val saved = ownedKeys.associateWith { key ->
+            prefs.all[key].let { if (it is Set<*>) it.toSet() else it }
+        }
+        val imeId = android.content.ComponentName(
+            context.packageName, "com.kingzcheung.xime.service.XimeInputMethodService",
+        ).flattenToShortString()
+        val inputMethods = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        val wasImeEnabled = inputMethods.enabledInputMethodList.any { it.id == imeId }
         val previousIme = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
         val engine = RimeEngine.getInstance()
+        var previousSchema: String? = null
+        var previousSelectedSchema: String? = null
+        var previousAscii: Boolean? = null
+        var previousPersistentAscii: Boolean? = null
+        fun captureNativeState() {
+            if (previousAscii != null || engine.getCurrentSchema().isBlank()) return
+            previousSchema = engine.getCurrentSchema()
+            previousSelectedSchema = engine.getUserConfigString("var/previously_selected_schema")
+            previousAscii = engine.getOption("ascii_mode")
+            previousPersistentAscii = engine.getUserConfigBool("var/option/ascii_mode")
+        }
+        if (RimeEngine.isInitialized()) captureNativeState()
         lateinit var editor: EditText
+        var expandedCompactToolbar = false
+        fun has(tag: String) = rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
         try {
             LanguagePreferences.save(context, InputLanguage.JAPANESE, true)
             val (user, shared) = RimeConfigHelper.initializeRimeDataAsync(context)
             engine.initialize(user, shared)
             assertTrue(RimeConfigHelper.ensureDeployment(context))
             assertTrue(engine.ensureSession())
+            captureNativeState()
             assertTrue(engine.switchSchema("japanese"))
             engine.setOption("ascii_mode", false)
             engine.setUserConfigBool("var/option/ascii_mode", false)
@@ -63,7 +93,12 @@ class JapaneseRomajiImeTest {
                 (context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
                     .showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
             }
-            rule.waitUntil(30000) { rule.onAllNodesWithTag("qwerty-key:n").fetchSemanticsNodes().isNotEmpty() }
+            rule.waitUntil(30000) { has("qwerty-key:n") || has("hardware-toolbar-keyboard") }
+            if (!has("qwerty-key:n")) {
+                rule.onNodeWithTag("hardware-toolbar-keyboard", useUnmergedTree = true).performClick()
+                rule.waitUntil(15000) { has("qwerty-key:n") }
+                expandedCompactToolbar = true
+            }
             fun text(): String { var result = ""; rule.runOnUiThread { result = editor.text.toString() }; return result }
             fun waitText(expected: String) {
                 rule.waitUntil(8000) { text().replace(" ", "") == expected }
@@ -86,20 +121,46 @@ class JapaneseRomajiImeTest {
             screenshot("romaji-failure")
             throw t
         } finally {
+            if (expandedCompactToolbar) runCatching { shell("input keyevent KEYCODE_BACK") }
+
             runCatching { engine.clearComposition() }
-            prefs.edit().clear().also { edit ->
+            runCatching {
+                previousSchema?.takeIf { it.isNotBlank() && it != engine.getCurrentSchema() }
+                    ?.let { engine.switchSchema(it) }
+                previousSelectedSchema?.let {
+                    if (engine.getUserConfigString("var/previously_selected_schema") != it)
+                        engine.setUserConfigString("var/previously_selected_schema", it)
+                }
+                previousPersistentAscii?.let {
+                    if (engine.getUserConfigBool("var/option/ascii_mode") != it)
+                        engine.setUserConfigBool("var/option/ascii_mode", it)
+                }
+                previousAscii?.let { if (engine.getOption("ascii_mode") != it) engine.setOption("ascii_mode", it) }
+            }
+            prefs.edit().also { edit ->
                 saved.forEach { (k, v) ->
+                    if (prefs.all[k] == v) return@forEach
                     when (v) {
+                        null -> edit.remove(k)
                         is String -> edit.putString(k, v)
                         is Int -> edit.putInt(k, v)
                         is Float -> edit.putFloat(k, v)
                         is Long -> edit.putLong(k, v)
                         is Boolean -> edit.putBoolean(k, v)
-                        is Set<*> -> edit.putStringSet(k, v.filterIsInstance<String>().toSet())
+                        is Set<*> -> edit.putStringSet(k, v.map { it as String }.toSet())
                     }
                 }
             }.commit()
-            if (!previousIme.isNullOrBlank()) shell("ime set $previousIme")
+            try {
+                if (!previousIme.isNullOrBlank() && Settings.Secure.getString(
+                        context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD) != previousIme) {
+                    shell("ime set $previousIme")
+                }
+            } finally {
+                if (!wasImeEnabled && inputMethods.enabledInputMethodList.any { it.id == imeId }) {
+                    shell("ime disable $imeId")
+                }
+            }
         }
     }
 

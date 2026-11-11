@@ -70,7 +70,17 @@ class CorpusWeightIntegrationTest {
                 assertEquals(listOf("cyime_corpus_words"), engine.getSchemaList(schema, "translator/packs"))
                 val at = rows.indexOfFirst { it[0] == word }
                 assertTrue("Imported dictionary entry must be reachable in $schema", at >= 0)
-                assertEquals("Raw count must use Rime's normal log-weight scale", ln(12345.0) - ln(1e8), rows[at][7].toDouble(), 0.00001)
+                val row = rows[at]
+                // A T9 sentence's overall weight includes language-model scoring. Its
+                // single dictionary component retains the count-derived entry weight.
+                val entryWeight = if (row[2] == "sentence") {
+                    val components = row[9].split(';').filter { it.isNotEmpty() }
+                    assertEquals("Expected one dictionary component in $schema: ${row.toList()}", 1, components.size)
+                    val component = components.single().split(':')
+                    assertEquals(word, component[0])
+                    component[1].toDouble()
+                } else row[7].toDouble()
+                assertEquals("Raw count must use Rime's normal log-weight scale in $schema: ${row.toList()}", ln(12345.0) - ln(1e8), entryWeight, 0.00001)
                 val revision = engine.readQueuedComposition()!!.engineRevision
                 assertEquals(word, engine.selectCandidateAtRevision(at, revision, global = true)!!.committedText)
                 assertEquals("", engine.getInput())

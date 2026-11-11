@@ -122,6 +122,16 @@ class ExtensionManagerTest {
     }
     
     @Test
+    fun reloadWorksAfterReleaseAndReinitialize() {
+        ExtensionManager.initialize(context)
+        ExtensionManager.release()
+        assertFalse("Reload should fail after release", ExtensionManager.reload(context))
+
+        ExtensionManager.initialize(context)
+        assertTrue("Reload should succeed after reinitialization", ExtensionManager.reload(context))
+    }
+
+    @Test
     fun emojiCategoriesFlowIsObservable() = runBlocking {
         ExtensionManager.initialize(context)
         

@@ -6,7 +6,7 @@ import android.content.Context
 object InputModes {
     const val ENGLISH = "__xime_english"
     const val ORDER_KEY = "input_mode_order"
-    private const val LANGUAGE_ORDER_KEY = "input_language_order"
+    internal const val LANGUAGE_ORDER_KEY = "input_language_order"
     /** 字母排列（QWJRTK、Cyletix10、Colemak、Typewise、自定义布局）不在这里：没排过序时它们排在各语言最后。 */
     val defaultModeOrder = listOf("rime_ice", "t9_pinyin", "double_pinyin_flypy", "pinyin_14jian", "japanese", "japanese_kana", ENGLISH, SpanishSchemas.ID)
 
@@ -16,7 +16,8 @@ object InputModes {
             InputLanguage.supported.filterNot { it == InputLanguage.CHINESE || it == InputLanguage.ENGLISH }
 
     fun languageOrder(ids: List<String>): List<InputLanguage> =
-        (ids.mapNotNull { id -> InputLanguage.supported.firstOrNull { it.id == id } } + defaultLanguageOrder).distinct()
+        (ids.mapNotNull { id -> InputLanguage.supported.firstOrNull { it.id == id } } + defaultLanguageOrder)
+            .distinct().filterNot { it == InputLanguage.UNSPECIFIED }
 
     /** A language switched on later goes behind the languages already in use. */
     internal fun orderWithLanguageLast(ids: List<String>, language: InputLanguage): List<String> =

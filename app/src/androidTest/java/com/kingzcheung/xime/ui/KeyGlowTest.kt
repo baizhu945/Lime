@@ -277,7 +277,7 @@ class KeyGlowTest {
         rule.runOnIdle { assertEquals(3, taps) }
     }
 
-    @Test fun japaneseRowsShareCellSizesAndReadableLabelScale() {
+    @Test fun japaneseRowsShareCellSizesAndReadableLabelScale() = withOriginalKanaMaterial {
         rule.setContent { MaterialTheme { JapaneseKanaKeyboardLayout({}, {}, Color(0xFF2C2D32), Color.White,
             Color(0xFF4A587E), modifier = Modifier.size(360.dp, 260.dp).testTag("japanese")) } }
         val sizes = listOf("kana-convert", "kana-number", "kana-symbol", "kana-key:a", "kana-key:wa", "kana-delete", "kana-space", "kana-enter")
@@ -299,5 +299,20 @@ class KeyGlowTest {
         assertEquals("punctuation is an ordinary gray key", Color(0xFF2C2D32).value,
             Color(cap.getPixel(cap.width / 4, cap.height / 4)).value)
         save("japanese-key-proportions.png", snapshot("japanese"))
+    }
+
+    private fun withOriginalKanaMaterial(block: () -> Unit) {
+        // This colour-role calibration expects the undecorated gray cap exactly.
+        val previous = com.kingzcheung.xime.ui.theme.VisualStyles.current
+        try {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                com.kingzcheung.xime.ui.theme.VisualStyles.current = com.kingzcheung.xime.ui.theme.VisualStyle.ORIGINAL
+            }
+            block()
+        } finally {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                com.kingzcheung.xime.ui.theme.VisualStyles.current = previous
+            }
+        }
     }
 }

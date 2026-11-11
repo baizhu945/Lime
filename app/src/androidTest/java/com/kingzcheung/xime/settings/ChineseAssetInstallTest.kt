@@ -10,13 +10,14 @@ import org.junit.Test
 
 class ChineseAssetInstallTest {
     private val base = InstrumentationRegistry.getInstrumentation().targetContext
-    private val directory = File(base.cacheDir, "chinese-asset-install-tests")
+    // Cache files can be reclaimed while these large dictionary assets are copied.
+    private val directory = File(base.filesDir, "chinese-asset-install-${java.util.UUID.randomUUID()}")
     private val context = object : ContextWrapper(base) {
         override fun getFilesDir() = directory
     }
     private val target get() = File(directory, "rime")
-    @Before fun before() { target.mkdirs() }
-    @After fun after() { directory.deleteRecursively() }
+    @Before fun before() { check(target.mkdirs()) }
+    @After fun after() { check(directory.deleteRecursively()) }
     private fun old14() = context.assets.open("rime_chinese/pinyin_14jian.schema.yaml").bufferedReader().use { it.readText() }
         .replace("dictionary: rime_ice", "dictionary: pinyin_simp")
 

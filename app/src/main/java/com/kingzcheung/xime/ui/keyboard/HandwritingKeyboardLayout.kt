@@ -2,6 +2,7 @@ package com.kingzcheung.xime.ui.keyboard
 
 import com.kingzcheung.xime.ui.theme.KeyShapes
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -303,7 +304,20 @@ fun HandwritingKeyboardLayout(
         val travel = ((maxWidth - controlsWidth) / 2).value.coerceAtLeast(0f)
         val controlsOffset = if (expanded) expandedControlsOffsetX.toFloat().coerceIn(-travel, travel).dp else 0.dp
         val bottom = QwertyBottomRowWeights.Standard
-        val functionKeyWidth = controlsWidth * (bottom.enter / bottom.total)
+        val ascii = language == InputLanguage.ENGLISH
+        fun configuredWeight(id: String, fallback: Float) =
+            KeysConfigHelper.getKeyGesture(id, ascii)?.width ?: fallback
+        // The handwriting footer mirrors QWERTY's bottom row, including user-adjusted
+        // bindings. The merged ?123 occupies the two slots the old symbol/number keys had.
+        val modeWeight = configuredWeight("mode_change", bottom.mode) * 2f
+        val symbolWeight = modeWeight / 2f
+        val numberWeight = modeWeight / 2f
+        val expandWeight = configuredWeight("comma", bottom.punctuation)
+        val spaceWeight = configuredWeight("space", bottom.space)
+        val languageWeight = configuredWeight("earth", bottom.language)
+        val enterWeight = configuredWeight("enter", bottom.enter)
+        val bottomTotal = symbolWeight + numberWeight + expandWeight + spaceWeight + languageWeight + enterWeight
+        val functionKeyWidth = controlsWidth * (enterWeight / bottomTotal)
         val footerHeight = if (expanded) normalControlHeight.dp.coerceAtMost(maxHeight / 3) else maxHeight / 5
         if (!expanded) SideEffect {
             normalControlHeight = footerHeight.value
@@ -363,7 +377,8 @@ fun HandwritingKeyboardLayout(
                 }
                 if (!expanded) Column(Modifier.width(functionKeyWidth).fillMaxHeight().testTag("handwriting-side-keys")) {
                     // 「按键符号」的手写侧栏，三格。
-                    (listOf("delete") + SideSymbolTarget.HANDWRITING.resolve(sideSymbols)).forEach { action ->
+                    (listOf("delete") + SideSymbolTarget.HANDWRITING.resolve(sideSymbols))
+                        .distinct().forEach { action ->
                         HandwritingFunctionKey(action, { press(action) },
                             if (action == "delete") specialKeyBackgroundColor else keyBackgroundColor,
                             if (action == "delete") specialKeyTextColor else keyTextColor,
@@ -393,7 +408,8 @@ fun HandwritingKeyboardLayout(
             if (expanded) {
                 Row(Modifier.fillMaxWidth().height(footerHeight).background(functionRowBackground)
                     .testTag("handwriting-symbol-row")) {
-                    SideSymbolTarget.HANDWRITING_ROW.resolve(rowSymbols).forEach { action ->
+                    SideSymbolTarget.HANDWRITING_ROW.resolve(rowSymbols)
+                        .filterNot { it == "delete" }.forEach { action ->
                         HandwritingFunctionKey(action, { press(action) }, keyBackgroundColor, keyTextColor,
                             Modifier.weight(1f).fillMaxHeight())
                     }
@@ -405,15 +421,20 @@ fun HandwritingKeyboardLayout(
                 .testTag("handwriting-bottom-row")) {
                 // The expand control occupies QWERTY's punctuation slot, so every
                 // bottom-row boundary stays in place when switching input modes.
-                val keys = listOf("symbol" to bottom.mode, "number" to bottom.mode,
-                    (if (expanded) "collapse" else "expand") to bottom.punctuation,
-                    "space" to bottom.space, "ime_switch" to bottom.language, "enter" to bottom.enter)
+                val keys = listOf("symbol" to symbolWeight, "number" to numberWeight,
+                    (if (expanded) "collapse" else "expand") to expandWeight,
+                    "space" to spaceWeight, "ime_switch" to languageWeight, "enter" to enterWeight)
+                val navigation = LocalTextModeNavigationGeometry.current
                 keys.forEach { (action, weight) ->
                     val special = action != "space"
+                    val slot = when (action) { "symbol" -> 1; "number" -> 2; else -> null }
+                    val trackSlot = if (slot != null && navigation != null) Modifier.onGloballyPositioned {
+                        navigation.record(slot, it.boundsInRoot())
+                    } else Modifier
                     HandwritingFunctionKey(action, { press(action) },
                         if (special) specialKeyBackgroundColor else keyBackgroundColor,
                         if (special) specialKeyTextColor else keyTextColor,
-                        Modifier.weight(weight).fillMaxHeight())
+                        Modifier.weight(weight).fillMaxHeight().then(trackSlot))
                 }
             }
             }

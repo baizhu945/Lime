@@ -2,113 +2,91 @@ package com.kingzcheung.xime.settings
 
 import android.content.Context
 import androidx.test.platform.app.InstrumentationRegistry
+import java.util.UUID
+import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
 class PluginEnabledStateTest {
-
     private lateinit var context: Context
+    private val prefix = "instrumentation-${UUID.randomUUID()}"
+    private val plugin1 get() = "$prefix-1"
+    private val plugin2 get() = "$prefix-2"
+    private val plugin3 get() = "$prefix-3"
+    private val prefs get() = context.getSharedPreferences("kime_settings", Context.MODE_PRIVATE)
+    private fun key(id: String) = "plugin_enabled_$id"
 
     @Before
     fun setup() {
         context = InstrumentationRegistry.getInstrumentation().targetContext
-        clearPluginPreferences()
     }
 
-    private fun clearPluginPreferences() {
-        context.getSharedPreferences("kime_settings", Context.MODE_PRIVATE)
-            .edit()
-            .clear()
-            .commit()
+    @After
+    fun restore() {
+        // Only remove keys created by this test; never clear the user's settings.
+        check(prefs.edit().remove(key(plugin1)).remove(key(plugin2)).remove(key(plugin3)).commit())
     }
 
     @Test
-    fun pluginEnabledStateDefaultsToFalse() {
-        val pluginId = "prediction-onnx"
-        
-        val isEnabled = SettingsPreferences.isPluginEnabled(context, pluginId)
-        
-        assertFalse(isEnabled)
+    fun unknownPluginEnabledStateDefaultsToTrue() {
+        // Unknown plugins use the enabled-by-default fallback.
+        assertTrue(SettingsPreferences.isPluginEnabled(context, plugin1))
     }
 
     @Test
     fun pluginEnabledStateCanBeSetToTrue() {
-        val pluginId = "prediction-onnx"
-        
-        SettingsPreferences.setPluginEnabled(context, pluginId, true)
-        
-        assertTrue(SettingsPreferences.isPluginEnabled(context, pluginId))
+        SettingsPreferences.setPluginEnabled(context, plugin1, true)
+        assertTrue(SettingsPreferences.isPluginEnabled(context, plugin1))
     }
 
     @Test
     fun pluginEnabledStateCanBeToggled() {
-        val pluginId = "prediction-onnx"
-        
-        SettingsPreferences.setPluginEnabled(context, pluginId, true)
-        assertTrue(SettingsPreferences.isPluginEnabled(context, pluginId))
-        
-        SettingsPreferences.setPluginEnabled(context, pluginId, false)
-        assertFalse(SettingsPreferences.isPluginEnabled(context, pluginId))
+        SettingsPreferences.setPluginEnabled(context, plugin1, true)
+        assertTrue(SettingsPreferences.isPluginEnabled(context, plugin1))
+        SettingsPreferences.setPluginEnabled(context, plugin1, false)
+        assertFalse(SettingsPreferences.isPluginEnabled(context, plugin1))
     }
 
     @Test
     fun differentPluginsHaveIndependentEnabledStates() {
-        val plugin1 = "prediction-onnx"
-        val plugin2 = "meme-bunny"
-        
         SettingsPreferences.setPluginEnabled(context, plugin1, true)
         SettingsPreferences.setPluginEnabled(context, plugin2, false)
-        
         assertTrue(SettingsPreferences.isPluginEnabled(context, plugin1))
         assertFalse(SettingsPreferences.isPluginEnabled(context, plugin2))
-        
         SettingsPreferences.setPluginEnabled(context, plugin2, true)
-        
         assertTrue(SettingsPreferences.isPluginEnabled(context, plugin1))
         assertTrue(SettingsPreferences.isPluginEnabled(context, plugin2))
     }
 
     @Test
     fun pluginEnabledStatePersistsAcrossClear() {
-        val pluginId = "prediction-onnx"
-        
-        SettingsPreferences.setPluginEnabled(context, pluginId, true)
-        assertTrue(SettingsPreferences.isPluginEnabled(context, pluginId))
-        
-        context.getSharedPreferences("kime_settings", Context.MODE_PRIVATE)
-            .edit()
-            .clear()
-            .commit()
-        
-        assertFalse("State should be cleared", SettingsPreferences.isPluginEnabled(context, pluginId))
+        SettingsPreferences.setPluginEnabled(context, plugin1, false)
+        assertFalse(SettingsPreferences.isPluginEnabled(context, plugin1))
+        assertTrue(prefs.contains(key(plugin1)))
+
+        // Removing the override is the safe equivalent of clearing this key.
+        check(prefs.edit().remove(key(plugin1)).commit())
+        assertFalse(prefs.contains(key(plugin1)))
+        assertTrue("Removing the override restores the unknown-plugin default", SettingsPreferences.isPluginEnabled(context, plugin1))
     }
 
     @Test
     fun pluginEnabledStateKeysAreIsolated() {
-        val plugin1 = "prediction-onnx"
-        val plugin2 = "kaomoji"
-        
         SettingsPreferences.setPluginEnabled(context, plugin1, true)
-        
-        val prefs = context.getSharedPreferences("kime_settings", Context.MODE_PRIVATE)
-        
-        assertTrue(prefs.getBoolean("plugin_enabled_prediction-onnx", false))
-        assertFalse(prefs.getBoolean("plugin_enabled_kaomoji", true))
-        assertFalse(prefs.getBoolean("plugin_enabled_unknown", true))
+        assertTrue(prefs.getBoolean(key(plugin1), false))
+        assertFalse(prefs.contains(key(plugin2)))
+        assertFalse(prefs.contains(key(plugin3)))
     }
 
     @Test
     fun multiplePluginsEnabledStatesAreTrackedIndependently() {
-        val plugins = listOf("prediction-onnx", "meme-bunny", "kaomoji")
-        
-        plugins.forEachIndexed { index, pluginId ->
-            SettingsPreferences.setPluginEnabled(context, pluginId, index % 2 == 0)
+        listOf(plugin1, plugin2, plugin3).forEachIndexed { index, id ->
+            SettingsPreferences.setPluginEnabled(context, id, index % 2 == 0)
         }
-        
-        assertTrue(SettingsPreferences.isPluginEnabled(context, "prediction-onnx"))
-        assertFalse(SettingsPreferences.isPluginEnabled(context, "emoji-sticker"))
-        assertTrue(SettingsPreferences.isPluginEnabled(context, "kaomoji"))
+        assertTrue(SettingsPreferences.isPluginEnabled(context, plugin1))
+        assertFalse(SettingsPreferences.isPluginEnabled(context, plugin2))
+        assertTrue(SettingsPreferences.isPluginEnabled(context, plugin3))
     }
 }

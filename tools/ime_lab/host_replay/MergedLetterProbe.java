@@ -41,7 +41,7 @@ public final class MergedLetterProbe {
       lockedBoundary(e);
       delimiterAndIncompletePrefix(e);
       invalidation(e);
-      System.out.println("PASS native syllable selection: real code, reselect, confirmed prefix, stale rejection and invalidation");
+      System.out.println("PASS native syllable selection: real code, competing fresh choices, confirmed prefix, stale rejection and invalidation");
     } finally { e.nativeDestroy(); }
   }
   static void verify(RimeEngine e, String schema, String code, String required, String... excluded) throws Exception {
@@ -78,6 +78,8 @@ public final class MergedLetterProbe {
         Arrays.toString(e.nativePinyinSyllableOptions()));
   }
 
+  static String[] lastChoice;
+
   static void choose(RimeEngine e, String reading) throws Exception {
     String[] value = option(e, reading);
     String[] before = e.nativePinyinEditSnapshot();
@@ -87,14 +89,15 @@ public final class MergedLetterProbe {
     String[] after = e.nativePinyinEditSnapshot();
     for (int i = 0; i < 4; ++i) require(before[i].equals(after[i]),
         "selection changed raw/caret/confirmed state " + Arrays.toString(before) + " => " + Arrays.toString(after));
+    lastChoice = value;
     assertConstrained(e, reading);
     System.out.println("LOCK " + e.nativeGetCurrentSchema() + " " + before[0] + " => " + reading +
         " id=" + value[0] + " raw/caret/confirmed preserved");
   }
 
   static void assertConstrained(RimeEngine e, String reading) throws Exception {
-    String[] value = option(e, reading);
-    require(option(e, reading)[4].equals("1"), "chosen reading not selected: " + reading);
+    String[] value = lastChoice;
+    require(value != null && value[1].equals(reading), "unexpected selected reading: " + reading);
     boolean found = false;
     for (String[] row : e.nativeInspectCandidates(500)) {
       // Independent English/custom table translators use another dictionary's
@@ -114,15 +117,17 @@ public final class MergedLetterProbe {
     String firstId = option(e, first)[0];
     require(!firstId.equals(option(e, second)[0]), "counterexample has identical syllable IDs");
     choose(e, first);
+    // Chained selection advances to the next span; start a fresh composition
+    // to exercise the competing choice on the original span.
+    reset(e, schema, code);
     choose(e, second);
     String[] before = e.nativePinyinEditSnapshot();
-    String[] current = option(e, second);
     require(!e.nativeSelectPinyinSyllable(code + "z", schema, 0, 2, Integer.parseInt(firstId)), "stale raw accepted");
     require(!e.nativeSelectPinyinSyllable(code, schema + "_stale", 0, 2, Integer.parseInt(firstId)), "stale schema accepted");
     require(!e.nativeSelectPinyinSyllable(code, schema, 0, code.length() + 1, Integer.parseInt(firstId)), "invalid span accepted");
     require(!e.nativeSelectPinyinSyllable(code, schema, 0, 2, Integer.MAX_VALUE), "invalid syllable accepted");
     require(Arrays.equals(before, e.nativePinyinEditSnapshot()), "rejected selection changed composition");
-    require(option(e, second)[4].equals(current[4]), "rejected selection lost previous lock");
+    assertConstrained(e, second);
   }
 
   static void exactLetter(RimeEngine e) throws Exception {
@@ -141,7 +146,6 @@ public final class MergedLetterProbe {
     require(selected >= 0 && e.nativeSelectCandidateByGlobalIndex(selected), "cannot prepare confirmed prefix 你");
     String[] state = e.nativePinyinEditSnapshot();
     require(state[2].equals("2") && state[3].equals("你"), "prefix was committed instead of confirmed: " + Arrays.toString(state));
-    choose(e, "ni");
     choose(e, "bu");
     require(e.nativeGetInput().equals("niBUGaO"), "remaining ambiguous suffix was rewritten");
     e.nativeProcessKey('n', 0);
@@ -151,8 +155,12 @@ public final class MergedLetterProbe {
   }
 
   static void noSelection(RimeEngine e, String reason) throws Exception {
-    for (String value : e.nativePinyinSyllableOptions())
-      require(!value.endsWith("\t1"), reason + ": old selection revived " + value);
+    String confirmed = e.nativePinyinEditSnapshot()[2];
+    for (String value : e.nativePinyinSyllableOptions()) {
+      String[] fields = value.split("\\t", -1);
+      require(fields.length == 5 && fields[2].equals(confirmed),
+          reason + ": old selection advanced the next span " + value);
+    }
   }
 
   static void lockedBoundary(RimeEngine e) throws Exception {
@@ -161,8 +169,8 @@ public final class MergedLetterProbe {
     e.nativeProcessKey('n', 0);
     require(e.nativeGetInput().equals("BUn"), "boundary test lost original grouped code");
     assertConstrained(e, "ni");
-    choose(e, "nin");
-    choose(e, "ni");
+    for (String encoded : e.nativePinyinSyllableOptions())
+      require(!encoded.split("\\t", -1)[1].equals("nin"), "reading crossed locked ni boundary");
     System.out.println("PASS chosen ni boundary survives competing nin reading in BUn");
   }
 
@@ -196,12 +204,12 @@ public final class MergedLetterProbe {
     e.nativeProcessKey('O', 0);
     require(e.nativeGetInput().equals("BUGaO"), "delete/retype test did not restore original raw");
     assertConstrained(e, "ni");
-    // set_input is the incremental append path used by code editing; it must
-    // retain the locked prefix without recycling an incompatible WordGraph.
+    // set_input has no trustworthy edit range, including for append/delete.
     require(e.nativeSetInput("BUGaOn"), "set_input append failed");
-    assertConstrained(e, "ni");
+    noSelection(e, "unknown set_input append");
     require(e.nativeSetInput("BUGaO"), "set_input suffix deletion failed");
-    assertConstrained(e, "ni");
+    noSelection(e, "unknown set_input deletion");
+    choose(e, "ni");
     e.nativeSetCaret(1);
     e.nativePinyinSyllableOptions(); // Rendering the truncated graph must not clear the lock.
     e.nativeSetCaret(5);

@@ -2,6 +2,9 @@ package com.kingzcheung.xime.ui
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.ParcelFileDescriptor
+import android.os.SystemClock
+import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.activity.ComponentActivity
@@ -14,6 +17,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.test.platform.app.InstrumentationRegistry
 import com.kingzcheung.xime.settings.KeyboardHeightProfiles
+import com.kingzcheung.xime.rime.RimeConfigHelper
+import com.kingzcheung.xime.rime.RimeEngine
+import kotlinx.coroutines.runBlocking
 import com.kingzcheung.xime.settings.SettingsPreferences
 import org.junit.Assert.*
 import org.junit.Rule
@@ -32,8 +38,15 @@ class SchemaPanelResizeImeTest {
         val suffix = if (landscape) "_landscape" else ""
         val keys = listOf("keyboard_height_dp$suffix", "floating_mode$suffix", "toolbar_buttons", "keyboard_bottom_padding_dp")
         val saved = keys.associateWith { prefs.all[it] }
+        val previousIme = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+        val imeId = "${context.packageName}/com.kingzcheung.xime.service.XimeInputMethodService"
+        val wasEnabled = shell("ime list -s").lineSequence().any { it.trim() == imeId }
+        val engine = RimeEngine.getInstance()
         lateinit var editor: EditText
         try {
+            assertTrue(runBlocking { RimeConfigHelper.prepareEngine(context) })
+            shell("ime enable $imeId")
+            shell("ime set $imeId")
             SettingsPreferences.setFloatingMode(context, false, landscape)
             SettingsPreferences.setKeyboardBottomPaddingDp(context, 0)
             SettingsPreferences.setToolbarButtons(context, listOf("schema", "float"))
@@ -45,13 +58,22 @@ class SchemaPanelResizeImeTest {
             val range = KeyboardHeightProfiles.fixedBounds(context, landscape)
             var smallHeight = 0f
             for ((index, target) in listOf(range.first, range.last).withIndex()) {
+                val deadline = SystemClock.uptimeMillis() + 30_000
+                fun remaining() = (deadline - SystemClock.uptimeMillis()).coerceAtLeast(1L)
                 KeyboardHeightProfiles.save(context, false, landscape, target, context.resources.configuration.screenHeightDp)
                 rule.runOnUiThread {
                     editor.requestFocus()
                     imm.restartInput(editor)
                     imm.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
                 }
-                rule.waitUntil(30_000) {
+                rule.awaitRealImeInputReady(editor, imm, engine, remaining())
+                var expandedHardwareToolbar = false
+                rule.waitUntil(remaining()) {
+                    val expand = rule.onAllNodesWithTag("hardware-toolbar-keyboard", useUnmergedTree = true)
+                    if (!expandedHardwareToolbar && expand.fetchSemanticsNodes().isNotEmpty()) {
+                        expandedHardwareToolbar = true
+                        expand.onFirst().performClick()
+                    }
                     rule.onAllNodesWithContentDescription("输入方式").fetchSemanticsNodes().isNotEmpty() &&
                         rule.onAllNodesWithTag("fixed-keyboard-card").fetchSemanticsNodes().let { nodes ->
                             nodes.size == 1 && (index == 0 || nodes.single().size.height > smallHeight + 16)
@@ -84,6 +106,12 @@ class SchemaPanelResizeImeTest {
                     is String -> edit.putString(key, value)
                 } }
             }.commit()
+            if (!previousIme.isNullOrBlank()) shell("ime set $previousIme")
+            if (!wasEnabled) shell("ime disable $imeId")
         }
     }
+
+    private fun shell(command: String): String = ParcelFileDescriptor.AutoCloseInputStream(
+        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
+    ).bufferedReader().use { it.readText() }
 }

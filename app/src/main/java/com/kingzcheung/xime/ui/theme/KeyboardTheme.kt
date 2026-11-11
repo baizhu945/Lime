@@ -389,7 +389,8 @@ object KeyboardThemes {
 
     /** 将 hex long 转为 Color。0xRRGGBB 补上 FF alpha，0xAARRGGBB 保留 alpha。 */
     private fun longToColor(hex: Long): Color {
-        return if (hex > 0xFFFFFF) Color(hex) else Color(0xFF000000 or (hex and 0xFFFFFF))
+        // Compose's Color(Long) constructor expects a packed color space, not ARGB.
+        return if (hex > 0xFFFFFF) Color(hex.toInt()) else Color((0xFF000000 or (hex and 0xFFFFFF)).toInt())
     }
 
     /** 将颜色调亮（向白色混合），用于生成暗色主题下的亮色变体。 */

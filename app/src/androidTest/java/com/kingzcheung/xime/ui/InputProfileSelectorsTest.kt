@@ -1,5 +1,7 @@
 package com.kingzcheung.xime.ui
 
+import android.content.ContextWrapper
+import java.io.File
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -20,9 +22,13 @@ import com.kingzcheung.xime.settings.InputLayout
 import com.kingzcheung.xime.settings.InputScheme
 import com.kingzcheung.xime.settings.SchemaInfo
 import com.kingzcheung.xime.settings.Cyletix10Layout
+import com.kingzcheung.xime.settings.KeysConfigHelper
 import com.kingzcheung.xime.ui.settings.InputProfileSelectors
 import com.kingzcheung.xime.ui.menubar.SchemaListView
 import androidx.compose.ui.graphics.Color
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -31,6 +37,22 @@ import kotlin.math.abs
 
 class InputProfileSelectorsTest {
     @get:Rule val rule = createComposeRule()
+
+    private val target by lazy { InstrumentationRegistry.getInstrumentation().targetContext }
+    private val isolated by lazy {
+        object : ContextWrapper(target) {
+            override fun getFilesDir(): File =
+                File(target.cacheDir, "input-profile-selectors-config").apply { mkdirs() }
+        }
+    }
+
+    @Before fun loadDefaultKeyboardConfig() {
+        KeysConfigHelper.loadConfig(isolated)
+    }
+
+    @After fun restoreKeyboardConfig() {
+        KeysConfigHelper.loadConfig(target)
+    }
     private val entries = listOf(
         SchemaInfo("rime_ice", "雾凇拼音", "", "", ""),
         SchemaInfo("t9_pinyin", "九键拼音", "", "", ""),
@@ -102,7 +124,9 @@ class InputProfileSelectorsTest {
             assertEquals(InputLayout.QWERTY.id, current.profile.layout.id)
             assertEquals(InputScheme.DOUBLE_PINYIN, current.profile.scheme)
         }
-        rule.onNodeWithTag("layout-choice:zh:option:t9").assertDoesNotExist()
+        // Layouts the selected scheme does not offer stay visible but unavailable.
+        rule.onNodeWithTag("layout-choice:zh:option:t9")
+            .assertExists().assertIsDisplayed().assertIsNotSelected()
     }
 
     @Test fun narrowDarkLargeTextStacksCardsAndKeepsBothListsReachable() {

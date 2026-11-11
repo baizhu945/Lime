@@ -32,6 +32,9 @@ internal val LocalFloatingBottomClearance = staticCompositionLocalOf<MutableFloa
  */
 internal val LocalKeyboardKeyVisualMetrics = staticCompositionLocalOf { KeyVisualMetrics.Unspecified }
 
+/** Test-only sink for the metrics actually used by the layout (null in production). */
+internal val LocalKeyboardMetricsProbe = staticCompositionLocalOf<((KeyVisualMetrics) -> Unit)?> { null }
+
 /**
  * 键盘体尺寸上下文：算出 gutter、每侧 inset 与内容缩放。
  *
@@ -84,6 +87,8 @@ internal fun KeyboardKeySpacingScope(
             widthFraction = widthFraction,
             growthSpacing = growthSpacing,
         )
+        val metricsProbe = LocalKeyboardMetricsProbe.current
+        SideEffect { metricsProbe?.invoke(metrics) }
         val bottomClearance = LocalFloatingBottomClearance.current
         if (bottomClearance != null && growthSpacing != null) {
             val clearance = verticalInset.value + metrics.bottomSpaceDp + metrics.extraInsetY +

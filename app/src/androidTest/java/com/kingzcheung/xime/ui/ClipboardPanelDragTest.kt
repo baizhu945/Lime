@@ -151,15 +151,20 @@ class ClipboardPanelDragTest {
     }
 
     @Test fun quickShortHeaderFlickExpandsAndSlowSubThresholdDragReturns() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val distance = android.view.ViewConfiguration.get(context).scaledTouchSlop + 5f
+        // Density is fixed to 1 below: the gesture must cross touch slop but stay
+        // below the panel's 32dp distance threshold without a velocity projection.
+        assertTrue("touch slop too large for a sub-threshold drag: $distance", distance < 32f)
         show()
         rule.onNodeWithTag("drag-host").performTouchInput {
-            swipe(Offset(100f, 324f), Offset(100f, 304f), 40)
+            swipe(Offset(100f, 324f), Offset(100f, 324f - distance), 40)
         }
         rule.waitForIdle()
         rule.runOnIdle { assertTrue(expanded.value); assertEquals(300f, panel!!.height, 1f); expanded.value = false }
         rule.waitForIdle()
         rule.onNodeWithTag("drag-host").performTouchInput {
-            swipe(Offset(100f, 324f), Offset(100f, 304f), 400)
+            swipe(Offset(100f, 324f), Offset(100f, 324f - distance), 800)
         }
         rule.waitForIdle()
         rule.runOnIdle { assertFalse(expanded.value); assertEquals(140f, panel!!.height, 1f); assertEquals(0, clicks) }

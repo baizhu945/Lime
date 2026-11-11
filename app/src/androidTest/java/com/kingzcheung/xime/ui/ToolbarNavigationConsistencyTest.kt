@@ -21,7 +21,7 @@ import org.junit.Test
 class ToolbarNavigationConsistencyTest {
     @get:Rule val rule = createComposeRule()
 
-    @Test fun handwritingAndPanelsKeepTheToolbarSlotsAndHideButtonFrame() {
+    @Test fun handwritingAndPanelsKeepTheToolbarSlotsAndHideButtonFrame() = withFlatToolbarMaterial {
         val page = mutableStateOf<KeyboardPage>(KeyboardPage.Main(MainType.FULL))
         val buttons = listOf(ToolbarButton.SCHEMA, ToolbarButton.EMOJI, ToolbarButton.EDIT, ToolbarButton.HANDWRITING_LOOKUP)
         rule.setContent { MaterialTheme {
@@ -47,6 +47,22 @@ class ToolbarNavigationConsistencyTest {
             assertEquals(initial, positions())
             rule.onAllNodesWithContentDescription("返回").assertCountEquals(1)
             assertEquals(leading, rule.onNodeWithTag("toolbar-leading").fetchSemanticsNode().boundsInRoot)
+        }
+    }
+
+    private fun withFlatToolbarMaterial(block: () -> Unit) {
+        // Comparing two coordinates for a resting disc requires this fixture's flat white base,
+        // not an independently reflected/gradient toolbar material.
+        val previous = com.kingzcheung.xime.ui.theme.VisualStyles.current
+        try {
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                com.kingzcheung.xime.ui.theme.VisualStyles.current = com.kingzcheung.xime.ui.theme.VisualStyle.ORIGINAL
+            }
+            block()
+        } finally {
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                com.kingzcheung.xime.ui.theme.VisualStyles.current = previous
+            }
         }
     }
 

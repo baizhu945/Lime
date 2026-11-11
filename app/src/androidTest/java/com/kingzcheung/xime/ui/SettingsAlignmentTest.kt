@@ -39,7 +39,25 @@ class SettingsAlignmentTest {
         val chineseCard = rule.onNodeWithTag("schema-card:t9_pinyin").fetchSemanticsNode().boundsInRoot
         assertEquals(englishCard.left, chineseCard.left, 0f)
         assertEquals(englishCard.right, chineseCard.right, 0f)
-        assertEquals(englishCard.height, chineseCard.height, 1f)
+        val description = rule.onNodeWithText(requireNotNull(CyimeInputDefaults.description("t9_pinyin")), useUnmergedTree = true)
+        val descriptionBounds = description.assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertEquals("Only the actual extra description row may add height", englishCard.height + descriptionBounds.height,
+            chineseCard.height, 1f)
+        val descriptionLayouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        description.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(descriptionLayouts) }
+        assertTrue("Description must be measured and remain unclipped: ${descriptionLayouts.map {
+            "size=${it.size},width=${it.didOverflowWidth},height=${it.didOverflowHeight},lines=${it.lineCount}," +
+                "bottom=${if (it.lineCount > 0) it.getLineBottom(it.lineCount - 1) else 0f}," +
+                "paragraphWidth=${it.multiParagraph.width},lineRight=${if (it.lineCount > 0) it.getLineRight(0) else 0f}," +
+                "constraints=${it.layoutInput.constraints},style=${it.layoutInput.style}"
+        }}", descriptionLayouts.isNotEmpty() && descriptionLayouts.all { layout ->
+            !layout.didOverflowHeight && layout.lineCount > 0 &&
+                layout.getLineEnd(layout.lineCount - 1) == layout.layoutInput.text.length &&
+                (0 until layout.lineCount).all { line ->
+                    !layout.isLineEllipsized(line) && layout.getLineLeft(line) >= 0f &&
+                        layout.getLineRight(line) <= layout.size.width && layout.getLineBottom(line) <= layout.size.height
+                }
+        })
         val englishSwitch = rule.onNodeWithTag("schema-toggle:${InputModes.ENGLISH}")
         val chineseSwitch = rule.onNodeWithTag("schema-toggle:t9_pinyin")
         val first = englishSwitch.fetchSemanticsNode().boundsInRoot
@@ -47,6 +65,8 @@ class SettingsAlignmentTest {
         assertEquals(first.left, second.left, 0f)
         assertEquals(first.right, second.right, 0f)
         assertEquals(first.height, second.height, 0f)
+        assertEquals(englishCard.center.y, first.center.y, 1f)
+        assertEquals(chineseCard.center.y, second.center.y, 1f)
         assertEquals(rule.onNodeWithText("英文", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.left,
             rule.onNodeWithText("中文九键", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.left, 0f)
         englishSwitch.assertIsOn().assertIsNotEnabled().performTouchInput { down(center); up() }
@@ -70,8 +90,9 @@ class SettingsAlignmentTest {
                     }
                 }
             } }
-            val left = rule.onNodeWithTag("space-hold:REPEAT")
-            val right = rule.onNodeWithTag("space-hold:VOICE_TOGGLE")
+            rule.onNodeWithTag("space-hold-options", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+            val left = rule.onNodeWithTag("space-hold:REPEAT").assertIsDisplayed()
+            val right = rule.onNodeWithTag("space-hold:VOICE_TOGGLE").assertIsDisplayed()
             val a = left.fetchSemanticsNode().boundsInRoot
             val b = right.fetchSemanticsNode().boundsInRoot
             val row = rule.onNodeWithTag("space-hold-options", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot

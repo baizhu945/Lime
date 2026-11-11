@@ -43,15 +43,27 @@ class LanguageSettingsOrderTest {
     @get:Rule val rule = createComposeRule()
 
     private fun dragCardOver(fromTag: String, toTag: String) {
-        rule.onNodeWithTag(toTag).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag(toTag).performScrollTo()
+        rule.waitForIdle()
+        val targetBounds = rule.onNodeWithTag(toTag).fetchSemanticsNode().boundsInRoot
+        val rootBounds = rule.onNodeWithTag("language-settings").fetchSemanticsNode().boundsInRoot
+        assertTrue("$toTag must be laid out inside the panel: $targetBounds / $rootBounds",
+            targetBounds.width > 0f && targetBounds.height > 0f &&
+                targetBounds.top >= rootBounds.top - 1f && targetBounds.bottom <= rootBounds.bottom + 1f &&
+                targetBounds.left >= rootBounds.left - 1f && targetBounds.right <= rootBounds.right + 1f)
         val source = rule.onNodeWithTag(fromTag).assertIsDisplayed()
         val from = source.fetchSemanticsNode().boundsInRoot
         val to = rule.onNodeWithTag(toTag).fetchSemanticsNode().boundsInRoot
         rule.mainClock.autoAdvance = false
         try {
             source.performTouchInput { down(Offset(width * 0.25f, center.y)) }
-            rule.mainClock.advanceTimeBy(700)
-            source.performTouchInput { moveBy(Offset(0f, to.center.y - from.center.y)); up() }
+            rule.mainClock.advanceTimeBy(1200)
+            val delta = (to.center.y - from.center.y) / 5f
+            repeat(5) {
+                source.performTouchInput { moveBy(Offset(0f, delta)) }
+                rule.mainClock.advanceTimeByFrame()
+            }
+            source.performTouchInput { up() }
         } finally { rule.mainClock.autoAdvance = true }
         rule.waitForIdle()
     }
@@ -69,12 +81,14 @@ class LanguageSettingsOrderTest {
         val context = isolatedContext()
         val prefs = SettingsPreferences.getPrefsPublic(context)
         SettingsPreferences.setSetupCompleted(context, true)
-        assertEquals(setOf(InputLanguage.CHINESE, InputLanguage.ENGLISH), LanguagePreferences.enabled(context))
+        assertEquals(setOf(InputLanguage.CHINESE, InputLanguage.ENGLISH, InputLanguage.UNSPECIFIED),
+            LanguagePreferences.enabled(context))
         LanguagePreferences.initialize(context)
         assertEquals(setOf("zh", "en"), prefs.getStringSet(LanguagePreferences.KEY, emptySet()))
 
         prefs.edit().putStringSet(LanguagePreferences.KEY, setOf("zh", "ja")).commit()
-        assertEquals(setOf(InputLanguage.CHINESE, InputLanguage.JAPANESE, InputLanguage.ENGLISH), LanguagePreferences.enabled(context))
+        assertEquals(setOf(InputLanguage.CHINESE, InputLanguage.JAPANESE, InputLanguage.ENGLISH,
+            InputLanguage.UNSPECIFIED), LanguagePreferences.enabled(context))
         LanguagePreferences.initialize(context)
         assertEquals(setOf("zh", "ja", "en"), prefs.getStringSet(LanguagePreferences.KEY, emptySet()))
     }
@@ -85,11 +99,13 @@ class LanguageSettingsOrderTest {
         prefs.edit().putStringSet(LanguagePreferences.KEY, setOf("ja")).commit()
         LanguagePreferences.initialize(context)
         assertEquals(setOf("ja", "en"), prefs.getStringSet(LanguagePreferences.KEY, emptySet()))
-        assertEquals(setOf(InputLanguage.JAPANESE, InputLanguage.ENGLISH), LanguagePreferences.enabled(context))
+        assertEquals(setOf(InputLanguage.JAPANESE, InputLanguage.ENGLISH, InputLanguage.UNSPECIFIED),
+            LanguagePreferences.enabled(context))
         assertEquals(listOf(InputLanguage.JAPANESE, InputLanguage.ENGLISH), InputModes.languageOrder(context))
 
         prefs.edit().putStringSet(LanguagePreferences.KEY, setOf("en")).commit()
-        assertEquals(setOf(InputLanguage.ENGLISH), LanguagePreferences.enabled(context))
+        assertEquals(setOf(InputLanguage.ENGLISH, InputLanguage.UNSPECIFIED),
+            LanguagePreferences.enabled(context))
         assertEquals(listOf(InputLanguage.ENGLISH), InputModes.languageOrder(context))
         val choices = InputModes.languageChoices(listOf(
             SchemaInfo("rime_ice", "中文26键", "", "", ""),
@@ -140,7 +156,8 @@ class LanguageSettingsOrderTest {
         rule.onAllNodesWithTag("language-order-up:zh").assertCountEquals(0)
         dragCardOver("language-drag:zh", "language-drag:ja")
         assertEquals(listOf("en", "zh", "ja"), InputModes.languageOrder(context).map { it.id })
-        assertEquals(InputLanguage.entries.toSet(), LanguagePreferences.enabled(context))
+        assertEquals(setOf(InputLanguage.CHINESE, InputLanguage.JAPANESE, InputLanguage.ENGLISH,
+            InputLanguage.UNSPECIFIED), LanguagePreferences.enabled(context))
 
         rule.runOnIdle { showSettings.value = false }
         rule.onAllNodesWithTag("profile-language").assertCountEquals(0)
@@ -154,6 +171,8 @@ class LanguageSettingsOrderTest {
         val context = isolatedContext()
         SettingsPreferences.getPrefsPublic(context).edit()
             .putStringSet(LanguagePreferences.KEY, setOf("zh", "ja", "en")).commit()
+        // The drag fixture uses a personal three-language order, not the Chinese/English defaults.
+        InputModes.saveLanguageOrder(context, listOf("zh", "ja", "en"))
         val fontScale = mutableStateOf(1f)
         rule.setContent {
             CompositionLocalProvider(LocalContext provides context,
@@ -163,9 +182,14 @@ class LanguageSettingsOrderTest {
                 }
             }
         }
+        rule.onNodeWithTag("language-expand:zh").performClick()
+        rule.waitForIdle()
         for (font in listOf(1f, 1.3f, 2f)) {
             rule.runOnIdle { fontScale.value = font }
-            rule.assertGeometry("language-settings", "语言管理 280dp 字体 ${font}x")
+            rule.mainClock.advanceTimeByFrame()
+            rule.waitForIdle()
+            rule.mainClock.advanceTimeBy(200)
+            rule.waitForIdle()
             val card = rule.onNodeWithTag("language-drag:zh").performScrollTo().assertIsDisplayed()
             val bounds = card.fetchSemanticsNode().boundsInRoot
             assertTrue("${font}x 语言卡片拖动区域高度不足: $bounds", bounds.height >= 71f)
@@ -174,6 +198,7 @@ class LanguageSettingsOrderTest {
             assertEquals("font=$font", listOf("ja", "zh", "en"), InputModes.languageOrder(context).map { it.id })
             dragCardOver("language-drag:zh", "language-drag:ja")
             assertEquals(listOf("zh", "ja", "en"), InputModes.languageOrder(context).map { it.id })
+            rule.assertGeometry("language-settings", "语言管理 280dp 字体 ${font}x")
         }
     }
 }

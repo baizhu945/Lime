@@ -144,7 +144,10 @@ class JapaneseLayoutActionsTest {
         assertTrue(punct.right <= wa.left)
         rule.onNodeWithTag("kana-convert").performClick()
         assertEquals("japanese_convert", actions.last())
-        rule.onNodeWithTag("kana-convert").performTouchInput { down(center); moveTo(center + Offset(0f, 50f)); moveTo(center + Offset(0f, 100f)); up() }
+        val flick = with(rule.density) { 50.dp.toPx() }
+        rule.onNodeWithTag("kana-convert").performTouchInput {
+            down(center); moveTo(center + Offset(0f, flick)); moveTo(center + Offset(0f, flick * 2)); up()
+        }
         assertEquals("japanese_undo", actions.last())
         rule.onNodeWithTag("kana-left").performTouchInput { longClick(durationMillis = 850) }
         assertTrue(actions.count { it == "japanese_left" } > 1)

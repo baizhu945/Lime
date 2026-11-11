@@ -66,6 +66,17 @@ internal class JapaneseInputController(private val service: XimeInputMethodServi
     suspend fun cancel() { conversion = null; show() }
     /** 只挪了光标、没转换时没有转换预览（预览里有光标竖线，不能上屏）。 */
     fun conversionPreview(): String? = current()?.takeIf { it.converted }?.preview
+
+    /** A literal ends Japanese as displayed kana, not its romaji encoding or first kanji candidate. */
+    fun literalPreview(): String? {
+        if (!available()) return null
+        conversionPreview()?.let { return it }
+        // Read the engine on the serial key queue, not candidateState which can lag a UI frame.
+        val composition = engine.getComposition()
+        return japanesePreedit(composition.input, composition.preedit)
+            .filterNot { it.isWhitespace() || it == '\'' || it == PREEDIT_CARET }
+    }
+
     suspend fun commit(index: Int? = null): Boolean {
         val active = current() ?: return false
         // 点候选：只上屏这一段，后面的读音留着接着打。

@@ -50,6 +50,18 @@ class PreeditEditorImeTest {
     private var previousSubtype = -1
     private var savedSystemImeState = false
     private var oldInputLocation = ""
+    private var expandedCompactToolbar = false
+    private var imeService: com.kingzcheung.xime.service.XimeInputMethodService? = null
+
+    private fun findService(view: android.view.View): com.kingzcheung.xime.service.XimeInputMethodService? {
+        var candidate: Context? = view.context
+        while (candidate != null) {
+            if (candidate is com.kingzcheung.xime.service.XimeInputMethodService) return candidate
+            candidate = (candidate as? android.content.ContextWrapper)?.baseContext?.takeUnless { it === candidate }
+        }
+        if (view is android.view.ViewGroup) for (i in 0 until view.childCount) findService(view.getChildAt(i))?.let { return it }
+        return null
+    }
 
     @Before fun startKeyboard(): Unit = runBlocking {
         oldInputLocation = SettingsPreferences.getInputTextLocation(context)
@@ -86,20 +98,41 @@ class PreeditEditorImeTest {
             inputMethodManager.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
         }
         rule.waitUntil(30_000) {
-            rule.onAllNodesWithTag("language-key-control", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+            imeService = android.view.inspector.WindowInspector.getGlobalWindowViews().firstNotNullOfOrNull(::findService)
+            imeService != null && rule.onAllNodesWithTag("language-key-control", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        val service = checkNotNull(imeService)
+        if (service.uiState.value.isCompact) {
+            rule.waitUntil(10_000) { rule.onAllNodesWithTag("hardware-toolbar-keyboard", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+            expandedCompactToolbar = true
+            rule.onNodeWithTag("hardware-toolbar-keyboard", useUnmergedTree = true).performClick()
+            rule.waitUntil(10_000) { !service.uiState.value.isCompact }
         }
     }
 
     @After fun stopKeyboardAndRestoreSystemIme() {
         if (!savedSystemImeState) return
         try {
-            if (::editor.isInitialized) {
-                rule.runOnUiThread {
-                    inputMethodManager.hideSoftInputFromWindow(editor.windowToken, 0)
-                    editor.clearFocus()
+            try {
+                // The preedit panel installs a BackHandler; close it via its real control
+                // before Back is used to restore the hardware-keyboard compact toolbar.
+                if (rule.onAllNodesWithTag("preedit-editor", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()) {
+                    rule.onNodeWithTag("preedit-editor-close", useUnmergedTree = true).performClick()
+                    rule.waitUntil(10_000) { rule.onAllNodesWithTag("preedit-editor", useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
                 }
+                if (expandedCompactToolbar && imeService?.uiState?.value?.isCompact == false) {
+                    shell("input keyevent KEYCODE_BACK")
+                    rule.waitUntil(10_000) { imeService?.uiState?.value?.isCompact == true }
+                }
+            } finally {
+                if (::editor.isInitialized) {
+                    rule.runOnUiThread {
+                        inputMethodManager.hideSoftInputFromWindow(editor.windowToken, 0)
+                        editor.clearFocus()
+                    }
+                }
+                stopKeyboardService()
             }
-            stopKeyboardService()
         } finally {
             SettingsPreferences.setInputTextLocation(context, oldInputLocation)
             if (previouslyEnabled) shell("ime enable $imeId")
@@ -171,22 +204,42 @@ class PreeditEditorImeTest {
     }
     private fun selectExpandedCandidate(value: String) {
         val candidates = engine.getAllCandidates().toList()
-        val candidate = candidates.firstOrNull { it.text == value }
-        assertNotNull("Rime 全量候选缺少 $value，input=${engine.getInput()} candidates=${candidates.take(30)}", candidate)
-        // Expanded entries render the word and its annotation in one styled Text node.
-        val comment = candidate!!.comment.replace("~", "")
-        val displayText = value + if (comment.isNotEmpty()) " $comment" else ""
+        val index = candidates.indexOfFirst { it.text == value }
+        assertNotNull("Rime 全量候选缺少 $value，input=${engine.getInput()} candidates=${candidates.take(30)}",
+            index.takeIf { it >= 0 })
+        // The candidate bar renders the first page, and the expanded page only carries the rest
+        // (remainingCandidates), so a word on the bar is selected through its slot tag.
+        val barSlot = (0 until 16).firstOrNull { slot ->
+            rule.onAllNodes(hasTestTag("bar-candidate:$slot") and hasText(value, substring = true))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        if (barSlot != null) {
+            rule.onNodeWithTag("bar-candidate:$barSlot").performTouchInput { click() }
+            return
+        }
+        // Expanded rows are lazy and carry the engine-global index; walk the row indexes so a
+        // panel that opens scrolled does not hide the row (annotations are width-dependent).
+        val tag = "expanded-candidate:$index"
         rule.onNodeWithTag("candidate-expansion").performTouchInput { click() }
         rule.waitUntil(5000) { rule.onAllNodesWithTag("expanded-candidates").fetchSemanticsNodes().isNotEmpty() }
+        val panel = rule.onNodeWithTag("expanded-candidates")
         try {
-            rule.onNodeWithTag("expanded-candidates").performScrollToNode(hasText(displayText, substring = false))
-            rule.onNode(hasText(displayText, substring = false) and hasAnyAncestor(hasTestTag("expanded-candidates")))
-                .performTouchInput { click() }
+            val rows = panel.fetchSemanticsNode()
+                .config[androidx.compose.ui.semantics.SemanticsProperties.CollectionInfo].rowCount
+            // The panel dispatches its own scroll actions asynchronously, so settle after each step.
+            for (row in 0 until maxOf(rows, 1)) {
+                panel.performScrollToIndex(row)
+                rule.waitForIdle()
+                if (rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()) break
+            }
+            rule.waitUntil(5000) { rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
+            rule.onNodeWithTag(tag).performTouchInput { click() }
         } catch (failure: Throwable) {
             screenshot("candidate-$value-failure")
             val dir = File(context.getExternalFilesDir(null), "preedit-editor").apply { mkdirs() }
             File(dir, "candidate-$value-failure.txt").writeText(
-                "expected=$displayText input=${engine.getInput()} candidates=$candidates\n" +
+                "expected=$value index=$index input=${engine.getInput()} candidates=$candidates\n" +
+                    rule.onNodeWithTag("expanded-candidates").printToString() + "\n--- unmerged ---\n" +
                     rule.onNodeWithTag("expanded-candidates", useUnmergedTree = true).printToString())
             throw failure
         }
@@ -211,15 +264,33 @@ class PreeditEditorImeTest {
         val qSize = qBefore.size
         val preview = rule.onNodeWithTag("candidate-preedit").fetchSemanticsNode()
         val previewHeight = preview.size.height
-        rule.onNodeWithText("ni'hao", useUnmergedTree = true).assertExists()
+        val snapshot = engine.readPinyinEditSnapshot()
+        assertEquals("nihao", snapshot[0]); assertEquals("5", snapshot[1])
+        assertEquals("nihao", snapshot[4].filter { it.isLetter() })
+        val previewText = rule.onNodeWithTag("candidate-preedit-text", useUnmergedTree = true)
+            .fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+        // The preview inserts U+200B after a separator as a line-break opportunity.
+        assertEquals("nihao", previewText.filter { it.isLetter() })
+        assertEquals("前文", text())
+        rule.runOnUiThread { assertEquals(2, editor.selectionStart); assertEquals(2, editor.selectionEnd) }
         val previewLayouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
-        rule.onNodeWithText("ni'hao", useUnmergedTree = true).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(previewLayouts) }
+        rule.onNodeWithTag("candidate-preedit-text", useUnmergedTree = true).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(previewLayouts) }
         screenshot("pinyin-preview-segmented")
         openEditor()
+        val editorNode = rule.onNodeWithTag("preedit-editor-code").fetchSemanticsNode()
+        val editorCode = editorNode.config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text
+        assertEquals("nihao", editorCode.filter { it.isLetter() })
+        assertEquals(editorCode.length, editorNode.config[androidx.compose.ui.semantics.SemanticsProperties.TextSelectionRange].start)
         val editLayouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
         rule.onNodeWithTag("preedit-editor-code").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(editLayouts) }
         assertEquals(previewLayouts.single().layoutInput.style.fontSize, editLayouts.single().layoutInput.style.fontSize)
-        assertEquals(previewLayouts.single().layoutInput.style.color, editLayouts.single().layoutInput.style.color)
+        // The editor intentionally dims the same text colour slightly; its RGB must still match the preview.
+        val previewColor = previewLayouts.single().layoutInput.style.color
+        val editorColor = editLayouts.single().layoutInput.style.color
+        assertEquals(previewColor.red, editorColor.red)
+        assertEquals(previewColor.green, editorColor.green)
+        assertEquals(previewColor.blue, editorColor.blue)
+        assertEquals(0.9f, editorColor.alpha, 0.01f)
         screenshot("pinyin-editor-segmented")
         val strip = rule.onNodeWithTag("preedit-editor").captureToImage().asAndroidBitmap()
         File(context.getExternalFilesDir(null), "preedit-editor/pinyin-editor-surface.png").outputStream().use {
@@ -233,7 +304,10 @@ class PreeditEditorImeTest {
         val qAfter = rule.onNodeWithText("q", ignoreCase = true).fetchSemanticsNode()
         assertEquals(qPosition, qAfter.positionOnScreen); assertEquals(qSize, qAfter.size)
         rule.onNodeWithTag("preedit-apply").assertDoesNotExist()
-        assertEquals(previewHeight, rule.onNodeWithTag("preedit-editor-surface").fetchSemanticsNode().size.height)
+        // The popup row and the candidate strip round their text boxes at slightly different dp;
+        // keep the same compact height without requiring pixel-identical subpixel rounding.
+        assertEquals(previewHeight.toFloat(),
+            rule.onNodeWithTag("preedit-editor-surface").fetchSemanticsNode().size.height.toFloat(), 2f)
         // Both sides of a separator remain distinct cursor positions, and the normal
         // delete key removes the separator itself without deleting the preceding letter.
         for (caret in listOf(2, 3, 2, 3)) {
@@ -312,23 +386,41 @@ class PreeditEditorImeTest {
     @Test fun punctuationCommitsImmediatelyAndNeverLeavesCandidates() {
         chooseMode("rime_ice"); setPrefix()
         "nihao".forEach { tap(it.toString()) }
-        rule.waitUntil(5000) { engine.getCandidates().contains("你好") }
+        rule.waitUntil(5000) { engine.getInput() == "nihao" && engine.getCandidates().contains("你好") }
+        // Literal punctuation commits the typed code, not the first Chinese candidate.
         tap("，")
-        assertSettled("前文你好，")
+        assertSettled("前文nihao，")
+        assertTrue("标点上屏后 Rime 候选必须清空", engine.getCandidates().isEmpty())
         rule.onNodeWithTag("candidate-expansion").assertDoesNotExist()
         rule.onNodeWithTag("candidate-preedit").assertDoesNotExist()
+        // A fresh composition still offers Chinese candidates; explicitly select one.
+        "nihao".forEach { tap(it.toString()) }
+        rule.waitUntil(5000) { engine.getInput() == "nihao" && engine.getCandidates().contains("你好") }
+        // The candidate text can include a user-configured number prefix (e.g. "1 你好").
+        val firstCandidate = hasTestTag("bar-candidate:0") and hasText("你好", substring = true)
+        rule.waitUntil(5000) { rule.onAllNodes(firstCandidate).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNode(firstCandidate).assertIsDisplayed().performClick()
+        assertSettled("前文nihao，你好")
     }
 
     @Test fun mergedAndDoublePinyinEditsReturnToTheirOwnLayout() {
         chooseMode("pinyin_14jian"); setPrefix()
         listOf("bn", "ui", "gh", "as", "op").forEach(::tap)
-        rule.waitUntil(5000) { engine.getInput() == "bugao" }
+        // Merged-key taps deliver uppercase representative codes; lowercase means exact letters.
+        rule.waitUntil(5000) { engine.getInput() == "BUGAO" }
         openEditor(); draft("nihao"); applyDraft()
+        // The editor buffer holds plain letters, so the rewritten code is lowercase.
         rule.waitUntil(5000) { engine.getInput() == "nihao" }
         assertEquals("nihao", engine.getInput()); assertEquals("前文", text())
         rule.onNodeWithText("bn", ignoreCase = true).assertExists()
-        rule.onNodeWithText("你好").performClick()
+        selectExpandedCandidate("你好")
         rule.waitUntil(5000) { text() == "前文你好" }
+        // The committed word leaves association candidates in the bar, which replaces the
+        // idle toolbar; dismiss them through the real control so the layout stays reachable.
+        if (rule.onAllNodesWithContentDescription("取消输入").fetchSemanticsNodes().isNotEmpty()) {
+            rule.onNodeWithContentDescription("取消输入").performClick()
+            rule.waitUntil(5000) { rule.onAllNodesWithTag("bar-association:0").fetchSemanticsNodes().isEmpty() }
+        }
         chooseMode("double_pinyin_flypy")
         "nihk".forEach { tap(it.toString()) }
         rule.waitUntil(5000) { engine.getInput() == "nihk" }
@@ -342,7 +434,10 @@ class PreeditEditorImeTest {
     @Test fun mergedReadingAndMultiTapEditorKeepLettersAndCaretStable() {
         chooseMode("pinyin_14jian"); setPrefix()
         listOf("qw", "er", "bn").forEach(::tap)
-        rule.waitUntil(5000) { engine.readPinyinEditSnapshot().firstOrNull() == "qeb" }
+        // Merged-key taps use uppercase representative codes; lowercase denotes exact letters.
+        rule.waitUntil(5000) { engine.readPinyinEditSnapshot().firstOrNull() == "QEB" }
+        assertEquals("wen", engine.readPinyinEditSnapshot()[4])
+        assertTrue(engine.getCandidates().any { it in listOf("问", "文", "温") })
         rule.onNode(hasText("wen") and hasAnyAncestor(hasTestTag("candidate-preedit")), useUnmergedTree = true).assertExists()
         screenshot("merged-reading-wen")
         openEditor()
@@ -370,26 +465,63 @@ class PreeditEditorImeTest {
         chooseMode("t9_pinyin"); setPrefix()
         listOf("MNO", "GHI", "GHI", "ABC", "MNO").forEach(::tap)
         rule.waitUntil(5000) { engine.getInput().isNotEmpty() && engine.getCandidates().contains("你好") }
-        rule.onNodeWithText("ni'hao", useUnmergedTree = true).assertExists()
+        val previewText = rule.onNodeWithTag("candidate-preedit-text", useUnmergedTree = true)
+            .fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+        assertEquals("ni'hao", previewText.replace("\u200B", ""))
         openEditor(); draft("ni'hao", 3)
         rule.onNodeWithTag("t9-delete-key").performTouchInput { click() }
         rule.waitUntil(5000) { rule.onNodeWithTag("preedit-editor-code").fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text == "nihao" }
+        assertEquals("64426", engine.readPinyinEditSnapshot()[0])
         rule.onNodeWithTag("t9-delete-key").performTouchInput { click() }
-        rule.waitUntil(5000) { rule.onNodeWithTag("preedit-editor-code").fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text == "nhao" }
+        rule.waitUntil(5000) { engine.readPinyinEditSnapshot()[0] == "6426" }
+        rule.waitUntil(5000) {
+            val code = rule.onNodeWithTag("preedit-editor-code").fetchSemanticsNode().config
+            val reading = engine.readPinyinEditSnapshot()[4].replace(' ', '\'')
+            code[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text == reading &&
+                code[androidx.compose.ui.semantics.SemanticsProperties.TextSelectionRange].start == 1
+        }
+        assertEquals("6426", engine.t9GetRemainingDigits())
+        assertEquals("前文", text())
         draft("ni'hao", 3)
-        tap("MNO"); tap("MNO"); tap("MNO")
-        rule.waitUntil(5000) { rule.onNodeWithTag("preedit-editor-code").fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text == "ni'ohao" }
+        // 九键只把原始数字码交给预编辑：多击字母分支只服务 14 键，T9 的 MNO 直接送出数字 6，
+        // 在 caret 3（码位 2）处插入后，原码 64426 变成 646426。
+        tap("MNO")
+        rule.waitUntil(5000) { engine.readPinyinEditSnapshot().getOrNull(0) == "646426" }
+        rule.waitUntil(5000) {
+            val code = rule.onNodeWithTag("preedit-editor-code").fetchSemanticsNode().config
+            code[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text ==
+                engine.readPinyinEditSnapshot()[4].replace(' ', '\'') &&
+                code[androidx.compose.ui.semantics.SemanticsProperties.TextSelectionRange].start == 3
+        }
         rule.waitForIdle()
         val shown = rule.onNodeWithTag("preedit-editor-code").fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].joinToString { it.text }
-        assertFalse("T9 editor must show its reading, not raw key digits: $shown", shown.any { it.isDigit() })
+        assertFalse("T9 编辑器只显示引擎读音，不显示原始数字码: $shown", shown.any { it.isDigit() })
+        assertEquals("插入原始数字码不能改动宿主文本", "前文", text())
+        // 原九键删除键撤掉刚插入的码，回到原来的 64426、读音与 caret 3。
         rule.onNodeWithTag("t9-delete-key").performTouchInput { down(center); up() }
-        rule.waitUntil(5000) { rule.onNodeWithTag("preedit-editor-code").fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text == "ni'hao" }
+        rule.waitUntil(5000) { engine.readPinyinEditSnapshot().getOrNull(0) == "64426" }
+        try {
+            rule.waitUntil(5000) {
+                val code = rule.onNodeWithTag("preedit-editor-code").fetchSemanticsNode().config
+                code[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text ==
+                    engine.readPinyinEditSnapshot()[4].replace(' ', '\'') &&
+                    code[androidx.compose.ui.semantics.SemanticsProperties.TextSelectionRange].start == 3
+            }
+        } catch (failure: Throwable) {
+            val code = rule.onNodeWithTag("preedit-editor-code").fetchSemanticsNode().config
+            throw AssertionError("恢复失败 snapshot=${engine.readPinyinEditSnapshot().joinToString()} " +
+                "editor=${code[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text} " +
+                "caret=${code[androidx.compose.ui.semantics.SemanticsProperties.TextSelectionRange]} " +
+                "remaining=${engine.t9GetRemainingDigits()}", failure)
+        }
+        rule.onNodeWithTag("preedit-editor-code").assertTextEquals("ni'hao")
+        assertEquals("前文", text())
         rule.waitForIdle()
         screenshot("t9-live-editor-original-keys")
         applyDraft()
-        rule.waitUntil(5000) { engine.getInput().contains("hao") }
-        val edited = engine.getInput()
-        assertTrue(edited.contains("ni")); assertTrue(edited.contains("hao")); assertEquals("前文", text())
+        // 关闭浮层不会提交：恢复后的歧义码仍留在组合里，宿主不被改动。
+        rule.waitUntil(5000) { engine.getInput() == "64426" }
+        assertEquals("前文", text())
         // Select only the first word, leaving a protected nine-key partial commit.
         selectExpandedCandidate("你")
         rule.waitUntil(5000) { engine.getInput().isNotEmpty() && engine.getCandidates().isNotEmpty() }

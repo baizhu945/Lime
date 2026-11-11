@@ -207,6 +207,7 @@ object ExtensionManager {
     }
     
     fun reload(context: Context): Boolean {
+        if (!isInitialized()) return false
         return try {
             managerScope.launch {
                 PluginManager.loadEnabledPlugins()

@@ -37,6 +37,13 @@ class T9LongInputBenchmarkTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         val queue = InputCommandQueue(scope, worker)
         val controller = T9InputController(engine, inputCommands = queue)
+        // Instrumentation changes timing; wall clock is comparable across threads, CPU is per event thread.
+        // Never capture digit values, input, candidates, or editor text.
+        data class Timing(val id: Int, val event: String, val wall: Long, val cpu: Long, val thread: Long)
+        val timing = java.util.concurrent.ConcurrentLinkedQueue<Timing>()
+        controller.timingObserver = { id, event ->
+            timing.add(Timing(id, event, SystemClock.elapsedRealtimeNanos(), android.os.Debug.threadCpuTimeNanos(), Thread.currentThread().id))
+        }
         val samples = JSONArray()
         val deleteSamples = mutableListOf<Double>()
         val main = Handler(Looper.getMainLooper())
@@ -117,7 +124,16 @@ class T9LongInputBenchmarkTest {
                 report.getLong("heldDeleteTotalMs") < (code.length - 1) * 70 + 500)
         } finally {
             main.removeCallbacks(beat)
-            drain(); controller.close(); queue.close(); worker.close(); scope.cancel()
+            drain()
+            ins.runOnMainSync { } // collect pending publication events before writing
+            val events = JSONArray()
+            timing.forEach { sample ->
+                events.put(JSONObject().put("id", sample.id).put("event", sample.event)
+                    .put("elapsedNanos", sample.wall).put("threadCpuNanos", sample.cpu).put("threadId", sample.thread))
+            }
+            File(context.getExternalFilesDir(null), "t9-long-timing.json").writeText(
+                JSONObject().put("diagnosticPerturbsTiming", true).put("events", events).toString())
+            controller.close(); queue.close(); worker.close(); scope.cancel()
             engine.clearQueuedT9Composition()
             engine.switchSchema(schema); engine.setOption("ascii_mode", ascii)
         }
@@ -138,11 +154,20 @@ class T9LongInputBenchmarkTest {
         val output = File(context.getExternalFilesDir(null), "t9-long-$label.json")
         fun record(case: String, action: String, length: Int, block: () -> Unit) {
             val start = SystemClock.elapsedRealtimeNanos()
-            block()
-            val ms = (SystemClock.elapsedRealtimeNanos() - start) / 1e6
+            val cpuStart = android.os.Debug.threadCpuTimeNanos()
+            // Diagnostic outer acquisition uses the same fair, reentrant lock as the engine.
+            // It slightly perturbs timing; wall time still includes acquisition and the call.
+            RimeEngine.rimeLock.lock()
+            val acquired = SystemClock.elapsedRealtimeNanos()
+            val queued = RimeEngine.rimeLock.queueLength
+            try { block() } finally { RimeEngine.rimeLock.unlock() }
+            val end = SystemClock.elapsedRealtimeNanos()
+            val cpuMs = (android.os.Debug.threadCpuTimeNanos() - cpuStart) / 1e6
+            val ms = (end - start) / 1e6
             if (action == "delete") deleteSamples += ms
             samples.put(JSONObject().put("case", case).put("action", action)
-                .put("length", length).put("ms", ms))
+                .put("length", length).put("ms", ms).put("threadCpuMs", cpuMs)
+                .put("lockWaitMs", (acquired - start) / 1e6).put("lockQueueLength", queued))
             Log.i("T9LongBenchmark", "$case $action $length: $ms ms")
             val visible = engine.inspectCandidates(20).map { it.toList() }
             if (action == "key") prefixCandidates[case to length] = visible

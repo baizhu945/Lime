@@ -39,17 +39,35 @@ class ModeNavigationTest {
     private lateinit var vm: KeyboardViewModel
     private val keys = mutableListOf<String>()
     private val commits = mutableListOf<String>()
+    private val rowLayoutFields = listOf("_zhRowsLayout", "_enRowsLayout").map { name ->
+        KeysConfigHelper::class.java.getDeclaredField(name).apply { isAccessible = true }
+    }
+    private var previousRowLayouts = emptyList<Any?>()
 
     @Before fun prepare() {
-        SettingsPreferences.getPrefsPublic(context).edit().clear().commit()
+        SettingsPreferences.getPrefsPublic(context).edit().clear()
+            .putBoolean("reverse_symbol_swipe", true)
+            .putBoolean("qwerty_period_key_v2", false)
+            .putString("symbol_input_mode", "SWIPE_UP").commit()
         KeysConfigHelper.loadConfig(app)
+        previousRowLayouts = rowLayoutFields.map { it.get(KeysConfigHelper) }
         KeyboardThemes.reload(app)
     }
-    @After fun cleanup() { SettingsPreferences.getPrefsPublic(context).edit().clear().commit() }
+    @After fun cleanup() {
+        rowLayoutFields.zip(previousRowLayouts).forEach { (field, previous) -> field.set(KeysConfigHelper, previous) }
+        SettingsPreferences.getPrefsPublic(context).edit().clear().commit()
+    }
 
     private fun mount(schema: String, english: Boolean = false, width: Int = 400, split: Boolean = false, floating: Boolean = false) {
         SettingsPreferences.setSplitKeyboardEnabled(context, split)
         KeysConfigHelper.setActiveKeyboardSchema(schema)
+        // Explicit legacy two-entry configuration. The current configured ?123 single
+        // key is covered independently by ConfiguredModeKeyComposeTest.
+        rowLayoutFields.forEachIndexed { index, field ->
+            val rows = KeysConfigHelper.getKeyRows(schema, index == 1).take(3)
+            field.set(KeysConfigHelper, com.kingzcheung.xime.settings.KeyboardRowsLayout(
+                rows.map { com.kingzcheung.xime.settings.KeyboardRow(it) }))
+        }
         vm = KeyboardViewModel(app)
         rule.setContent {
             val config = Configuration(LocalConfiguration.current).apply {
@@ -82,7 +100,13 @@ class ModeNavigationTest {
         val comma = rule.onNodeWithText(if (english) "," else "，", useUnmergedTree = true)
         comma.performTouchInput { click() }
         comma.performTouchInput { swipe(center, center - androidx.compose.ui.geometry.Offset(0f, 80f), 180) }
-        rule.runOnIdle { assertEquals(listOf(",", "."), keys) }
+        rule.runOnIdle {
+            // Current callbacks carry the exact printed glyph; retain the legacy key-identity
+            // check and additionally verify width, rather than normalizing a wrong glyph away.
+            val identities = keys.map { when (it) { "，" -> ","; "。" -> "."; else -> it } }
+            assertEquals(listOf(",", "."), identities)
+            assertEquals(if (english) listOf(",", ".") else listOf("，", "。"), keys)
+        }
     }
 
     @Test fun numericOperatorColumnIsBalancedFrom14Key() = verifyNumericColumns(400)
@@ -201,7 +225,7 @@ class ModeNavigationTest {
         assertTrue("zero must no longer take most of the bottom row", zero.width < first.width * 2.5f)
     }
 
-    private fun bounds(slot: Int): Rect = rule.onNodeWithTag("mode-slot-$slot", true).fetchSemanticsNode().boundsInRoot
+    private fun bounds(slot: Int): Rect = rule.onNodeWithTag("mode-slot-$slot").fetchSemanticsNode().boundsInRoot
     private fun same(expected: Rect, actual: Rect) {
         assertEquals("slot left", expected.left, actual.left, 1.5f)
         assertEquals("slot top", expected.top, actual.top, 1.5f)
@@ -214,7 +238,16 @@ class ModeNavigationTest {
         rule.waitForIdle()
     }
     private fun label(slot: Int, expected: String) {
-        rule.onNode(hasTestTag("mode-slot-$slot") and hasAnyDescendant(hasText(expected)), true).assertExists()
+        try {
+            rule.onNode(hasTestTag("mode-slot-$slot") and
+                (hasText(expected) or hasAnyDescendant(hasText(expected)))).assertExists()
+        } catch (failure: AssertionError) {
+            println("MODE_LABEL_FAILURE slot=$slot expected=$expected " +
+                rule.onAllNodesWithTag("mode-slot-$slot", true).fetchSemanticsNodes().indices.joinToString("\n") {
+                    rule.onAllNodesWithTag("mode-slot-$slot", true)[it].printToString()
+                })
+            throw failure
+        }
     }
     private fun verifyTriangle(label: String, screenshot: String) {
         val original = vm.keyboardState.value
@@ -230,7 +263,7 @@ class ModeNavigationTest {
         tapAt(second) // text -> numbers
         label(1, "!@#"); label(2, label)
         assertNumericNavigationColumns()
-        rule.onNodeWithText("1").performTouchInput { click() }
+        rule.onNodeWithTag("number-digit:1").performTouchInput { click() }
         save("$screenshot-numbers")
         tapAt(bounds(2)) // numeric return shares the operator-column width
         rule.runOnIdle { assertEquals(original, vm.keyboardState.value); assertTrue(vm.page.value is KeyboardPage.Main) }

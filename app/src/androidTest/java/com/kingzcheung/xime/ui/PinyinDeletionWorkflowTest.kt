@@ -30,7 +30,7 @@ class PinyinDeletionWorkflowTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = SettingsPreferences.getPrefsPublic(context)
         val saved = listOf("floating_mode", "keyboard_height_dp", "keyboard_bottom_padding_dp",
-            "current_schema", "current_schema_dual", "neighbor_correction").associateWith { prefs.all[it] }
+            "current_schema", "current_schema_dual", "neighbor_correction", "reverse_symbol_swipe").associateWith { prefs.all[it] }
         val previousIme = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
         val ime = "${context.packageName}/com.kingzcheung.xime.service.XimeInputMethodService"
         val wasEnabled = shell("ime list -s").lineSequence().any { it == ime }
@@ -49,7 +49,9 @@ class PinyinDeletionWorkflowTest {
             SettingsPreferences.setKeyboardBottomPaddingDp(context, 0)
             SettingsPreferences.setFloatingMode(context, false)
             SettingsPreferences.setCurrentSchema(context, "rime_ice")
-            prefs.edit().putBoolean("neighbor_correction", true).commit()
+            // This workflow explicitly exercises physical up = the delete key's top action.
+            prefs.edit().putBoolean("neighbor_correction", true)
+                .putBoolean("reverse_symbol_swipe", true).commit()
             assertTrue(engine.switchSchema("rime_ice"))
             engine.setOption("ascii_mode", false)
             engine.setUserConfigBool("var/option/ascii_mode", false)
@@ -64,7 +66,16 @@ class PinyinDeletionWorkflowTest {
             }
             val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
             rule.runOnUiThread { editor.requestFocus(); imm.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT) }
-            rule.waitUntil(30000) { rule.onAllNodesWithTag("qwerty-key:g").fetchSemanticsNodes().isNotEmpty() }
+            var expandedHardwareToolbar = false
+            rule.waitUntil(30000) {
+                val ready = rule.onAllNodesWithTag("qwerty-key:g").fetchSemanticsNodes().isNotEmpty()
+                val expand = rule.onAllNodesWithTag("hardware-toolbar-keyboard", useUnmergedTree = true)
+                if (!ready && !expandedHardwareToolbar && expand.fetchSemanticsNodes().isNotEmpty()) {
+                    expandedHardwareToolbar = true
+                    expand.onFirst().performClick()
+                }
+                ready
+            }
             fun type() {
                 for (letter in "ggd") rule.onNodeWithTag("qwerty-key:$letter").performTouchInput { click() }
                 rule.waitUntil(5000) { engine.getInput() == "ggd" }

@@ -3,6 +3,8 @@ package com.kingzcheung.xime.ui.keyboard
 import com.kingzcheung.xime.settings.EngineProfile
 import com.kingzcheung.xime.settings.InputProfile
 import com.kingzcheung.xime.settings.KeysConfigHelper
+import com.kingzcheung.xime.settings.KeyboardRow
+import com.kingzcheung.xime.settings.KeyboardRowsLayout
 import com.kingzcheung.xime.settings.LayoutKind
 import kotlin.math.floor
 import kotlin.math.roundToInt
@@ -28,7 +30,11 @@ internal fun letterKeyboardDefaults(
     val schemaId = (profile.engineProfile as? EngineProfile.Rime)?.schemaId.orEmpty()
     val custom = KeysConfigHelper.letterLayout(schemaId, isAsciiMode)
     val rows = custom?.typingRows() ?: KeysConfigHelper.getKeyRows(schemaId, isAsciiMode)
-    if (standardLetterRowGeometry(rows, 1f, custom != null, false) == null) return null
+    // The schema-aware API preserves the configured Shift/delete and control row.
+    // Normalize the same recognized standard layout as the renderer before checking
+    // its three-letter-row frame; leave arbitrary/custom layouts untouched.
+    val letterRows = legacyControlLayoutLetters(KeyboardRowsLayout(rows.map { KeyboardRow(it) }), rows) ?: rows
+    if (standardLetterRowGeometry(letterRows, 1f, custom != null, false) == null) return null
     val (x, y) = KeysConfigHelper.getKeyboardKeyConfig().spacingFor("qwerty")
     val pitch = physicalMetrics?.dpFromMillimeters(CALIBRATED_QWERTY_PITCH_MM)
     return LetterKeyboardDefaults(availableHeightDp, x, y, floating, pitch, maximumHeightDp)

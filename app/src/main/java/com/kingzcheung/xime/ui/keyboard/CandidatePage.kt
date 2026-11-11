@@ -61,6 +61,8 @@ import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -105,8 +107,9 @@ data class CandidatePageState(
     val singleCharFilter: Boolean = false,
     /** 左栏符号列表（九键/笔画复刻各自键盘左栏的 side_symbols）；空=通用快捷符号 */
     val railSymbols: List<String> = emptyList(),
-    /** 左栏音节拼音候选（九键输入/选择态复刻，与键盘左栏同源）；非空时优先于 railSymbols */
+    /** 左栏音节拼音候选；拼音输入期间即使暂时为空也不回退显示符号。 */
     val railPinyinOptions: List<String> = emptyList(),
+    val usePinyinRail: Boolean = false,
     /** 拼音候选项选中索引（九键 SELECTION 态），-1 无选中 */
     val railSelectedPinyinIndex: Int = -1,
     /** 拼音选中胶囊强调色（对齐九键 CandidateItem）；Unspecified 时用 textColor 兜底 */
@@ -179,22 +182,45 @@ fun CandidatePage(
     }
     val spacing = com.kingzcheung.xime.settings.KeysConfigHelper.getKeyboardKeyConfig()
         .spacingFor(if (qwerty != null) "qwerty" else "t9")
-    Column(modifier.fillMaxSize().keyboardPanelBackground(state.backgroundColor)) {
-        KeyboardKeySpacingScope(Modifier.weight(1f).fillMaxWidth(), columns = qwerty?.columns ?: (5f * 3f / 3.4f),
-            widthFraction = qwerty?.widthFraction ?: 1f,
+    BoxWithConstraints(modifier.fillMaxSize().keyboardPanelBackground(state.backgroundColor)) {
+        val geometry = if (qwerty?.split == true) {
+            val prefs = LocalKeyboardInputPreferences.current
+            val context = LocalContext.current
+            val display = LocalView.current.display
+            val configuration = LocalConfiguration.current
+            val pixelsPerDp = LocalDensity.current.density
+            val pitchDp = remember(context, display, configuration, pixelsPerDp) {
+                keyboardPhysicalMetrics(context, display, pixelsPerDp)
+                    ?.dpFromMillimeters(CALIBRATED_QWERTY_PITCH_MM)
+            }
+            val gutterDp = SplitKeyboardGeometry.gutterDp(state.floating)
+            val savedGap = LocalSplitGapPreview.current?.value ?: if (
+                configuration.screenWidthDp > configuration.screenHeightDp) prefs.splitGapLandscape else prefs.splitGapPortrait
+            val gap = SplitKeyboardGeometry.resolvedGap(savedGap, maxWidth.value, gutterDp, pitchDp)
+            qwerty.copy(widthFraction = SplitKeyboardGeometry.keyWidthFraction(maxWidth.value, gap, gutterDp))
+        } else qwerty
+        CompositionLocalProvider(LocalKeyboardExplicitWidth provides
+            (LocalKeyboardExplicitWidth.current || geometry?.split == true)) {
+        Column(Modifier.fillMaxSize()) {
+        KeyboardKeySpacingScope(Modifier.weight(1f).fillMaxWidth(), columns = geometry?.columns ?: (5f * 3f / 3.4f),
+            widthFraction = geometry?.widthFraction ?: 1f,
             policy = if (qwerty != null) KeyVisualPolicy.Qwerty else KeyVisualPolicy.T9,
             allowShrink = state.floating, applyGutter = true,
-            growthSpacing = spacing,
+            growthSpacing = if (geometry != null) spacing ?: (null to null) else spacing,
             // 和身后的键盘同一网格：分体时键盘不加宽，这里也不加宽。
-            widenKeys = LocalKeyboardInputPreferences.current.wideKeys && qwerty?.split != true) { body ->
+            widenKeys = LocalKeyboardInputPreferences.current.wideKeys && geometry?.split != true,
+            // 候选展开页是内容网格，不是传统键盘键区。
+            ) { body ->
             CompositionLocalProvider(LocalKeyVisualPadding provides PaddingValues(
                 horizontal = spacing.first?.dp ?: 2.dp, vertical = spacing.second?.dp ?: 2.dp)) {
-                CandidatePageContent(state.copy(bottomPaddingDp = 0), callbacks,
-                    body.padding(start = (qwerty?.innerInsetDp ?: 0f).dp,
-                        end = (qwerty?.innerInsetDp ?: 0f).dp, bottom = 8.dp), pageScrollEvents, onHapticFeedback)
+                CandidatePageContent(state.copy(bottomPaddingDp = 0, qwertyGeometry = geometry), callbacks,
+                    body.padding(start = (geometry?.innerInsetDp ?: 0f).dp,
+                        end = (geometry?.innerInsetDp ?: 0f).dp, bottom = 8.dp), pageScrollEvents, onHapticFeedback)
             }
         }
         Spacer(Modifier.height(state.bottomPaddingDp.dp))
+        }
+        }
     }
 }
 
@@ -217,9 +243,9 @@ private fun CandidatePageContent(
         state.textColor.copy(alpha = 0.12f) else state.keyBackgroundColor
     val dividerColor = state.textColor.copy(alpha = 0.12f)
     val railSymbols = state.railSymbols.ifEmpty { QUICK_SYMBOLS }
-    // 九键输入/选择态：左栏显示音节拼音候选（与键盘左栏同源同点击）；空闲态回落符号列表
-    val railItems = state.railPinyinOptions.ifEmpty { railSymbols }
-    val isPinyinRail = state.railPinyinOptions.isNotEmpty()
+    // 查询尚未完成或没有可选音节时，拼音输入也不能显示无关的标点。
+    val isPinyinRail = state.usePinyinRail || state.railPinyinOptions.isNotEmpty()
+    val railItems = if (isPinyinRail) state.railPinyinOptions else railSymbols
     // 中间候选区滚动；翻页 = 滚动一屏
     val listState = rememberLazyListState()
     var viewportHeightPx by remember { mutableIntStateOf(0) }
@@ -252,12 +278,12 @@ private fun CandidatePageContent(
             val qwerty = state.qwertyGeometry
             val matchKeyboard = t9 || qwerty != null
             val compactRail = matchKeyboard || isLandscape || maxHeight < 226.dp
-            val leftWidth = qwerty?.let { maxWidth * it.modeFraction }
+            val leftWidth = qwerty?.let { maxWidth * (it.modeFraction * it.widthFraction) }
                 ?: if (t9) maxWidth * (0.8f / 5f) else leftRailWidth
             val deleteWidth = qwerty?.deleteWidth(maxWidth.value)?.dp
-            val enterWidth = qwerty?.let { maxWidth * it.enterFraction }
+            val enterWidth = qwerty?.let { maxWidth * (it.enterFraction * it.widthFraction) }
             val rightWidth = qwerty?.let {
-                maxOf(maxWidth * it.enterFraction, it.deleteWidth(maxWidth.value).dp + it.deleteEndInsetDp.dp)
+                maxOf(maxWidth * (it.enterFraction * it.widthFraction), it.deleteWidth(maxWidth.value).dp + it.deleteEndInsetDp.dp)
             } ?: if (t9) maxWidth * (0.8f / 5f) else rightRailWidth
             Row(
                 modifier = Modifier

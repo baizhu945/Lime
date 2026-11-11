@@ -19,7 +19,7 @@ class HandwritingLanguageBoundaryTest {
     @get:Rule val rule = createComposeRule()
 
     @Test fun unsupportedLanguageHasNoChineseCanvasAndReturnActionStaysReachable() {
-        var language by mutableStateOf(InputLanguage.JAPANESE)
+        var language by mutableStateOf(InputLanguage.UNSPECIFIED)
         var exits = 0
         rule.setContent {
             val density = LocalDensity.current.density
@@ -30,13 +30,12 @@ class HandwritingLanguageBoundaryTest {
                 }
             }
         }
-        for (lang in listOf(InputLanguage.JAPANESE, InputLanguage.UNSPECIFIED)) {
-            rule.runOnIdle { language = lang }
-            rule.onNodeWithTag("handwriting-canvas").assertDoesNotExist()
-            rule.onNodeWithTag("handwriting-unavailable").assertExists()
-            rule.onNodeWithText("选择输入方案").performScrollTo().assertIsDisplayed().performClick()
-        }
-        rule.runOnIdle { assertEquals(2, exits) }
+        // Chinese, English and Japanese all have handwriting; only an unspecified
+        // language falls back to the scheme chooser.
+        rule.onNodeWithTag("handwriting-canvas").assertDoesNotExist()
+        rule.onNodeWithTag("handwriting-unavailable").assertExists()
+        rule.onNodeWithText("选择输入方案").performScrollTo().assertIsDisplayed().performClick()
+        rule.runOnIdle { assertEquals(1, exits) }
     }
 
     @Test fun englishTypingShowsChineseHandwritingAndLanguageChangesKeepTheBoundary() {
@@ -47,15 +46,19 @@ class HandwritingLanguageBoundaryTest {
             }
         }
         rule.onNodeWithTag("handwriting-canvas").assertExists()
-        rule.onNodeWithTag("handwriting-language").assertTextEquals("中文手写")
+        // The hint follows the active input language; with the optional template model
+        // it gains a "· 边写边学" suffix, so only the language prefix is fixed.
+        rule.onNodeWithTag("handwriting-language").assertTextContains("英文手写", substring = true)
         rule.onNodeWithTag("handwriting-unavailable").assertDoesNotExist()
 
         rule.runOnIdle { language = InputLanguage.JAPANESE }
-        rule.onNodeWithTag("handwriting-canvas").assertDoesNotExist()
-        rule.onNodeWithTag("handwriting-unavailable").assertExists()
+        rule.onNodeWithTag("handwriting-canvas").assertExists()
+        rule.onNodeWithTag("handwriting-language").assertTextContains("日语手写", substring = true)
+        rule.onNodeWithTag("handwriting-unavailable").assertDoesNotExist()
 
         rule.runOnIdle { language = InputLanguage.CHINESE }
         rule.onNodeWithTag("handwriting-canvas").assertExists()
+        rule.onNodeWithTag("handwriting-language").assertTextContains("中文手写", substring = true)
         rule.onNodeWithTag("handwriting-unavailable").assertDoesNotExist()
     }
 }

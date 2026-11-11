@@ -307,9 +307,20 @@ fun KeyboardView(
     val panelMaterial = Modifier.inheritKeyboardBackground(!state.handwritingExpanded)
     var cursorControlActive by remember { mutableStateOf(false) }
     val floatingBottomClearance = remember(state.isFloatingMode) { mutableFloatStateOf(0f) }
+    // Panel changes deliberately do not reset the originating TEXT geometry. Layout,
+    // configuration and viewport changes do, including legacy/custom row replacement.
+    val navigationConfigVersion by KeysConfigHelper.configVersion.collectAsStateWithLifecycle()
+    val textNavigationGeometry = remember(
+        state.currentSchemaId, state.inputProfile.layout, state.isAsciiMode, textLayout, page.textMainType(),
+        kbKey, navigationConfigVersion, resizeControlDensity, inputPreferences,
+        state.isFloatingMode, state.keyboardWidthDp,
+        state.keyboardHeightDp, state.fixedWidthDp, state.floatingRotation,
+        state.floatingOffsetX, state.floatingOffsetY, screenW, screenH,
+    ) { TextModeNavigationGeometry() }
     // 上拉变悬浮后接着跟手：换模式时这一层不变，由它接着读手指。
     val undockFollow = remember { KeyboardUndockFollow() }
     CompositionLocalProvider(
+        LocalTextModeNavigationGeometry provides textNavigationGeometry,
         LocalKeyboardUndockFollow provides undockFollow,
         LocalKeyboardResizeOpacityEditing provides opacityEditingState.takeIf { resizeActive },
         LocalSplitKeyboardGap provides splitKeyboardGap,
@@ -366,7 +377,8 @@ fun KeyboardView(
     ) {
     // 调节态的坐标宿主。Service 在“悬浮 + 调节”时把这一层扩成整个可用 IME 区域；
     // 因而这里的 (0,0) 就是卡片与调节框共同使用的唯一坐标原点。
-    BoxWithConstraints(modifier = Modifier.undockFollowTracker(undockFollow).then(modifier).fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.undockFollowTracker(undockFollow).then(modifier).fillMaxSize()
+        .onSizeChanged { textNavigationGeometry.resize(it) }) {
         val hostWidthPx = with(resizeControlDensity) { maxWidth.toPx() }
         val hostHeightPx = with(resizeControlDensity) { maxHeight.toPx() }
         val dragBarPx = with(resizeControlDensity) { FLOATING_DRAG_BAR_HEIGHT_DP.dp.toPx() }
@@ -550,7 +562,9 @@ fun KeyboardView(
                 if (key.startsWith("preedit_cursor:")) {
                     editPreedit(key = key); true
                 } else if (key == "delete" || key == "'" || key.length == 1 &&
-                    (key[0].lowercaseChar() in 'a'..'z' || t9 && key[0] in '1'..'9')) {
+                    (key[0].lowercaseChar() in 'a'..'z' || t9 && key[0] in '1'..'9') ||
+                    state.inputProfile.layout == com.kingzcheung.xime.settings.InputLayout.MERGED14 &&
+                    com.kingzcheung.xime.rime.merged14MultiTapGroup(key) != null) {
                     editPreedit(key = key); true
                 } else { closePreeditEditor(); false }
             }) else null
@@ -1003,6 +1017,7 @@ fun KeyboardView(
                         singleCharFilter = singleCharFilter,
                         railSymbols = customRailSymbols.orEmpty(),
                         railPinyinOptions = railPinyinOptions,
+                        usePinyinRail = canChooseSyllable || (isT9Layout && cs.isComposing && !state.isAsciiMode),
                         railSelectedPinyinIndex = railSelectedPinyinIndex,
                         railAccentColor = accentColor,
                         enterKeyText = state.enterKeyText,
