@@ -237,7 +237,15 @@ class PreeditEditorImeTest {
         rule.waitUntil(5000) { rule.onAllNodesWithTag("preedit-editor").fetchSemanticsNodes().isEmpty() }
     }
     private fun selectExpandedCandidate(value: String) {
-        val candidates = engine.getAllCandidates().toList()
+        val deadline = android.os.SystemClock.uptimeMillis() + 5_000
+        fun remaining() = (deadline - android.os.SystemClock.uptimeMillis()).coerceAtLeast(1)
+        var candidates = emptyList<com.kingzcheung.xime.rime.RimeCandidate>()
+        // getAllCandidates() is nonblocking: an empty result can mean the engine is busy.
+        // Candidate readiness and the existing UI waits share the original five-second budget.
+        rule.waitUntil(remaining()) {
+            candidates = engine.getAllCandidates().toList()
+            candidates.any { it.text == value }
+        }
         val index = candidates.indexOfFirst { it.text == value }
         assertNotNull("Rime 全量候选缺少 $value，input=${engine.getInput()} candidates=${candidates.take(30)}",
             index.takeIf { it >= 0 })
@@ -255,7 +263,7 @@ class PreeditEditorImeTest {
         // panel that opens scrolled does not hide the row (annotations are width-dependent).
         val tag = "expanded-candidate:$index"
         rule.onNodeWithTag("candidate-expansion").performTouchInput { click() }
-        rule.waitUntil(5000) { rule.onAllNodesWithTag("expanded-candidates").fetchSemanticsNodes().isNotEmpty() }
+        rule.waitUntil(remaining()) { rule.onAllNodesWithTag("expanded-candidates").fetchSemanticsNodes().isNotEmpty() }
         val panel = rule.onNodeWithTag("expanded-candidates")
         try {
             val rows = panel.fetchSemanticsNode()
@@ -266,7 +274,7 @@ class PreeditEditorImeTest {
                 rule.waitForIdle()
                 if (rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()) break
             }
-            rule.waitUntil(5000) { rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
+            rule.waitUntil(remaining()) { rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
             rule.onNodeWithTag(tag).performTouchInput { click() }
         } catch (failure: Throwable) {
             screenshot("candidate-$value-failure")
