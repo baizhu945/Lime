@@ -125,15 +125,18 @@ class HardwareEnglishCandidateImeTest {
             rule.waitForIdle()
             val density = context.resources.displayMetrics.density
             fun toolbarWidth() = rule.onNodeWithTag("hardware-keyboard-toolbar", true).fetchSemanticsNode().boundsInRoot.width
-            rule.waitUntil(10_000) { !has("hardware-docked-candidates") && toolbarWidth() <= 250f * density }
-            assertTrue("Idle Chinese toolbar should be compact", toolbarWidth() <= 250f * density)
+            // Docked keyboards reserve the candidate strip even while idle, so the
+            // capsule keeps one stable width and never jumps when words appear.
+            rule.waitUntil(10_000) { has("hardware-docked-candidates") && !has("bar-candidate:0") }
+            assertTrue("Idle docked strip must remain wide", toolbarWidth() > 300f * density)
 
             // Tap must use the same immediate language toggle as the screen keyboard.
             rule.onNodeWithTag("hardware-toolbar-language", true).performTouchInput { click() }
             rule.waitUntil(10_000) { engine.isAsciiMode() && languageIs("EN") }
             assertFalse("A tap must switch language without opening the list", has("language-menu"))
             rule.onNodeWithText("EN", useUnmergedTree = true).assertIsDisplayed()
-            rule.waitUntil(10_000) { !has("hardware-docked-candidates") && toolbarWidth() <= 250f * density }
+            rule.waitUntil(10_000) { has("hardware-docked-candidates") && !has("bar-candidate:0") }
+            assertTrue("Idle English strip must reserve its width", toolbarWidth() > 300f * density)
             assertFalse("An empty English toolbar must not show a candidate-next action", has("hardware-candidate-next"))
             screenshot("hardware-english-idle-ime.png")
 
@@ -148,6 +151,10 @@ class HardwareEnglishCandidateImeTest {
                 screenshot("hardware-language-menu-ime.png")
             } finally {
                 languageKey.performTouchInput { up() }
+            }
+            // Releasing without moving keeps the menu open for tap selection by design.
+            if (has("language-menu")) {
+                rule.onNodeWithContentDescription("选择英文").performClick()
             }
             rule.waitUntil(5_000) { !has("language-menu") }
             assertTrue(languageIs("EN"))
@@ -178,7 +185,7 @@ class HardwareEnglishCandidateImeTest {
             assertTrue("Completion must come from the bundled English dictionary: $completion", inBundledDictionary)
             screenshot("hardware-english-candidates-ime.png")
             rule.onNodeWithTag("bar-candidate:0", true).performClick()
-            rule.waitUntil(10_000) { !has("hardware-docked-candidates") }
+            rule.waitUntil(10_000) { !has("bar-candidate:0") && !has("hardware-candidate-next") }
             assertEquals("Confirming the already typed word must not insert it twice", "hel", document())
 
             // Replacing the second word must preserve the previously accepted word.
@@ -187,11 +194,18 @@ class HardwareEnglishCandidateImeTest {
             rule.waitUntil(15_000) { visibleCompletion() != null }
             val selectedCompletion = requireNotNull(visibleCompletion())
             rule.onNodeWithTag("bar-candidate:1", true).performClick()
-            rule.waitUntil(10_000) { document() == "hel $selectedCompletion" && !has("hardware-docked-candidates") }
+            rule.waitUntil(10_000) { document() == "hel $selectedCompletion" && !has("bar-candidate:0") }
             assertEquals("Selecting a completion replaces only the pending prefix", "hel $selectedCompletion", document())
             screenshot("hardware-english-completion-accepted-ime.png")
 
-            rule.onNodeWithTag("hardware-toolbar-language", true).performTouchInput { click() }
+            // With Chinese/English/Japanese enabled the tap cycle is EN -> 日 -> 中.
+            var switchTaps = 0
+            while (switchTaps < 3 && !(!engine.isAsciiMode() && languageIs("中"))) {
+                rule.onNodeWithTag("hardware-toolbar-language", true).performTouchInput { click() }
+                rule.waitForIdle()
+                android.os.SystemClock.sleep(250)
+                switchTaps++
+            }
             rule.waitUntil(10_000) { !engine.isAsciiMode() && languageIs("中") }
             assertFalse("Switching back by tap must not open the language list", has("language-menu"))
             rule.runOnUiThread {
@@ -223,6 +237,8 @@ class HardwareEnglishCandidateImeTest {
             // Japanese resources fail visibly; they must not be reported as passing validation.
             shell("input keyboard keyevent KEYCODE_ENTER")
             rule.waitUntil(10_000) { engine.getInput().isEmpty() && !has("hardware-preedit-card") }
+            // This segment validates the current-language/English pair, not the cycle.
+            LanguageSwitchPreferences.save(context, LanguageSwitchOptions(LanguageSwitchMode.CURRENT_ENGLISH))
             val pairKey = rule.onNodeWithTag("hardware-toolbar-language", true)
             pairKey.performTouchInput { down(center) }
             var released = false

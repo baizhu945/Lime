@@ -80,15 +80,82 @@ class FrostedKeyColorsTest {
             val panel = Color.Black.copy(alpha = glass.backgroundOpacity).compositeOver(host)
             for (key in listOf(normalKey, functionKey)) {
                 val fill = frostedKeyColor(key, Color.White, glass).compositeOver(panel)
-                assertTrue("near-black key stays dark on $host", fill.red - panel.red < 0.1f)
-                assertTrue("but is still told apart from the panel on $host", fill.red - panel.red > 0.01f)
+                assertTrue("near-black key stays dark on $host", fill.red - panel.red < 0.12f)
+                assertTrue("but is still told apart from the panel on $host", fill.red - panel.red >= 16f / 255f)
                 assertTrue(textContrast(Color.White, fill) >= 4.5f)
             }
         }
-        assertEquals(normalKey.red * glassNearBlackLift, frostedKeyColor(normalKey, Color.White, glass).red, tolerance)
+        // The original lift remains a floor; a white host can require a slightly
+        // brighter tint to retain the same visible edge without changing opacity.
+        assertTrue(frostedKeyColor(normalKey, Color.White, glass).red >= normalKey.red * glassNearBlackLift)
         // 其他主题的深色键帽仍按原规则提亮，保持层次。
         val softBlueKey = Color(0xFF2E323A)
         assertTrue(frostedKeyColor(softBlueKey, Color.White, glass).red > softBlueKey.red + 0.1f)
+    }
+
+    @Test fun neutralCorrectionFadesAtOpacityEndpointsAndPreservesOpacityScale() {
+        val cap = Color(0xFF1C1C1C)
+        fun tint(opacity: Float, scale: Float = 1f) = frostedKeyColor(cap, Color.White,
+            enabled.copy(keyOpacity = opacity), opacityScale = scale)
+        for (opacity in listOf(0f, 0.001f, 0.01f, 0.1f, 0.2f, 0.48f, 0.8f, 0.99f, 0.999f, 1f)) {
+            val fill = tint(opacity)
+            assertEquals(opacity, fill.alpha, tolerance)
+            assertEquals(opacity * 0.4f, tint(opacity, 0.4f).alpha, tolerance)
+            assertEquals(fill.red, tint(opacity, 0.4f).red, tolerance)
+        }
+        assertTrue(kotlin.math.abs(tint(0.999f).red - tint(1f).red) < 0.01f)
+        // At zero opacity the visible result, not the unobservable tint, is continuous.
+        for (host in listOf(Color.Black, Color.White)) {
+            val zero = tint(0f).compositeOver(host)
+            val almost = tint(0.001f).compositeOver(host)
+            assertTrue(kotlin.math.abs(zero.red - almost.red) <= tolerance)
+        }
+    }
+
+    @Test fun colouredAndZeroChannelCapsKeepHueAndAvoidNeutralCorrection() {
+        val config = enabled.copy(keyOpacity = 0.2f)
+        val red = Color(0xFF2D0101)
+        val zero = Color(0xFF2D0000)
+        val a = frostedKeyColor(red, Color.White, config)
+        val b = frostedKeyColor(zero, Color.White, config)
+        assertTrue(kotlin.math.abs(a.red - b.red) <= tolerance)
+        assertEquals(0f, b.green, 0f)
+        assertEquals(0f, b.blue, 0f)
+        assertEquals(red.green / red.red, a.green / a.red, tolerance)
+        assertTrue("saturated red must not become pink", a.green < 0.03f)
+    }
+
+    @Test fun greyNearBlackThresholdAndNeutralityBoundariesAreContinuous() {
+        val config = enabled.copy(keyOpacity = 0.2f)
+        // Extended sRGB retains sub-8-bit inputs, so this measures the transition
+        // rather than jumps caused by quantising the test inputs themselves.
+        fun tint(r: Float, g: Float, b: Float) = frostedKeyColor(
+            Color(r, g, b, 1f, androidx.compose.ui.graphics.colorspace.ColorSpaces.ExtendedSrgb), Color.White, config)
+        var previous = tint(0.14f, 0.14f, 0.14f).red
+        for (i in 1..140) {
+            val c = 0.14f + i * 0.0005f
+            val current = tint(c, c, c).red
+            assertTrue("peak=$c: $previous -> $current", kotlin.math.abs(current - previous) < 0.012f)
+            previous = current
+        }
+        previous = tint(0.12f, 0.12f, 0.12f).red
+        for (i in 1..100) {
+            val delta = i * 0.0005f
+            val current = tint(0.12f, 0.12f - delta, 0.12f - delta).red
+            assertTrue("chroma=$delta: $previous -> $current", kotlin.math.abs(current - previous) < 0.012f)
+            previous = current
+        }
+    }
+
+    @Test fun defaultNeutralLetterAndFunctionStaySeparatedOnBothHosts() {
+        val config = FrostedGlassConfig.defaults(true, true)
+        for (host in listOf(Color.Black, Color.White)) {
+            val panel = Color.Black.copy(alpha = config.backgroundOpacity).compositeOver(host)
+            val letter = frostedKeyColor(Color(0xFF1C1C1C), Color.White, config).compositeOver(panel)
+            val function = frostedKeyColor(Color(0xFF353535), Color.White, config).compositeOver(panel)
+            assertTrue(letter.red - panel.red >= 16f / 255f)
+            assertTrue(function.red - letter.red >= 16f / 255f)
+        }
     }
 
     @Test fun zeroOpacityRemainsTransparentDuringAllInteractionStates() {

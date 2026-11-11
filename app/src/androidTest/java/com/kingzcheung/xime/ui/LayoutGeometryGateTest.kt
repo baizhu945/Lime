@@ -13,6 +13,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.text.TextLayoutResult
@@ -43,11 +46,26 @@ class LayoutGeometryGateTest {
     }
 
     @Test fun validatorRejectsOverlappingActions() {
+        val visibility = mutableStateOf(0)
         rule.setContent { Box(Modifier.size(160.dp, 120.dp).testTag("overlap-fixture")) {
             Box(Modifier.size(80.dp, 48.dp).testTag("first").clickable {})
-            Box(Modifier.offset(40.dp, 0.dp).size(80.dp, 48.dp).testTag("second").clickable {})
+            val semantics = when (visibility.value) {
+                1 -> Modifier.clearAndSetSemantics {}
+                2 -> Modifier.clearAndSetSemantics {
+                    contentDescription = "combined second"
+                    onClick { true }
+                }
+                else -> Modifier
+            }
+            Box(semantics) {
+                Box(Modifier.offset(40.dp, 0.dp).size(80.dp, 48.dp).testTag("second").clickable {})
+            }
         } }
         assertTrue(rule.geometryIssues("overlap-fixture").any { it.contains("相互遮挡") })
+        rule.runOnIdle { visibility.value = 1 }
+        assertFalse("隐藏子树不再是活动操作", rule.geometryIssues("overlap-fixture").any { it.contains("相互遮挡") })
+        rule.runOnIdle { visibility.value = 2 }
+        assertTrue("清除语义节点自身的活动按钮仍必须校验", rule.geometryIssues("overlap-fixture").any { it.contains("相互遮挡") })
     }
 
     @Test fun clearConfirmationMatrixKeepsActionsReadableAndClickable() {
@@ -92,7 +110,9 @@ class LayoutGeometryGateTest {
         } }
         for (v in listOf(280 to 140, 360 to 200, 800 to 180)) {
             rule.runOnIdle { size.value = v }
-            rule.onNodeWithContentDescription("清空剪贴板").performClick()
+            rule.onNodeWithTag("clipboard-more").performClick()
+            rule.onNodeWithTag("clipboard-clear").performScrollTo().performClick()
+            rule.waitForIdle()
             val issues = rule.geometryIssues("clipboard-clear-overlay", allowViewportClipping = false)
             assertTrue("实际剪贴板 $v\n${issues.joinToString("\n")}", issues.isEmpty())
             val host = rule.onNodeWithTag("clipboard-host").fetchSemanticsNode().boundsInRoot

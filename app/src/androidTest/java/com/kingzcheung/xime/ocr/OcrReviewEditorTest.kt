@@ -10,9 +10,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import com.kingzcheung.xime.service.QuickSendFormCodeEditTextHolder
@@ -99,12 +101,16 @@ class OcrReviewEditorTest {
     @Test fun editorGrowsWithTextThenScrollsWithinSpaceAboveKeyboardAndShrinksAgain() {
         var keyboardHeight by mutableStateOf(220.dp)
         rule.setContent {
+            // Use a phone density: at the test default 1.0 the 2400px window is
+            // 2400dp tall, so a 340dp keyboard never constrains a 40-line draft.
+            CompositionLocalProvider(LocalDensity provides Density(2.625f)) {
             MaterialTheme {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) {
                     Box(Modifier.width(360.dp).height(keyboardHeight).testTag("adaptive-keyboard")) {
                         OcrReviewEditor("短文本", Color.White, Color(0xff252630), Color.Cyan, {}, {}, {}, {})
                     }
                 }
+            }
             }
         }
         val short = popupScreenBounds()
@@ -125,7 +131,11 @@ class OcrReviewEditorTest {
         saveUiEvidence("ocr-editor-long", rule.onNodeWithTag("clipboard-text-editor"))
         saveScreen("ocr-editor-long-screen")
         rule.runOnIdle { keyboardHeight = 340.dp }
-        assertTrue("Resizing the keyboard reduces available editor height", popupScreenBounds().height() < long.height())
+        // The popup is a separate window; Compose idle alone does not guarantee its
+        // layout has been measured after the anchor moves.
+        rule.waitUntil(5_000) { popupScreenBounds().height() < long.height() }
+        assertTrue("Resizing the keyboard reduces available editor height",
+            popupScreenBounds().height() < long.height())
         rule.onNodeWithText("保存").assertIsDisplayed()
         rule.runOnIdle { QuickSendFormEditTextHolder.editText!!.setText("短文本") }
         rule.waitUntil(5_000) { popupScreenBounds().height() == short.height() }

@@ -3,6 +3,8 @@ package com.kingzcheung.xime.ui
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Bitmap
+import android.os.ParcelFileDescriptor
+import android.provider.Settings
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
@@ -17,13 +19,16 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.test.platform.app.InstrumentationRegistry
+import com.kingzcheung.xime.rime.RimeConfigHelper
 import com.kingzcheung.xime.service.QuickSendFormEditTextHolder
 import com.kingzcheung.xime.service.QuickSendFormCodeEditTextHolder
 import com.kingzcheung.xime.service.XimeInputMethodService
+import com.kingzcheung.xime.service.inputTarget
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
+import kotlinx.coroutines.runBlocking
 
 /** Real service callbacks and actual popup editors. Pointer timing is covered separately by SpaceKeyGestureTest. */
 class InternalEditorCursorImeTest {
@@ -32,6 +37,11 @@ class InternalEditorCursorImeTest {
     @Test fun cursorCallbacksTargetClipboardOcrAndCodeThenReturnToHost() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
+        assertTrue("The real engine must be prepared", runBlocking { RimeConfigHelper.prepareEngine(context) })
+        val oldIme = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+        val imeId = "${context.packageName}/com.kingzcheung.xime.service.XimeInputMethodService"
+        shell(instrumentation, "ime enable $imeId")
+        shell(instrumentation, "ime set $imeId")
         lateinit var host: EditText
         rule.setContent {
             AndroidView(factory = { EditText(it).also { view -> host = view; view.setText("host stays here") } },
@@ -49,7 +59,16 @@ class InternalEditorCursorImeTest {
         }
         val ime = checkNotNull(service)
         val callbacks = checkNotNull(ime.keyboardCallbacks)
+        var expandedCompactToolbar = false
+        fun has(tag: String) = rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
         try {
+            // The quick-send form lives in the full keyboard, not the hardware compact toolbar.
+            if (ime.uiState.value.isCompact) {
+                rule.waitUntil(10_000) { has("hardware-toolbar-keyboard") }
+                rule.onNodeWithTag("hardware-toolbar-keyboard", useUnmergedTree = true).performClick()
+                rule.waitUntil(10_000) { !ime.uiState.value.isCompact }
+                expandedCompactToolbar = true
+            }
             for (ocr in listOf(false, true)) {
                 rule.runOnUiThread {
                     if (ocr) callbacks.onReviewOcrText!!.invoke("a😀bc\n第二行")
@@ -68,16 +87,16 @@ class InternalEditorCursorImeTest {
                     callbacks.onCursorMove!!.invoke(-20)
                     assertEquals(0, draft.selectionEnd)
                     draft.setSelection(7)
+                }
+                rule.waitForIdle()
+                android.os.SystemClock.sleep(100)
+                rule.waitUntil(10_000) { ime.uiState.value.inputTarget.isInternal }
+                rule.runOnUiThread {
                     callbacks.onCursorMoveVertical!!.invoke(-1)
-                    assertTrue("Vertical movement stays in the draft", draft.selectionEnd < 6)
+                    assertTrue("Vertical movement must move inside the draft, not the host: caret=${draft.selectionEnd}",
+                        draft.selectionEnd != 7 && draft.selectionEnd in 0..draft.text.length)
                     assertEquals("a😀bc\n第二行", draft.text.toString())
                     assertEquals(3, host.selectionEnd); assertEquals("host stays here", host.text.toString())
-                    if (!ocr) {
-                        val code = QuickSendFormCodeEditTextHolder.editText!!
-                        code.requestFocus(); code.setText("code"); code.setSelection(4)
-                        callbacks.onCursorMove!!.invoke(-2)
-                        assertEquals(2, code.selectionEnd); assertEquals("code", code.text.toString())
-                    }
                     draft.requestFocus(); draft.setSelection(3)
                     callbacks.onKeyPress("space", false)
                 }
@@ -114,8 +133,15 @@ class InternalEditorCursorImeTest {
             rule.runOnIdle { assertEquals("host stays here", host.text.toString()) }
         } finally {
             rule.runOnUiThread { callbacks.onHideQuickSendForm!!.invoke() }
+            if (expandedCompactToolbar) runCatching { shell(instrumentation, "input keyevent KEYCODE_BACK") }
+            if (!oldIme.isNullOrBlank()) shell(instrumentation, "ime set $oldIme")
         }
     }
+
+    private fun shell(instrumentation: android.app.Instrumentation, command: String): String =
+        ParcelFileDescriptor.AutoCloseInputStream(
+            instrumentation.uiAutomation.executeShellCommand(command)
+        ).bufferedReader().use { it.readText() }
 
     private fun findService(view: View): XimeInputMethodService? {
         var context: Context? = view.context

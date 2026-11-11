@@ -1,0 +1,108 @@
+--- a/src/rime/dict/table.cc
++++ b/src/rime/dict/table.cc
+@@ -7,2 +7,3 @@
++#include <stdexcept>
+ #include <cfloat>
+ #include <cstring>
+@@ -296,6 +297,10 @@
+ bool Table::Load() {
+   LOG(INFO) << "loading table file: " << file_path();
+ 
++  string_table_.reset();
++  metadata_ = nullptr;
++  syllabary_ = nullptr;
++  index_ = nullptr;
+   if (IsOpen())
+     Close();
+ 
+@@ -304,39 +309,84 @@
+     return false;
+   }
+ 
++  try {
++  if (file_size() < sizeof(table::Metadata))
++    throw std::runtime_error("truncated table metadata");
+   metadata_ = Find<table::Metadata>(0);
+   if (!metadata_) {
+     LOG(ERROR) << "metadata not found.";
+     Close();
+     return false;
+   }
+-  if (strncmp(metadata_->format, kTableFormatPrefix, kTableFormatPrefixLen)) {
+-    LOG(ERROR) << "invalid metadata.";
+-    Close();
+-    return false;
++  if (!memchr(metadata_->format, '\0', table::Metadata::kFormatMaxLength) ||
++      strncmp(metadata_->format, kTableFormatPrefix, kTableFormatPrefixLen)) {
++    throw std::runtime_error("invalid table metadata");
+   }
+   double format_version = atof(&metadata_->format[kTableFormatPrefixLen]);
+   if (format_version < kTableFormatLowestCompatible - DBL_EPSILON) {
+     LOG(ERROR) << "table format version " << format_version
+                << " is no longer supported. please upgrade to version "
+                << kTableFormatLatest;
+-    return false;
++    throw std::runtime_error("unsupported table format");
+   }
+ 
++  // Validate relative offsets without first forming out-of-mapping pointers.
++  // Division bounds counts without overflowing a size multiplication.
++  auto check_span = [&](const auto& field, size_t count, uint64_t unit,
++                        size_t alignment) {
++    int32_t offset;
++    memcpy(&offset, &field, sizeof(offset));
++    int64_t start = (reinterpret_cast<const char*>(&field) - address()) +
++                    static_cast<int64_t>(offset);
++    if (!offset || start < 0 || static_cast<uint64_t>(start) > file_size() ||
++        start % alignment || count > (file_size() - start) / unit)
++      throw std::runtime_error("invalid table span");
++  };
++  check_span(metadata_->syllabary, 1, sizeof(uint32_t), alignof(table::Syllabary));
+   syllabary_ = metadata_->syllabary.get();
++  if (syllabary_->size != metadata_->num_syllables)
++    throw std::runtime_error("inconsistent syllabary size");
++  check_span(metadata_->syllabary, 1, offsetof(table::Syllabary, at) +
++             static_cast<uint64_t>(syllabary_->size) * sizeof(table::StringType),
++             alignof(table::Syllabary));
+   if (!syllabary_) {
+     LOG(ERROR) << "syllabary not found.";
+     Close();
+     return false;
+   }
++  check_span(metadata_->index, 1, sizeof(uint32_t), alignof(table::Index));
+   index_ = metadata_->index.get();
++  if (index_->size != metadata_->num_syllables)
++    throw std::runtime_error("inconsistent table index size");
++  check_span(metadata_->index, 1, offsetof(table::Index, at) +
++             static_cast<uint64_t>(index_->size) * sizeof(table::HeadIndexNode),
++             alignof(table::Index));
++  check_span(metadata_->string_table, metadata_->string_table_size, 1, 1);
++  if (!metadata_->string_table_size)
++    throw std::runtime_error("empty string table");
+   if (!index_) {
+     LOG(ERROR) << "table index not found.";
+     Close();
+     return false;
+   }
+ 
+-  return OnLoad();
++  if (!OnLoad())
++    throw std::runtime_error("cannot load string table");
++  for (size_t i = 0; i < syllabary_->size; ++i) {
++    if (syllabary_->at[i].str_id() >= string_table_->NumKeys())
++      throw std::runtime_error("invalid syllabary string ID");
++  }
++  return true;
++  } catch (const std::exception& error) {
++    LOG(ERROR) << "Error loading table file '" << file_path() << "': "
++               << error.what();
++    string_table_.reset();
++    metadata_ = nullptr;
++    syllabary_ = nullptr;
++    index_ = nullptr;
++    Close();
++    return false;
++  }
+ }
+ 
+ bool Table::Save() {

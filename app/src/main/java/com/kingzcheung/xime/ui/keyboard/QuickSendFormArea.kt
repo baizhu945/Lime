@@ -15,6 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -62,9 +64,9 @@ fun QuickSendFormArea(
     val position = remember(gap, safeTop) { object : PopupPositionProvider {
         override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize,
             layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
-            // The anchor is the actual keyboard edge, including floating/landscape placement.
-            val above = (anchorBounds.top - safeTop - gap * 2).coerceAtLeast(0)
-            availableHeight = if (above > 0) above else (windowSize.height - safeTop - gap * 2).coerceAtLeast(1)
+            // Position only. Available height is measured from the anchor in
+            // onGloballyPositioned: writing state from this layout pass did not
+            // reliably re-measure the editor when the keyboard grew.
             return IntOffset(
             (anchorBounds.left + (anchorBounds.width - popupContentSize.width) / 2)
                 .coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0)),
@@ -90,7 +92,12 @@ fun QuickSendFormArea(
             editor?.requestFocus()
         } else onClose(text, code)
     }
-    BoxWithConstraints(modifier.fillMaxWidth().height(0.dp).testTag("clipboard-editor-anchor")) {
+    BoxWithConstraints(modifier.fillMaxWidth().height(0.dp)
+        .onGloballyPositioned { coordinates ->
+            val above = (coordinates.positionInRoot().y - safeTop - gap * 2).toInt()
+            if (above > 0) availableHeight = above
+        }
+        .testTag("clipboard-editor-anchor")) {
         val width = (maxWidth - 16.dp).coerceAtLeast(1.dp).coerceAtMost(640.dp)
         Popup(popupPositionProvider = position,
             properties = PopupProperties(focusable = false, dismissOnBackPress = false,

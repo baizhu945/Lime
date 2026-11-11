@@ -695,22 +695,32 @@ internal fun ClipboardBoardView(
             val actions = listOf(
                 CompactActionMenuEntry(Icons.Default.DeleteOutline, "删除", colors.error, tag = "clipboard-confirm-delete") {
                     val clearAll = clearingAll && onClearUnpinned != null
-                    clearingAll = false
+                    clearingAll = false; deleting = null
                     val keys = records.mapTo(mutableSetOf()) { it.key }
                     removing = removing + keys
                     if (clearAll) onClearUnpinned?.invoke(records) else onRemove(records)
                     onPinsChange(pins - keys)
                     selected = emptySet(); selecting = false
                 },
-                CompactActionMenuEntry(Icons.Default.Close, "取消", tag = "clipboard-cancel-delete") {},
+                CompactActionMenuEntry(Icons.Default.Close, "取消", tag = "clipboard-cancel-delete") {
+                    deleting = null; clearingAll = false
+                },
             )
-            // Same anchored card as the record actions, in the same place, at full touch size.
+            // Pointer and physical-keyboard confirmation share the same actions.
             if (itemMenu == null) keyboardMenuEntries[0] = actions
-            LongPressMenuOverlay(deleteAnchor.bounds, deleteAnchor.occupied, onDismiss = { deleting = null; clearingAll = false },
-                menuItems = actions, title = title, focusedIndex = menuFocus.takeIf { keyboard?.active == true },
-                highlightCorner = deleteAnchor.corner,
-                message = if (imageCount > 0) "只移除剪贴板记录，保留原始图片。" else null,
-                tag = "clipboard-delete-menu", surfaceTag = "clipboard-board-action-card")
+            if (clearingAll) {
+                ClearClipboardConfirmOverlay(textCount + imageCount, colors.surface, colors.surfaceContainerHigh,
+                    colors.onSurface, colors.onSurfaceVariant,
+                    onCancel = actions.last().onClick,
+                    onConfirm = actions.first().onClick)
+            } else {
+                // Same anchored card as the record actions, in the same place, at full touch size.
+                LongPressMenuOverlay(deleteAnchor.bounds, deleteAnchor.occupied, onDismiss = { deleting = null; clearingAll = false },
+                    menuItems = actions, title = title, focusedIndex = menuFocus.takeIf { keyboard?.active == true },
+                    highlightCorner = deleteAnchor.corner,
+                    message = if (imageCount > 0) "只移除剪贴板记录，保留原始图片。" else null,
+                    tag = "clipboard-delete-menu", surfaceTag = "clipboard-board-action-card")
+            }
         }
     }
 }

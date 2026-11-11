@@ -1,10 +1,14 @@
 package com.kingzcheung.xime.ui
 
 import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.Bitmap
 import android.os.ParcelFileDescriptor
 import android.provider.Settings
+import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
+import android.view.inspector.WindowInspector
 import android.widget.EditText
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +21,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.test.platform.app.InstrumentationRegistry
 import com.kingzcheung.xime.rime.RimeConfigHelper
 import com.kingzcheung.xime.rime.RimeEngine
+import com.kingzcheung.xime.service.XimeInputMethodService
 import com.kingzcheung.xime.settings.SettingsPreferences
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -44,6 +49,11 @@ class HandwritingWorkflowAuditTest {
         var previousAscii = false
         var previousSavedAscii = false
         lateinit var editor: EditText
+        var expandedCompactToolbar = false
+        fun hasContent(description: String) =
+            rule.onAllNodesWithContentDescription(description).fetchSemanticsNodes().isNotEmpty()
+        fun hasTag(tag: String) =
+            rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
         try {
             SettingsPreferences.setShowCandidateCancelButton(context, true)
             assertTrue(RimeConfigHelper.prepareEngine(context))
@@ -66,8 +76,24 @@ class HandwritingWorkflowAuditTest {
             }
             val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
             rule.runOnUiThread { editor.requestFocus(); imm.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT) }
-            rule.waitUntil(30_000) { rule.onAllNodesWithContentDescription("手写").fetchSemanticsNodes().isNotEmpty() }
-            rule.onNodeWithContentDescription("手写").performClick()
+            rule.waitUntil(30_000) {
+                hasTag("hardware-toolbar-keyboard") || hasContent("手写") || hasTag("handwriting-canvas")
+            }
+            var imeService: XimeInputMethodService? = null
+            rule.waitUntil(30_000) {
+                imeService = WindowInspector.getGlobalWindowViews().firstNotNullOfOrNull(::findService)
+                imeService?.keyboardCallbacks != null
+            }
+            val service = checkNotNull(imeService)
+            if (service.uiState.value.isCompact) {
+                expandedCompactToolbar = true
+                rule.onNodeWithTag("hardware-toolbar-keyboard", useUnmergedTree = true).performClick()
+                rule.waitUntil(15_000) { !service.uiState.value.isCompact }
+            }
+            if (!hasTag("handwriting-canvas")) {
+                rule.runOnUiThread { service.keyboardCallbacks?.onHandwritingToggle?.invoke() }
+                rule.waitUntil(10_000) { hasTag("handwriting-canvas") }
+            }
             fun text(): String { var value = ""; rule.runOnUiThread { value = editor.text.toString() }; return value }
             fun key(action: String) { rule.onNodeWithTag("handwriting-key:$action").performTouchInput { down(center); up() } }
             fun stroke() {
@@ -129,6 +155,10 @@ class HandwritingWorkflowAuditTest {
             screenshot("failure")
             throw failure
         } finally {
+            if (hasTag("handwriting-canvas")) runCatching {
+                rule.onNodeWithContentDescription("手写").performClick()
+            }
+            if (expandedCompactToolbar) runCatching { shell("input keyevent KEYCODE_BACK") }
             if (previousSchema.isNotEmpty()) {
                 engine.switchSchema(previousSchema)
                 engine.setOption("ascii_mode", previousAscii)
@@ -148,6 +178,16 @@ class HandwritingWorkflowAuditTest {
             if (!previousIme.isNullOrBlank()) shell("ime set $previousIme")
             if (!enabledBefore) shell("ime disable $ime")
         }
+    }
+
+    private fun findService(view: View): XimeInputMethodService? {
+        var current: Context? = view.context
+        while (current != null) {
+            if (current is XimeInputMethodService) return current
+            current = (current as? ContextWrapper)?.baseContext?.takeUnless { it === current }
+        }
+        if (view is ViewGroup) for (i in 0 until view.childCount) findService(view.getChildAt(i))?.let { return it }
+        return null
     }
 
     private fun shell(command: String): String {

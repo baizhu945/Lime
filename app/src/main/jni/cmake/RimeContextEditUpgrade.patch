@@ -1,0 +1,22 @@
+diff --git a/src/rime/context.cc b/src/rime/context.cc
+--- a/src/rime/context.cc
++++ b/src/rime/context.cc
+@@ -145,7 +145,7 @@ bool Context::PopInput(size_t len) {
+ bool Context::DeleteInput(size_t len) {
+   if (len == 0)
+     return true;
+-  if (caret_pos_ + len > input_.length())
++  if (caret_pos_ > input_.length() || len > input_.length() - caret_pos_)
+     return false;
+   string old_input = input_;
+   const uint64_t old_epoch = composition_epoch_;
+@@ -342,7 +342,8 @@ void Context::set_input(const string& value) {
+ }
+ 
+ void Context::set_option(const string& name, bool value) {
+-  BumpCompositionEpoch();
++  if (get_option(name) != value)
++    BumpCompositionEpoch();
+   options_[name] = value;
+   DLOG(INFO) << "Context::set_option " << name << " = " << value;
+   option_update_notifier_(this, name);

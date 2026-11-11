@@ -65,6 +65,11 @@ class T9InputController(
     private val ownsQueue = inputCommands == null
     private val commands = inputCommands ?: InputCommandQueue(CoroutineScope(Dispatchers.Default), Dispatchers.Default)
     private val enqueueLock = Any()
+    // Opt-in diagnostic hook for instrumentation; never records input text.
+    internal var timingObserver: ((Int, String) -> Unit)? = null
+    private val timingSequence = java.util.concurrent.atomic.AtomicInteger()
+    private fun timing(id: Int, event: String) { if (id != 0) timingObserver?.invoke(id, event) }
+    private fun timingId(): Int = if (com.kingzcheung.xime.BuildConfig.DEBUG && timingObserver != null) timingSequence.incrementAndGet() else 0
 
     /** UI 更新投递目标（后台任务通过 post 派发，不阻塞任务完成）。 */
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -217,6 +222,7 @@ class T9InputController(
         admission: Long,
         epoch: Long,
         refineWhenIdle: Boolean = true,
+        timingId: Int = 0,
     ) {
         val data = InputLatencyTrace.phase(traceId, "snapshot-jni") { fetchAll(result) } ?: run {
             InputLatencyTrace.finish(traceId, "engine-unavailable")
@@ -227,7 +233,9 @@ class T9InputController(
         val gen = uiGeneration.incrementAndGet()
         KeyLatencyProbe.posted(finalResult.inputText.length)
         mainHandler.post {
+            timing(timingId, "main-arrive")
             if (!accepts(admission, epoch) || gen != uiGeneration.get()) {
+                timing(timingId, "main-superseded")
                 InputLatencyTrace.finish(traceId, "superseded")
                 return@post
             }
@@ -237,6 +245,7 @@ class T9InputController(
                 applyCandidates(finalResult, data.panel, data.options)
             }
             KeyLatencyProbe.applied()
+            timing(timingId, "main-published")
             if (refineWhenIdle && onCompositionRefresh != null)
                 scheduleRefinement(finalResult.engineRevision, gen, admission, epoch)
         }
@@ -374,14 +383,18 @@ class T9InputController(
         // Read before queuing: the engine uses it only if this digit starts a composition.
         val context = leftContext()
         KeyLatencyProbe.fired("t9")
+        val timingId = timingId()
+        timing(timingId, "digit-enqueue")
         enqueueInput("t9-digit") { admission, epoch ->
+            timing(timingId, "queue-start")
             KeyLatencyProbe.started()
             try {
                 val transaction = InputLatencyTrace.phase(traceId, "engine-jni-flush") {
-                    rimeEngine.processQueuedT9KeyAndGetResult(code, context)
+                    rimeEngine.processQueuedT9KeyAndGetResult(code, context, if (timingId == 0) null else ({ timing(timingId, "engine-lock-acquired") }))
                 }
+                timing(timingId, "engine-complete")
                 if (transaction == null) InputLatencyTrace.finish(traceId, "engine-unavailable")
-                else refreshOnBackground(traceId, transaction.state, admission, epoch)
+                else refreshOnBackground(traceId, transaction.state, admission, epoch, timingId = timingId)
             } catch (e: Throwable) {
                 InputLatencyTrace.finish(traceId, "failed")
                 throw e
@@ -453,19 +466,24 @@ class T9InputController(
         val ownerContext = captureInputContext()
         val hold = com.kingzcheung.xime.keyboard.RepeatInput.current.get()
         if (hold != null && !hold.acquire()) return
+        val timingId = timingId()
+        timing(timingId, "delete-enqueue")
         enqueue("t9-delete") {
+            timing(timingId, "queue-start")
             // A later delete must not jump ahead of a digit already in this FIFO.
             try {
                 kotlinx.coroutines.withContext(ownerContext + commandValidity(admission, epoch)) {
-                    if (accepts(admission, epoch) && hold?.isActive != false) processDelete(callback, admission, epoch, hold)
+                    if (accepts(admission, epoch) && hold?.isActive != false) processDelete(callback, admission, epoch, hold, timingId)
                 }
             } finally { hold?.completed() }
         }
     }
 
     /** 单次退格：processKey → flush → 撤销计数 → 取全量结果 → Main 刷新 + 回调。 */
-    private suspend fun processDelete(callback: (DeleteResult) -> Unit, admission: Long, epoch: Long, hold: com.kingzcheung.xime.keyboard.RepeatInput?) {
-        val transaction = rimeEngine.processQueuedT9KeyAndGetResult(0xff08) ?: return
+    private suspend fun processDelete(callback: (DeleteResult) -> Unit, admission: Long, epoch: Long, hold: com.kingzcheung.xime.keyboard.RepeatInput?, timingId: Int) {
+        val transaction = rimeEngine.processQueuedT9KeyAndGetResult(0xff08, onLockAcquired = if (timingId == 0) null else ({ timing(timingId, "engine-lock-acquired") }))
+        timing(timingId, "engine-complete")
+        if (transaction == null) return
         val undoneCount = transaction.undoneSegments
         val data = fetchAll(transaction.state) ?: return
         val (finalResult, injections) = transformInjections(data.result)
@@ -475,6 +493,7 @@ class T9InputController(
         if (deleteResult == DeleteResult.DELETED) hold?.allowsDeletion(imeContent = true)
         val gen = uiGeneration.incrementAndGet()
         kotlinx.coroutines.withContext(Dispatchers.Main) {
+            timing(timingId, "main-arrive")
             if (!accepts(admission, epoch)) return@withContext
             // 撤销计数与退格结果始终回调；仅当刷新仍是最新代际时应用，
             // 避免后续更快的按键刷新被本退格的旧状态覆盖。
@@ -484,7 +503,8 @@ class T9InputController(
             if (gen == uiGeneration.get()) {
                 onCompositionRefresh?.invoke(composition, injections)
                 applyCandidates(finalResult, data.panel, data.options)
-            }
+                timing(timingId, "main-published")
+            } else timing(timingId, "main-superseded")
             if (deleteResult != DeleteResult.NOT_CONSUMED ||
                 (onUnconsumedDelete == null && hold?.allowsDeletion(imeContent = false) != false)) {
                 callback(deleteResult)

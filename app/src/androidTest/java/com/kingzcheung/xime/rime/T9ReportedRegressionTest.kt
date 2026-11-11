@@ -20,8 +20,11 @@ class T9ReportedRegressionTest {
         assertTrue(RimeConfigHelper.ensureDeployment(context))
         val previousSchema = engine.getCurrentSchema()
         engine.destroy()
-        val fixture = File(context.filesDir, "ime-lab/t9-reported-${System.currentTimeMillis()}").apply { mkdirs() }
         val results = File(context.filesDir, "ime-lab/t9-reported-results.jsonl")
+        val fixtureParent = File(context.filesDir, "ime-lab").apply { mkdirs() }
+        val fixture = java.nio.file.Files.createTempDirectory(fixtureParent.toPath(), "t9-reported-").toFile()
+        var failure: Throwable? = null
+        try {
         results.writeText("")
         val manifest = context.assets.open("rime-bundled-manifest.tsv").bufferedReader().use { it.readText() }
         manifest.lineSequence().filter { it.isNotBlank() }.forEach { line ->
@@ -32,7 +35,8 @@ class T9ReportedRegressionTest {
                     // Copy only immutable bytes, not a resource fallback root:
                     // a fallback root can silently supply an existing user DB.
                     // Buffered copy also works across scoped-storage mounts.
-                    File(user, fields[3]).inputStream().use { i -> outputStream().use { i.copyTo(it) } }
+                    val source = File(user, fields[3])
+                    if (source.isFile) source.inputStream().use { i -> outputStream().use { i.copyTo(it) } }
                 } else {
                     context.assets.open(fields[2]).use { i -> outputStream().use { i.copyTo(it) } }
                 }
@@ -79,7 +83,13 @@ class T9ReportedRegressionTest {
                     engine.getInput().endsWith(suffix))
             }
         }
-        try {
+            if (!baseline) {
+                // Production uses the word n-gram, not the retired sentence model.
+                // Copy only model bytes, never the user's learned database.
+                val model = File(user, "t9_ngram.lm")
+                assertTrue("T9 replay requires the installed word n-gram model: $model", model.isFile && model.length() > 0)
+                model.copyTo(File(fixture, model.name))
+            }
             engine.initialize(fixture.path, fixture.path)
             assertTrue(engine.deploy())
             assertTrue(engine.ensureSession())
@@ -150,6 +160,8 @@ class T9ReportedRegressionTest {
                     if (rank == 0) violations += "$id/$variant missing ${targets}"
                     if (!case.isNull("target_rank_requirement") && case.has("target_rank_requirement") && rank != case.getInt("target_rank_requirement"))
                         violations += "$id/$variant rank=$rank expected=${case.getInt("target_rank_requirement")} top=${texts.take(5)}"
+                    if (case.has("target_max_rank") && (rank == 0 || rank > case.getInt("target_max_rank")))
+                        violations += "$id/$variant rank=$rank expected top ${case.getInt("target_max_rank")} top=${texts.take(5)}"
                     val lower = case.optJSONArray("pairwise_lower_priority_in_this_fixture") ?: JSONArray()
                     for (j in 0 until lower.length()) {
                         val other = texts.indexOf(lower.getString(j)) + 1
@@ -179,8 +191,11 @@ class T9ReportedRegressionTest {
             }
             lockedReadings = emptyList()
             // Check before engine destruction resets the scorer lifecycle.
-            if (!baseline && InstrumentationRegistry.getArguments().getString("t9_cases", "").isEmpty())
-                assertEquals("grammar=ready;sentence=ready", engine.t9ScoringStatus())
+            if (!baseline && InstrumentationRegistry.getArguments().getString("t9_cases", "").isEmpty() &&
+                InstrumentationRegistry.getArguments().getString("t9_overrides", "").isEmpty())
+                // Native grammar=ready also reports a successfully loaded word n-gram.
+                // Sentence refinement is deliberately disabled in the production schema.
+                assertEquals("grammar=ready;sentence=not_requested", engine.t9ScoringStatus())
             // Long-press delete forgets learning only: a dictionary word without a learning
             // record stays in place (result 2), and a stale revision is rejected (result 0).
             input("6364986743663")
@@ -201,19 +216,35 @@ class T9ReportedRegressionTest {
             engine.setOption("ascii_mode", false)
             input("6364986743663")
 
-            // Real native selection, both APIs, after a reorder.
+            // Real native selection, both APIs, after a reorder. A partial
+            // candidate fixes a segment without committing the remaining input.
+            fun verifySelection(row: Array<String>, keys: String, api: String) {
+                val text = row[0]
+                val end = row[6].toInt()
+                val committed = engine.commit()
+                if (end == keys.length) {
+                    assertEquals("$api selection commits displayed text", text, committed)
+                } else {
+                    assertTrue("$api candidate span must be a nonempty prefix: ${row.toList()}", end in 1 until keys.length)
+                    assertEquals("$api partial selection must not commit", "", committed)
+                    val composition = engine.getComposition()
+                    assertTrue("$api must fix $text in preedit: ${composition.preedit}", composition.preedit.startsWith(text))
+                    assertTrue("$api must retain suffix ${keys.drop(end)}: ${engine.getInput()}", engine.getInput().endsWith(keys.drop(end)))
+                }
+            }
             val selectedTexts = snapshot().take(5).map { it[0] }
             selectedTexts.forEach { text ->
                 input("6364986743663")
                 val row = snapshot().first { it[0] == text }
                 assertTrue(engine.selectCandidateByGlobalIndex(row[4].toInt()))
-                assertEquals("global selection commits displayed text", text, engine.commit())
+                verifySelection(row, "6364986743663", "global")
                 input("6364986743663")
+                val snapshotRow = snapshot().first { it[0] == text }
                 val firstPage = engine.getCandidates().toList()
                 val index = firstPage.indexOf(text)
                 if (index >= 0) {
                     assertTrue(engine.selectCandidate(index))
-                    assertEquals("page selection commits displayed text", text, engine.commit())
+                    verifySelection(snapshotRow, "6364986743663", "page")
                 }
             }
             if (learned && !baseline) {
@@ -244,15 +275,25 @@ class T9ReportedRegressionTest {
             }
             android.util.Log.i("T9ReportedRegression", violations.joinToString("\n"))
             if (!baseline && !measureOnly) assertTrue(violations.joinToString("\n"), violations.isEmpty())
+        } catch (t: Throwable) {
+            failure = t
+            throw t
         } finally {
-            android.util.Log.i("T9ReportedRegression", "RESULT_FILE=${results.path}")
-            engine.destroy()
-            engine.initialize(user, shared)
-            engine.ensureSession()
-            if (previousSchema.isNotEmpty()) engine.switchSchema(previousSchema)
-            // Evidence is outside this private fixture; release large copied
-            // dictionaries after the native engine has closed its mappings.
-            assertTrue("remove isolated replay fixture", fixture.deleteRecursively())
+            fun attempt(action: () -> Unit) {
+                try { action() } catch (t: Throwable) {
+                    if (failure == null) failure = t else if (failure !== t) failure!!.addSuppressed(t)
+                }
+            }
+            attempt { android.util.Log.i("T9ReportedRegression", "RESULT_FILE=${results.path}") }
+            attempt { engine.destroy() }
+            // Evidence is outside this private fixture; remove only this run's directory.
+            attempt { assertTrue("remove isolated replay fixture", fixture.deleteRecursively()) }
+            attempt {
+                engine.initialize(user, shared)
+                engine.ensureSession()
+                if (previousSchema.isNotEmpty()) engine.switchSchema(previousSchema)
+            }
+            failure?.let { throw it }
         }
     }
 }

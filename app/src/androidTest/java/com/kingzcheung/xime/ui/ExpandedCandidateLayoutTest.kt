@@ -19,6 +19,8 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.kingzcheung.xime.ui.keyboard.*
+import com.kingzcheung.xime.ui.theme.VisualStyle
+import com.kingzcheung.xime.ui.theme.VisualStyles
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -26,7 +28,7 @@ import org.junit.Test
 class ExpandedCandidateLayoutTest {
     @get:Rule val rule = createComposeRule()
 
-    @Test fun expandedSideRailsKeepOriginalBoundsAndFullKeySurfaces() {
+    @Test fun expandedSideRailsKeepOriginalBoundsAndFullKeySurfaces() = preservingRailMaterial {
         data class Size(val width: Int, val height: Int, val landscape: Boolean)
         val sizes = listOf(Size(360, 300, false), Size(640, 300, true),
             Size(240, 144, false), Size(240, 144, true))
@@ -65,7 +67,7 @@ class ExpandedCandidateLayoutTest {
             }
         }
 
-        fun paintedBounds(node: SemanticsNodeInteraction, surfaceColor: Color): Rect {
+        fun paintedBounds(node: SemanticsNodeInteraction, surfaceColor: Color, material: VisualStyle): Rect {
             val pixels = node.captureToImage().toPixelMap()
             var left = pixels.width
             var top = pixels.height
@@ -73,9 +75,16 @@ class ExpandedCandidateLayoutTest {
             var bottom = -1
             for (y in 0 until pixels.height) for (x in 0 until pixels.width) {
                 val pixel = pixels[x, y]
-                if (kotlin.math.abs(pixel.red - surfaceColor.red) < .01f &&
-                    kotlin.math.abs(pixel.green - surfaceColor.green) < .01f &&
-                    kotlin.math.abs(pixel.blue - surfaceColor.blue) < .01f) {
+                val painted = if (material == VisualStyle.ORIGINAL) {
+                    kotlin.math.abs(pixel.red - surfaceColor.red) < .01f &&
+                        kotlin.math.abs(pixel.green - surfaceColor.green) < .01f &&
+                        kotlin.math.abs(pixel.blue - surfaceColor.blue) < .01f
+                } else {
+                    // Decorative materials change the edge colour. Their complete painted silhouette
+                    // is measured against this fixture's known black backdrop, not its unstyled tint.
+                    pixel.red > .01f || pixel.green > .01f || pixel.blue > .01f
+                }
+                if (painted) {
                     left = minOf(left, x); top = minOf(top, y)
                     right = maxOf(right, x); bottom = maxOf(bottom, y)
                 }
@@ -83,8 +92,8 @@ class ExpandedCandidateLayoutTest {
             assertTrue("Actual key surface must be visible", right >= left && bottom >= top)
             return Rect(left.toFloat(), top.toFloat(), (right + 1).toFloat(), (bottom + 1).toFloat())
         }
-        for (current in sizes) {
-            rule.runOnIdle { size = current }
+        for (material in VisualStyle.entries) for (current in sizes) {
+            rule.runOnIdle { VisualStyles.current = material; size = current }
             val panel = rule.onNodeWithTag("rail-comparison").fetchSemanticsNode().boundsInRoot
             val bodyHeight = current.height - 16f
             val left = rule.onNodeWithTag("candidate-left-rail").fetchSemanticsNode().boundsInRoot
@@ -119,8 +128,8 @@ class ExpandedCandidateLayoutTest {
             assertEquals("Original portrait controls are vertically centered",
                 panel.top + bodyHeight / 2f, (bounds.first().top + bounds.last().bottom) / 2f, 1f)
             listOf(0, 2, 3).forEach { index ->
-                val paint = paintedBounds(controls[index], if (index == 2) keyColor else functionColor)
-                assertEquals("Control $index has no added visual inset", 0f, paint.left, 1f)
+                val paint = paintedBounds(controls[index], if (index == 2) keyColor else functionColor, material)
+                assertEquals("$material/$current control $index has no added visual inset", 0f, paint.left, 1f)
                 assertEquals(0f, paint.top, 1f)
                 assertEquals(bounds[index].width, paint.width, 1f)
                 assertEquals(bounds[index].height, paint.height, 1f)
@@ -220,6 +229,15 @@ class ExpandedCandidateLayoutTest {
         rule.onNodeWithTag("expanded-candidates").performScrollToNode(hasTestTag("expanded-candidate:258"))
         rule.onNodeWithTag("expanded-candidate:258").performTouchInput { click() }
         rule.runOnIdle { assertEquals("Scrolling must preserve the original global index", 258, selected) }
+    }
+
+    private fun preservingRailMaterial(block: () -> Unit) {
+        val previous = VisualStyles.current
+        try {
+            block()
+        } finally {
+            rule.runOnIdle { VisualStyles.current = previous }
+        }
     }
 
     private fun hasTestTagPrefix(prefix: String) = SemanticsMatcher("tag starts with $prefix") {

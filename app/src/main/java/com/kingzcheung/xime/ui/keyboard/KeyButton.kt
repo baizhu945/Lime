@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,7 +33,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
-import com.kingzcheung.xime.keyboard.SpatialCosts
 import com.kingzcheung.xime.keyboard.SpatialTaps
 import com.kingzcheung.xime.settings.ButtonLayout
 import com.kingzcheung.xime.util.CharInfo
@@ -346,14 +346,17 @@ fun SwipeableKeyButton(
     shadowEnabled: Boolean = true,
     shadowElevation: Dp = 1.dp,
     shadowShapeRadius: Dp = 8.dp,
-    /** 概率字母区：主字母由 ProbabilityBackdrop 画，键面只留角标手势；点按发概率最高的字母。 */
-    fieldMode: Boolean = false,
-    /** 概率字母区里点按上屏的字母（由触点分布取最大密度得到）。 */
+    /** 概率字母区按原高斯最大密度取字；可见键帽已裁入自身的高斯优势区。 */
     onLetterTap: ((String) -> Unit)? = null,
 ) {
     val customLayout = LocalCustomLayout.current
     val letterGeometry = LocalLetterGeometry.current
     val probabilityField = LocalProbabilityField.current
+    val probabilityLetter = (letterGroup ?: text).lowercase().singleOrNull()?.takeIf { it in 'a'..'z' }
+    val probabilityRegistration = remember(probabilityField, probabilityLetter) { Any() }
+    DisposableEffect(probabilityField, probabilityLetter, probabilityRegistration) {
+        onDispose { probabilityLetter?.let { probabilityField?.unregister(it, probabilityRegistration) } }
+    }
     val customAccent = LocalCustomAccent.current
     // 玻璃下键帽是按主题文字方向重新提亮/压暗的半透明材质，不是这里算出的底色；
     // 强调色文字要按玻璃键面（与普通文字同一方向的表面）取对比，否则会算成黑字压黑键。
@@ -362,11 +365,9 @@ fun SwipeableKeyButton(
     val resolvedColors = customLayoutKeyColors(customLayout, text, backgroundColor, textColor, customAccent, glassLabelSurface)
     val resolvedBackground = resolvedColors.first
     val resolvedText = resolvedColors.second
-    // 概率字母区：主字母画在共享的概率面上，键自身只保留角标文字与手势。
-    val mainLabelColor = if (fieldMode) Color.Transparent else resolvedText
-    // 概率字母区只留密度面：角标文字仍参与手势和无障碍语义，但不压在概率面上。
+    val mainLabelColor = resolvedText
     val hintGlass = LocalKeyboardInputPreferences.current.frostedGlass
-    val hintColor: (Float) -> Color = { alpha -> if (fieldMode) Color.Transparent else keyHintColor(resolvedText, hintGlass, alpha) }
+    val hintColor: (Float) -> Color = { alpha -> keyHintColor(resolvedText, hintGlass, alpha) }
     val symbolInputMode = LocalKeyboardInputPreferences.current.symbolInputMode
     val inputPreferences = LocalKeyboardInputPreferences.current
     val letters = fourteenKeyLetters(letterGroup, LocalFourteenKeyLayout.current &&
@@ -380,17 +381,20 @@ fun SwipeableKeyButton(
     val recordTap = { local: Offset ->
         tapPick = null
         val coords = hitBox
-        val geometry = letterGeometry
-        val letter = (letterGroup ?: text).lowercase().singleOrNull()?.takeIf { it in 'a'..'z' }
-        if (letter != null && coords != null && geometry != null && coords.isAttached) {
-            val root = coords.localToRoot(local)
-            val keys = geometry.snapshot()
-            // 概率字母区：触点是采样，不是“按到了哪个键”；发密度最高的字母，其余字母作为
-            // 相对概率交给解码器。普通键盘仍按键帽字母发送。
-            val picked = if (probabilityField != null) SpatialCosts.pick(root.x, root.y, keys) else null
-            val committed = picked ?: letter
-            tapPick = committed
-            SpatialTaps.offer(committed, root.x, root.y, keys)
+        val letter = probabilityLetter
+        if (letter != null && coords != null && coords.isAttached) {
+            if (probabilityField != null) {
+                // Painting and typing share one measured, keyboard-local Gaussian field.
+                // This remains correct when an ancestor rotates/scales the floating card.
+                probabilityField.sample(coords, local)?.let { sample ->
+                    tapPick = sample.letter
+                    SpatialTaps.offer(sample.letter, sample.point.x, sample.point.y, sample.keys)
+                }
+            } else if (letterGeometry != null) {
+                val root = coords.localToRoot(local)
+                tapPick = letter
+                SpatialTaps.offer(letter, root.x, root.y, letterGeometry.snapshot())
+            }
         }
     }
 
@@ -410,7 +414,7 @@ fun SwipeableKeyButton(
     val recordPressAt = { local: Offset ->
         val coords = hitBox
         if (probabilityField != null && coords != null && coords.isAttached) {
-            probabilityField.press(coords.localToRoot(local))
+            probabilityField.press(coords, local)
         }
     }
     val tapOrCtrl: () -> Unit = {
@@ -533,11 +537,7 @@ fun SwipeableKeyButton(
         onDispose { shiftTargets?.remove(shiftToken) }
     }
     androidx.compose.runtime.SideEffect {
-        if (shiftLetters != null) shiftTargets?.put(shiftToken, shiftLetters, buttonBounds) { uppercase ->
-            currentActions.onPress()
-            try { currentLetterSelection?.invoke(uppercase) ?: currentActions.onTap() }
-            finally { currentActions.onRelease() }
-        } else shiftTargets?.remove(shiftToken)
+        if (shiftLetters == null) shiftTargets?.remove(shiftToken)
     }
     val shiftHovered = shiftLetters != null && shiftTargets?.hovered?.bounds?.center?.let(buttonBounds::contains) == true
     // 按住符号键当 Ctrl：单字母键换成快捷键键面（用户 10-24）；按满时限才换，渐变出来，松手立刻换回（用户 10-31）。
@@ -576,6 +576,10 @@ fun SwipeableKeyButton(
     }
     val keyCornerRadius = LocalKeyCornerRadius.current
     val keyClipShape = remember(keyCornerRadius, hexagonal) { if (hexagonal) HexagonShape else RoundedCornerShape(keyCornerRadius) }
+    val visualPadding = scaledKeyVisualPadding()
+    val probabilityCap = remember(probabilityField, probabilityLetter, visualPadding, keyClipShape) {
+        Modifier.gaussianProbabilityCap(probabilityField, probabilityLetter, visualPadding, keyClipShape)
+    }
     val keyLabelFontFamily = AppFonts.keyLabelFontFamily
     val keyFontFamily = AppFonts.keyFontFamily
 
@@ -594,14 +598,20 @@ fun SwipeableKeyButton(
             .padding(edgeContentPadding)
             .onGloballyPositioned { coordinates ->
                 buttonBounds = coordinates.boundsInRoot()
-                letterGeometry?.place(text, buttonBounds)
-                val key = (letterGroup ?: text).lowercase().singleOrNull()?.takeIf { it in 'a'..'z' }
-                if (key != null) probabilityField?.register(key, buttonBounds)
+                // Publish identity and its measured hitbox together. During a 14-key Shift
+                // split, composition can already say Q while buttonBounds still spans qw.
+                if (shiftLetters != null) shiftTargets?.put(shiftToken, shiftLetters, buttonBounds) { uppercase ->
+                    currentActions.onPress()
+                    try { currentLetterSelection?.invoke(uppercase) ?: currentActions.onTap() }
+                    finally { currentActions.onRelease() }
+                } else shiftTargets?.remove(shiftToken)
+                letterGeometry?.place(letterGroup ?: text, buttonBounds)
+                probabilityLetter?.let { probabilityField?.register(it, coordinates, probabilityRegistration) }
             }
-            .padding(scaledKeyVisualPadding())
+            .padding(visualPadding)
+            .then(probabilityCap)
             .then(if (hexagonal) Modifier.honeycombCap() else Modifier)
-            // 概率字母区没有键帽：连按下的圆角描边也去掉，只留密度面自己的触点光晕。
-            .then(if (fieldMode) Modifier else Modifier.keyGlow(Modifier.then(shadowModifier)
+            .keyGlow(Modifier.then(shadowModifier)
             .clip(keyClipShape)
             .background(frostedKeyColor(
                 resolvedBackground, if (frostedGlass.enabled) textColor else resolvedText, frostedGlass,
@@ -610,7 +620,7 @@ fun SwipeableKeyButton(
                 else resolvedBackground,
                 pressed = isPressed || shiftHovered, highlighted = isHighlighted,
                 opacityScale = glassFunctionKeyScale(resolvedBackground),
-            )).keyHeldHighlight(isPressed || shiftHovered)))
+            )).keyHeldHighlight(isPressed || shiftHovered))
             .then(if (hexagonal) Modifier.honeycombLabelArea() else Modifier),
         contentAlignment = if (layoutMode == ButtonLayout.COMPACT) Alignment.TopStart else Alignment.Center
     ) {

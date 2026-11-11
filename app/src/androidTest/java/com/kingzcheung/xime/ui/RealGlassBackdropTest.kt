@@ -13,6 +13,7 @@ import android.os.Process
 import android.os.SystemClock
 import android.provider.Settings
 import android.text.InputType
+import android.view.InputDevice
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -24,6 +25,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.ViewRootForTest
 import androidx.compose.ui.semantics.SemanticsNode
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getAllSemanticsNodes
 import androidx.compose.ui.graphics.toArgb
@@ -39,6 +41,10 @@ import com.kingzcheung.xime.settings.FrostedGlassPreferences
 import com.kingzcheung.xime.settings.KeyboardHeightProfiles
 import com.kingzcheung.xime.settings.SettingsPreferences
 import com.kingzcheung.xime.ui.theme.resolveKeyboardPalette
+import com.kingzcheung.xime.ui.keyboard.legibleForTheme
+import com.kingzcheung.xime.ui.keyboard.legibleOver
+import com.kingzcheung.xime.ui.keyboard.glassFunctionKeyScale
+import com.kingzcheung.xime.ui.keyboard.frostedKeyColor
 import com.kingzcheung.xime.ui.theme.SamsungWindowBlur
 import java.io.File
 import kotlin.math.abs
@@ -56,7 +62,8 @@ import org.junit.Test
  * Exercises SurfaceFlinger composition of the real IME above a disposable Activity.
  * A Compose captureToImage of a keyboard cannot prove that another window shows through it.
  * Requires the standard AndroidJUnitRunner and explicit -e realIme true.
- * No key is pressed, no clipboard is read, and no user application receives input.
+ * The hardware toolbar may be expanded and restored with Back; no text is entered,
+ * no clipboard is read, and no user application receives input.
  */
 @SdkSuppress(minSdkVersion = 31)
 class RealGlassBackdropTest {
@@ -94,6 +101,7 @@ class RealGlassBackdropTest {
         var ready = false
         var service: XimeInputMethodService? = null
         var failure: Throwable? = null
+        var expandedCompactToolbar = false
         try {
             shell("ime enable $imeId"); shell("ime set $imeId")
             runOnUiThread {
@@ -125,6 +133,16 @@ class RealGlassBackdropTest {
                 service?.inputReadiness?.ticket() != null && service?.keyboardCallbacks != null
             }
             val actual = checkNotNull(service)
+            evidence += "initial compact=${actual.uiState.value.isCompact}; floating=${actual.uiState.value.isFloatingMode}; pid=${Process.myPid()}; inputDevices=" +
+                InputDevice.getDeviceIds().asSequence().mapNotNull { InputDevice.getDevice(it) }.joinToString { "${it.name}(virtual=${it.isVirtual},keyboardType=${it.keyboardType})" }
+            if (actual.uiState.value.isCompact) {
+                waitUntil(10_000) { exists("hardware-toolbar-keyboard") }
+                val button = screenRect("hardware-toolbar-keyboard")
+                expandedCompactToolbar = true
+                shell("input tap ${button.center.x.roundToInt()} ${button.center.y.roundToInt()}")
+                waitUntil(10_000) { !actual.uiState.value.isCompact }
+                evidence += "expanded compact toolbar via real keyboard button; compact=${actual.uiState.value.isCompact}"
+            }
             val landscape = actual.resources.configuration.screenWidthDp > actual.resources.configuration.screenHeightDp
             val suffix = if (landscape) "_landscape" else ""
             val density = actual.resources.displayMetrics.density
@@ -166,7 +184,7 @@ class RealGlassBackdropTest {
             try {
                 waitUntil(10_000) { !actual.uiState.value.isFloatingMode && exists("fixed-keyboard-card") && exists("space-key") }
             } catch (error: Throwable) {
-                evidence += "fixture floating=${actual.uiState.value.isFloatingMode}; fixed=${exists("fixed-keyboard-card")}; space=${exists("space-key")}; layout=${actual.keyboardViewModel.keyboardState.value}; page=${actual.keyboardViewModel.page.value}"
+                evidence += "fixture compact=${actual.uiState.value.isCompact}; floating=${actual.uiState.value.isFloatingMode}; fixed=${exists("fixed-keyboard-card")}; space=${exists("space-key")}; layout=${actual.keyboardViewModel.keyboardState.value}; page=${actual.keyboardViewModel.page.value}; pid=${Process.myPid()}"
                 instrumentation.uiAutomation.takeScreenshot()?.let { image ->
                     try { save(image, host, "fixture-not-ready") } finally { image.recycle() }
                 }
@@ -217,7 +235,27 @@ class RealGlassBackdropTest {
                     val glassBlue = colorFrame(BLUE, "$label-fixed-glass-blue")
                     try {
                         assertRectStable("glass must not change keyboard geometry", card, screenRect("fixed-keyboard-card"))
-                        assertBackdropResponse("$label real glass", glassRed, glassBlue, inset(space, density * 6), evidence)
+                        val raw = FrostedGlassPreferences.read(context, isDark)
+                        val palette = resolveKeyboardPalette(theme, isDark)
+                        val scale = glassFunctionKeyScale(palette.function, palette.key, palette.function)
+                        val effective = raw.legibleForTheme(theme, isDark)
+                        val unscaled = raw.legibleOver(palette.background, listOf(palette.key to palette.text, palette.function to palette.functionText))
+                        evidence += "$label diagnostics: raw=$raw; effective=$effective; withoutFunctionScale=$unscaled; functionScale=$scale; palette=$palette; renderedKeyTint=${frostedKeyColor(palette.key, palette.text, effective)}; inputRed=${listOf(Color.red(RED), Color.green(RED), Color.blue(RED))}; inputBlue=${listOf(Color.red(BLUE), Color.green(BLUE), Color.blue(BLUE))}; space=$space; sampled=${inset(space, density * 6)}"
+                        // SpaceKeyButton paints its unscaled key tint inside padding. Sample
+                        // left of its centered label, and sample the padding separately.
+                        val keyRegion = Rect(space.left + space.width * .12f, space.top + space.height * .18f, space.left + space.width * .28f, space.top + space.height * .28f)
+                        val panelRegion = Rect(space.left, space.top + space.height * .35f, space.left + density, space.top + space.height * .65f)
+                        runOnUiThread { imm.hideSoftInputFromWindow(editor.windowToken, 0) }
+                        waitUntil(10_000) { !actual.isInputViewShown }
+                        val hostRed = colorFrame(RED, "$label-host-red")
+                        val hostBlue = colorFrame(BLUE, "$label-host-blue")
+                        try {
+                            assertTransmission("$label panel", glassRed, glassBlue, hostRed, hostBlue, panelRegion, 1f - effective.backgroundOpacity, evidence)
+                            assertTransmission("$label space", glassRed, glassBlue, hostRed, hostBlue, keyRegion,
+                                (1f - effective.backgroundOpacity) * (1f - effective.keyOpacity), evidence)
+                        } finally { hostRed.recycle(); hostBlue.recycle() }
+                        runOnUiThread { editor.requestFocus(); imm.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT) }
+                        waitUntil(10_000) { !actual.uiState.value.isCompact && exists("fixed-keyboard-card") && exists("space-key") }
                         assertForegroundOpaque(theme, isDark, glassRed, glassBlue, space, evidence)
                         assertEquals("the disposable editor must remain untouched", "", editor.text.toString())
                     } finally { glassRed.recycle(); glassBlue.recycle() }
@@ -238,52 +276,82 @@ class RealGlassBackdropTest {
                 change(mapOf("keyboard_theme" to "soft_blue", "dark_mode" to if (isDark) 1 else 0))
                 setMaterial(FrostedGlassConfig(true, 0f, 0f, 0f), isDark)
                 val spaceBounds = screenRect("space-key")
-                val region = inset(spaceBounds, density * 7)
+                // An interior patch to the left of the centered space-key label.
+                val region = Rect(spaceBounds.left + spaceBounds.width * .12f, spaceBounds.top + spaceBounds.height * .18f,
+                    spaceBounds.left + spaceBounds.width * .28f, spaceBounds.top + spaceBounds.height * .28f)
                 // A 1dp-wide vertical gap can contain fewer than 101 pixels on a short
                 // landscape row. Sample one actual pixel row along the space key's top
                 // visual padding instead, bounded by its width and the body below the toolbar.
                 val bodyBounds = screenRect("keyboard-underlay")
                 val gapTop = ceil(maxOf(spaceBounds.top, bodyBounds.top)).toFloat()
-                val gap = Rect(maxOf(region.left, bodyBounds.left), gapTop,
-                    minOf(region.right, bodyBounds.right), gapTop + 1f)
+                val gap = Rect(maxOf(spaceBounds.left + density * 7, bodyBounds.left), gapTop,
+                    minOf(spaceBounds.right - density * 7, bodyBounds.right), gapTop + 1f)
                 val gapPixels = (floor(gap.right) - ceil(gap.left)).toInt()
                 evidence += "$appearance opacity geometry: space=$spaceBounds; body=$bodyBounds; keySample=$region; gap=$gap; gapPixels=$gapPixels"
                 check(gap.top >= spaceBounds.top && gap.bottom <= minOf(spaceBounds.bottom, bodyBounds.bottom) &&
                     gapPixels > 100) { "No sufficiently wide real key gap: $gap ($gapPixels pixels)" }
-                val palette = resolveKeyboardPalette("soft_blue", isDark)
-                val transparent = colorFrame(RED, "$appearance-opacity-background-0-key-0")
+                // Measure the actual host at the same coordinates without an IME window.
+                runOnUiThread { imm.hideSoftInputFromWindow(editor.windowToken, 0) }
+                waitUntil(10_000) { !actual.isInputViewShown }
+                val hostImage = colorFrame(RED, "$appearance-opacity-host")
+                val hostPanel: Int
+                val hostKey: Int
                 try {
-                    assertColor("zero background and key opacity expose the real host", RED, medianColor(transparent, region), 8)
-                    setMaterial(FrostedGlassPreferences.read(context, isDark).copy(backgroundOpacity = .6f), isDark)
-                    assertEquals("background control must not change the key setting", 0f, FrostedGlassPreferences.read(context).keyOpacity)
-                    val background = colorFrame(RED, "$appearance-opacity-background-60-key-0")
-                    try {
-                        val expectedBackground = blend(palette.background.toArgb(), RED, .6f)
-                        assertColor("background slider must alter real composed pixels", expectedBackground, medianColor(background, region), 8)
-                        assertTrue("background slider must have a visible effect", meanDifference(transparent, background, region) > 20)
-                        setMaterial(FrostedGlassPreferences.read(context, isDark).copy(keyOpacity = .6f), isDark)
-                        assertEquals("key control must not change the background setting", .6f, FrostedGlassPreferences.read(context).backgroundOpacity)
-                        val caps = colorFrame(RED, "$appearance-opacity-background-60-key-60")
+                    hostPanel = medianColor(hostImage, gap)
+                    hostKey = medianColor(hostImage, region)
+                } finally { hostImage.recycle() }
+                runOnUiThread { editor.requestFocus(); imm.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT) }
+                waitUntil(10_000) { !actual.uiState.value.isCompact && exists("fixed-keyboard-card") && exists("space-key") }
+
+                val stages = listOf(0f to 0f, 1f to 0f, 1f to 1f)
+                var previousEffective: FrostedGlassConfig? = null
+                var firstImage: Bitmap? = null
+                try {
+                    for ((index, pair) in stages.withIndex()) {
+                        val requested = FrostedGlassConfig(true, 0f, pair.first, pair.second)
+                        setMaterial(requested, isDark)
+                        val raw = FrostedGlassPreferences.read(context, isDark)
+                        assertEquals("$appearance stage $index saved configuration", requested, raw)
+                        val opposite = FrostedGlassPreferences.read(context, !isDark)
+                        assertEquals("$appearance stage $index opposite background is paired key", pair.second, opposite.backgroundOpacity, 0f)
+                        assertEquals("$appearance stage $index opposite key is paired background", pair.first, opposite.keyOpacity, 0f)
+                        assertEquals("$appearance current appearance reads saved controls", requested, FrostedGlassPreferences.read(context))
+                        val theme = SettingsPreferences.getKeyboardTheme(context)
+                        assertEquals("soft_blue", theme)
+                        val palette = resolveKeyboardPalette(theme, isDark)
+                        val effective = raw.legibleForTheme(theme, isDark)
+                        assertTrue("effective background cannot be below saved background", effective.backgroundOpacity >= raw.backgroundOpacity)
+                        assertTrue("effective key cannot be below saved key", effective.keyOpacity >= raw.keyOpacity)
+                        previousEffective?.let { previous ->
+                            if (index == 1) {
+                                assertEquals("maximum background slider yields maximum effective background", 1f, effective.backgroundOpacity, 0f)
+                                assertTrue("background slider must increase effective background", effective.backgroundOpacity > previous.backgroundOpacity)
+                            } else {
+                                assertEquals("maximum key slider yields maximum effective key", 1f, effective.keyOpacity, 0f)
+                                assertTrue("key slider must increase effective key", effective.keyOpacity > previous.keyOpacity)
+                                assertEquals("maximum effective background remains unchanged", previous.backgroundOpacity, effective.backgroundOpacity, 0f)
+                            }
+                        }
+                        val tint = frostedKeyColor(palette.key, palette.text, effective)
+                        val expectedPanel = blend(palette.background.toArgb(), hostPanel, effective.backgroundOpacity)
+                        val expectedKeyPanel = blend(palette.background.toArgb(), hostKey, effective.backgroundOpacity)
+                        val expectedKey = blend(tint.toArgb(), expectedKeyPanel, tint.alpha)
+                        val image = colorFrame(RED, "$appearance-opacity-stage-$index")
                         try {
-                            assertRectStable("opacity controls must keep the sampled key geometry", spaceBounds, screenRect("space-key"))
-                            val gapBefore = medianColor(background, gap)
-                            val gapAfter = medianColor(caps, gap)
-                            evidence += "$appearance opacity: paletteBackground=${Integer.toHexString(palette.background.toArgb())}; paletteKey=${Integer.toHexString(palette.key.toArgb())}; beforeKey=${Integer.toHexString(medianColor(background, region))}; afterKey=${Integer.toHexString(medianColor(caps, region))}; gapBefore=${Integer.toHexString(gapBefore)}; gapAfter=${Integer.toHexString(gapAfter)}"
-                            assertColor("gap sample must be inside the rendered keyboard background",
-                                expectedBackground, gapBefore, 8)
-                            assertColor("gap sample must remain outside the keycap",
-                                expectedBackground, gapAfter, 8)
-                            assertColor("key slider must leave the surrounding background unchanged",
-                                gapBefore, gapAfter, 4)
-                            assertColor("key slider must alter only its own fill above the background",
-                                blend(if (isDark) 0xFF4D5361.toInt() else palette.key.toArgb(), expectedBackground, .6f),
-                                medianColor(caps, region), 8)
-                            assertTrue("key slider must have a visible effect", meanDifference(background, caps, region) > 8)
-                            assertForegroundOpaque("soft_blue", isDark, transparent, caps, screenRect("space-key"), evidence)
-                            evidence += "$appearance: real background and key opacity operate independently"
-                        } finally { caps.recycle() }
-                    } finally { background.recycle() }
-                } finally { transparent.recycle() }
+                            assertRectStable("opacity controls must keep key geometry", spaceBounds, screenRect("space-key"))
+                            val actualPanel = medianColor(image, gap)
+                            val actualKey = medianColor(image, region)
+                            evidence += "$appearance stage=$index raw=$raw effective=$effective palette=$palette tint=$tint hostPanel=${Integer.toHexString(hostPanel)} hostKey=${Integer.toHexString(hostKey)} expectedPanel=${Integer.toHexString(expectedPanel)} actualPanel=${Integer.toHexString(actualPanel)} expectedKey=${Integer.toHexString(expectedKey)} actualKey=${Integer.toHexString(actualKey)}"
+                            assertColor("$appearance stage $index panel composition", expectedPanel, actualPanel, 8)
+                            assertColor("$appearance stage $index key composition", expectedKey, actualKey, 8)
+                            assertEquals("rendering must not change saved controls", requested, FrostedGlassPreferences.read(context, isDark))
+                            if (index == 0) firstImage = image.copy(image.config ?: Bitmap.Config.ARGB_8888, false)
+                            if (index == 2) assertForegroundOpaque(theme, isDark, checkNotNull(firstImage), image, spaceBounds, evidence)
+                        } finally { image.recycle() }
+                        previousEffective = effective
+                    }
+                    evidence += "$appearance: saved controls and effective rendered composition verified independently"
+                } finally { firstImage?.recycle() }
             }
 
             // Defaults must remain readable over both bright and dark app content, not merely keep text unchanged.
@@ -356,7 +424,7 @@ class RealGlassBackdropTest {
             val floatingBlue = colorFrame(BLUE, "floating-glass-blue")
             try {
                 assertBackdropResponse("floating real glass", floatingRed, floatingBlue,
-                    inset(screenRect("space-key"), density * 6), evidence)
+                    glassSurfaceSample("space-key", density, evidence), evidence)
                 assertForegroundOpaque("soft_blue", true, floatingRed, floatingBlue, screenRect("space-key"), evidence)
             } finally { floatingRed.recycle(); floatingBlue.recycle() }
             }
@@ -375,6 +443,13 @@ class RealGlassBackdropTest {
                     actual.restoreKeyboardDisplayMode(SettingsPreferences.isFloatingMode(actual, landscape), persist = false)
                 }
             } }
+            cleanup {
+                if (expandedCompactToolbar && service?.uiState?.value?.isCompact == false) {
+                    shell("input keyevent KEYCODE_BACK")
+                    waitUntil(10_000) { service?.uiState?.value?.isCompact == true }
+                }
+                evidence += "final compact=${service?.uiState?.value?.isCompact}; restoredExpandedToolbar=$expandedCompactToolbar"
+            }
             cleanup { instrumentation.runOnMainSync { if (ready) {
                 imm.hideSoftInputFromWindow(editor.windowToken, 0)
                 editor.clearFocus()
@@ -395,6 +470,23 @@ class RealGlassBackdropTest {
         }
     }
 
+    private fun assertTransmission(label: String, red: Bitmap, blue: Bitmap, hostRed: Bitmap, hostBlue: Bitmap,
+        region: Rect, expected: Float, evidence: MutableList<String>) {
+        val r = meanRgb(red, region); val b = meanRgb(blue, region)
+        val hr = meanRgb(hostRed, region); val hb = meanRgb(hostBlue, region)
+        evidence += "$label region=$region expectedTransmission=$expected; red=${r.toList()}; blue=${b.toList()}; hostRed=${hr.toList()}; hostBlue=${hb.toList()}"
+        // The measured channel differences below reject an opaque result with a 10/255
+        // margin over sampling noise; the formula check alone allows ±3.5 levels.
+        assertTrue("$label red/blue host separation", hr[0] - hb[0] > 180 && hb[2] - hr[2] > 180)
+        for (channel in 0..2) {
+            val hostDelta = hr[channel] - hb[channel]
+            val actualDelta = r[channel] - b[channel]
+            assertEquals("$label channel=$channel transmission", hostDelta * expected, actualDelta, 3.5)
+        }
+        assertTrue("$label must actually transmit red", r[0] - b[0] > 10)
+        assertTrue("$label must actually transmit blue", b[2] - r[2] > 10)
+    }
+
     private fun assertBackdropResponse(label: String, red: Bitmap, blue: Bitmap, region: Rect, evidence: MutableList<String>) {
         val redMean = meanRgb(red, region)
         val blueMean = meanRgb(blue, region)
@@ -402,6 +494,40 @@ class RealGlassBackdropTest {
         assertTrue("$label must expose the red host through its actual window", redMean[0] - redMean[2] > 45)
         assertTrue("$label must expose the blue host through its actual window", blueMean[2] - blueMean[0] > 45)
         assertTrue("$label must respond to the host, not display a static gradient", meanDifference(red, blue, region) > 45)
+    }
+
+    /** Measure the glass, not the separately verified opaque foreground. No pixel-value filtering. */
+    private fun glassSurfaceSample(tag: String, density: Float, evidence: MutableList<String>): Rect {
+        val foreground = mutableListOf<Rect>()
+        var interior: Rect? = null
+        runOnUiThread {
+            val root = checkNotNull(imeNode(tag)) { "Missing real IME node: $tag" }
+            fun rect(node: SemanticsNode) = Rect(node.positionOnScreen.x, node.positionOnScreen.y,
+                node.positionOnScreen.x + node.size.width, node.positionOnScreen.y + node.size.height)
+            interior = inset(rect(root), density * 6)
+            fun visit(node: SemanticsNode) {
+                if (node.config.contains(SemanticsActions.GetTextLayoutResult) ||
+                    node.config.contains(SemanticsProperties.ContentDescription)) foreground += rect(node)
+                node.children.forEach(::visit)
+            }
+            root.children.forEach(::visit)
+        }
+        check(foreground.isNotEmpty()) { "Missing actual keyboard foreground bounds: $tag" }
+        val area = checkNotNull(interior)
+        // Include antialiasing around the measured text/icon boxes, without examining their colors.
+        val ink = Rect(foreground.minOf { it.left } - 2f, foreground.minOf { it.top } - 2f,
+            foreground.maxOf { it.right } + 2f, foreground.maxOf { it.bottom } + 2f)
+        val patch = listOf(Rect(area.left, area.top, minOf(area.right, ink.left), area.bottom),
+            Rect(maxOf(area.left, ink.right), area.top, area.right, area.bottom),
+            Rect(area.left, area.top, area.right, minOf(area.bottom, ink.top)),
+            Rect(area.left, maxOf(area.top, ink.bottom), area.right, area.bottom))
+            .filter { it.width > 0f && it.height > 0f }.maxByOrNull { it.width * it.height }
+        checkNotNull(patch) { "No real glass surface outside foreground: area=$area foreground=$foreground" }
+        val columns = (floor(patch.right).toInt() - ceil(patch.left).toInt() + 2) / 3
+        val rows = (floor(patch.bottom).toInt() - ceil(patch.top).toInt() + 2) / 3
+        check(columns * rows > 100) { "Insufficient real surface samples: patch=$patch count=${columns * rows}" }
+        evidence += "glass-only geometry: area=$area; foreground=$foreground; patch=$patch; samples=${columns * rows}"
+        return patch
     }
 
     private fun assertForegroundOpaque(theme: String, isDark: Boolean, red: Bitmap, blue: Bitmap, region: Rect, evidence: MutableList<String>) {

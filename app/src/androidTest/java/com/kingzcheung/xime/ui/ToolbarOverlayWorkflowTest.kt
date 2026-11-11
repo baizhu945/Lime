@@ -39,7 +39,7 @@ class ToolbarOverlayWorkflowTest {
                 }
             }
         }
-        for (tool in listOf("输入方案", "编辑", "表情", "剪贴板")) {
+        for (tool in listOf(com.kingzcheung.xime.keyboard.ToolbarButton.SCHEMA.label, "编辑", "表情", "剪贴板")) {
             rule.onNodeWithContentDescription(tool).performTouchInput { down(center); up() }
             rule.onNodeWithContentDescription(tool).assertIsDisplayed().assertIsSelected()
             val toolbar = rule.onNodeWithTag("toolbar-order-row").fetchSemanticsNode().boundsInRoot

@@ -19,13 +19,13 @@ class SetupWizardTest {
         rule.setContent { MaterialTheme {
             SetupWizardContent(state.value, {}, {}, {}, {}, { finished++ })
         } }
-        listOf("启用 CyIME", "准备输入方案", "切换到 CyIME").forEach { rule.onNodeWithText(it).assertExists() }
-        rule.onNodeWithText("选择 CyIME").assertIsNotEnabled()
+        listOf("启用 Lime", "准备输入方案", "切换到 Lime").forEach { rule.onNodeWithText(it).assertExists() }
+        rule.onNodeWithText("选择 Lime").assertIsNotEnabled()
         rule.onNodeWithText("完成三项后即可开始使用").assertIsNotEnabled()
         rule.runOnIdle { state.value = SetupStatus(imeEnabled = true, preparing = false, schemas = listOf("中文26键", "中文九键")) }
         rule.onNodeWithText("已启用").assertExists()
         rule.onNodeWithText("已就绪").assertExists()
-        rule.onNodeWithText("选择 CyIME").assertIsEnabled()
+        rule.onNodeWithText("选择 Lime").assertIsEnabled()
         rule.onNodeWithText("✓ 设置成功，可以开始输入了").assertDoesNotExist()
         rule.runOnIdle { state.value = state.value.copy(imeSelected = true) }
         rule.onNodeWithText("✓ 设置成功，可以开始输入了").performScrollTo().assertIsDisplayed()
@@ -60,7 +60,7 @@ class SetupWizardTest {
                 {}, {}, {}, { picker++ }, {}, pickerFallbackHint = "vivo 提示", onOpenImeSettings = { settings++ })
         } }
         rule.onNodeWithText("vivo 提示").assertExists()
-        rule.onNodeWithText("去系统设置选择 CyIME").performScrollTo().assertIsEnabled().performClick()
+        rule.onNodeWithText("去系统设置选择 Lime").performScrollTo().assertIsEnabled().performClick()
         rule.onNodeWithText("仍用输入法选择框").performScrollTo().performClick()
         assertEquals(1, settings)
         assertEquals(1, picker)

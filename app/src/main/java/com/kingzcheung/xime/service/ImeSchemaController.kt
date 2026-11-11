@@ -184,7 +184,8 @@ internal class ImeSchemaController(private val service: XimeInputMethodService) 
             // 不依赖 Compose LaunchedEffect 侦测 uiState 后再异步 dispatch（部分机型调度延迟导致 UI 不更新）。
             val schemaId = service.rimeEngine.getCurrentSchema()
             service.keyboardViewModel.dispatch(
-                com.kingzcheung.xime.ui.keyboard.KeyboardDispatchAction.AsciiModeChanged(ascii, schemaId)
+                com.kingzcheung.xime.ui.keyboard.KeyboardDispatchAction.AsciiModeChanged(ascii, schemaId,
+                    explicitLanguageChoice = !keepCurrentSchema)
             )
             reopenHandwriting(keepHandwriting, target)
         }
@@ -428,18 +429,22 @@ internal class ImeSchemaController(private val service: XimeInputMethodService) 
      * 空格上下滑、实体键盘上下键之外的“上/下”：与编辑面板的上下键同一规则，多行框按宿主排版的视觉行，
      * 单行框只在文本内移动（审计 F11：以前自动折行的长段落一下跳到段首/段尾）。
      */
-    internal fun moveEditorCursorVertical(steps: Int, selecting: Boolean = false) =
+    internal fun moveEditorCursorVertical(steps: Int, selecting: Boolean = false) {
+        // Internal drafts use a temporary InputConnection that does not reliably
+        // dispatch synthetic DPAD keys; move through their text lines instead.
+        val internal = service.uiState.value.inputTarget.isInternal
         editCursor(preeditKey = { "preedit_cursor:${if (steps < 0) "start" else "end"}" }) { connection ->
             if (service.isTerminalEditor()) {
                 // 终端里上下键就是翻命令历史，原样发出去。
                 TerminalEditor.sendKeys(connection, if (steps < 0) KeyEvent.KEYCODE_DPAD_UP else KeyEvent.KEYCODE_DPAD_DOWN, abs(steps))
                 return@editCursor
             }
-            val multiLine = editorIsMultiLine()
+            val multiLine = editorIsMultiLine() && !internal
             repeat(abs(steps).coerceAtMost(1000)) {
                 if (!editorCursor.moveLine(connection, steps.sign, selecting, multiLine)) return@editCursor
             }
         }
+    }
 
     internal fun observeEditorSelection(start: Int, end: Int) {
         service.currentInputConnection?.let { editorCursor.observeSelection(it, start, end) }

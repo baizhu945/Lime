@@ -31,6 +31,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.performSemanticsAction
+import com.kingzcheung.xime.ui.keyboard.KeyboardInputPreferences
+import com.kingzcheung.xime.ui.keyboard.LocalKeyboardInputPreferences
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.isRoot
@@ -72,7 +80,7 @@ class LanguageKeyButtonTest {
             CompositionLocalProvider(LocalDensity provides androidx.compose.ui.unit.Density(1f),
                 LocalKeyboardInputActions provides KeyboardInputActions(
                     schemas = listOf(
-                        SchemaInfo("first", "中文九键", "", "", ""),
+                        SchemaInfo("first", "中文九键", "", "", "", language = com.kingzcheung.xime.settings.InputLanguage.CHINESE),
                         SchemaInfo("second", "日语26键", "", "", "", language = com.kingzcheung.xime.settings.InputLanguage.JAPANESE)),
                     currentInputModeId = "first", onSwitchSchema = {})) {
                 androidx.compose.material3.MaterialTheme {
@@ -133,12 +141,16 @@ class LanguageKeyButtonTest {
         FrostedGlassPreferences.saveProfiles(context, saved)
         var dark by mutableStateOf(false)
         var opacity by mutableStateOf(0f)
+        var blurRadius by mutableStateOf(0f)
         var beneath by mutableStateOf(Color.Black)
+        assertTrue("the 10dp branch must exercise real system blur, not a skipped fallback",
+            base.getSystemService(android.view.WindowManager::class.java).isCrossWindowBlurEnabled)
         val lightSurface = Color(0xFFF2F2F2)
         val darkSurface = Color(0xFF191C22)
         rule.setContent {
-            val glass = FrostedGlassConfig(true, 10f, opacity, .29f)
+            val glass = FrostedGlassConfig(true, blurRadius, opacity, .29f)
             CompositionLocalProvider(LocalContext provides context,
+                LocalKeyboardInputPreferences provides KeyboardInputPreferences(frostedGlass = glass),
                 LocalDensity provides androidx.compose.ui.unit.Density(1f),
                 LocalFrostedGlassPreview provides FrostedGlassProfiles(glass, glass),
                 // A custom gradient's representative first color can be bright in dark appearance.
@@ -165,35 +177,50 @@ class LanguageKeyButtonTest {
                 }
             }
         }
-        for (appearance in listOf(false, true)) for (alpha in listOf(0f, .2f, .8f)) {
-            rule.runOnIdle { dark = appearance; opacity = alpha }
+        for (blur in listOf(0f, 10f)) for (appearance in listOf(false, true)) for (alpha in listOf(0f, .2f, .8f)) {
+            rule.runOnIdle { dark = appearance; opacity = alpha; blurRadius = blur }
             rule.mainClock.autoAdvance = false
             rule.onNodeWithTag("language-key").performTouchInput { down(center) }
             rule.mainClock.advanceTimeBy(350L)
             // Popup initially draws at alpha=0 until placement is calculated. Its follow-up
             // composition needs frames after the long-press timing check has completed.
             rule.mainClock.autoAdvance = true
-            // 菜单底取键盘自己的功能键与字母键之间的颜色（不透明），不是 Material surface。
+            // With no live blur, the original opaque theme-role RGB oracle remains exact.
+            // The 10dp branch captures the actual composed screen, including the blur window.
             val themed = resolveKeyboardPalette("transparent_glass", appearance)
             val expected = androidx.compose.ui.graphics.lerp(themed.function.copy(alpha = 1f),
                 themed.key.copy(alpha = 1f), 0.5f).toArgb()
             try {
-                awaitPopupEvidence("language-$appearance-$alpha-opened", expected)
+                val opened = if (blur == 0f) awaitPopupEvidence("language-$blur-$appearance-$alpha-opened", expected)
+                    else awaitBlurredPopupEvidence("language-$blur-$appearance-$alpha-opened")
+                opened.recycle()
                 rule.onNodeWithTag("language-schema:second").assertIsDisplayed()
                 rule.onNodeWithTag("language-schema:first").assertIsSelected()
                 rule.onNodeWithText("中文").assertIsDisplayed()
                 rule.onNodeWithText("日语").assertIsDisplayed()
+                val foregrounds = if (blur > 0f) menuForegrounds() else emptyList()
                 for (underlay in listOf(Color.Black, Color.White)) {
                     rule.runOnIdle { beneath = underlay }
                     rule.mainClock.advanceTimeByFrame()
-                    val image = awaitPopupEvidence(
-                        "language-$appearance-$alpha-${underlay.toArgb()}", expected)
-                    assertTrue("menu has a measurable reading surface", image.width > 12 && image.height > 40)
-                    // Use the middle edge: top/bottom corner radii are dp, not fixed screenshot pixels.
-                    for (y in image.height / 2 - 4..image.height / 2 + 4) for (x in 4..6) {
-                        assertEquals("menu must occlude keyboard labels at opacity=$alpha dark=$appearance x=$x y=$y",
-                            expected, image.getPixel(x, y))
-                    }
+                    val name = "language-$blur-$appearance-$alpha-${underlay.toArgb()}"
+                    val image = if (blur == 0f) awaitPopupEvidence(name, expected) else awaitBlurredPopupEvidence(name)
+                    try {
+                        assertTrue("menu has a measurable reading surface", image.width > 12 && image.height > 40)
+                        // Keep every original edge sample, chosen by geometry rather than its colour.
+                        for (y in image.height / 2 - 4..image.height / 2 + 4) for (x in 4..6) {
+                            val pixel = image.getPixel(x, y)
+                            if (blur == 0f) {
+                                assertEquals("menu must occlude keyboard labels at opacity=$alpha dark=$appearance x=$x y=$y",
+                                    expected, pixel)
+                            } else for (foreground in foregrounds) {
+                                val light = maxOf(foreground.luminance(), Color(pixel).luminance())
+                                val darkValue = minOf(foreground.luminance(), Color(pixel).luminance())
+                                val contrast = (light + .05f) / (darkValue + .05f)
+                                assertTrue("$name x=$x y=$y foreground=$foreground pixel=${pixel.toUInt().toString(16)} contrast=$contrast",
+                                    contrast >= 4.5f)
+                            }
+                        }
+                    } finally { image.recycle() }
                 }
                 assertEquals("transparent_glass", SettingsPreferences.getKeyboardTheme(context))
                 assertEquals(saved, FrostedGlassPreferences.readProfiles(context))
@@ -202,6 +229,52 @@ class LanguageKeyButtonTest {
                 rule.mainClock.advanceTimeByFrame()
                 rule.mainClock.autoAdvance = true
             }
+        }
+    }
+
+    private fun menuForegrounds(): List<Color> {
+        val nodes = rule.onAllNodes(hasAnyAncestor(hasTestTag("language-menu")) and
+            SemanticsMatcher.keyIsDefined(SemanticsActions.GetTextLayoutResult), useUnmergedTree = true)
+        val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        nodes.fetchSemanticsNodes().indices.forEach { index ->
+            nodes[index].performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        }
+        assertTrue("actual menu text layouts must be present", layouts.isNotEmpty())
+        return layouts.map { it.layoutInput.style.color }.distinct().also { colors ->
+            colors.forEach { assertTrue("menu glyph color must be explicit and opaque: $it", it != Color.Unspecified && it.alpha == 1f) }
+        }
+    }
+
+    /** Wait only for geometry/animation readiness, never for a favourable contrast result. */
+    private fun awaitBlurredPopupEvidence(name: String): android.graphics.Bitmap {
+        try {
+            rule.waitUntil(timeoutMillis = 5_000L) {
+                rule.onAllNodesWithTag("language-menu").fetchSemanticsNodes().singleOrNull()?.let {
+                    it.size.width > 12 && it.size.height > 40
+                } == true
+            }
+            rule.waitForIdle()
+            val node = rule.onNodeWithTag("language-menu").fetchSemanticsNode()
+            val screen = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+            try {
+                val x = kotlin.math.round(node.positionOnScreen.x).toInt()
+                val y = kotlin.math.round(node.positionOnScreen.y).toInt()
+                assertTrue("popup crop must be wholly on the actual screen", x >= 0 && y >= 0 &&
+                    x + node.size.width <= screen.width && y + node.size.height <= screen.height)
+                val image = android.graphics.Bitmap.createBitmap(screen, x, y, node.size.width, node.size.height)
+                val directory = java.io.File(InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir(null),
+                    "popup-reading-surfaces").apply { mkdirs() }
+                java.io.File(directory, "$name-screen.png").outputStream().use {
+                    screen.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+                java.io.File(directory, "$name.png").outputStream().use {
+                    image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+                return image
+            } finally { screen.recycle() }
+        } catch (failure: Throwable) {
+            savePopupEvidence("$name-capture-failure", "language-menu")
+            throw failure
         }
     }
 
@@ -261,7 +334,7 @@ class LanguageKeyButtonTest {
             CompositionLocalProvider(
                 LocalKeyboardInputActions provides KeyboardInputActions(
                     schemas = listOf(
-                        SchemaInfo("first", "同名方案", "", "", ""),
+                        SchemaInfo("first", "同名方案", "", "", "", language = com.kingzcheung.xime.settings.InputLanguage.CHINESE),
                         SchemaInfo("second", "日语模式", "", "", "", language = com.kingzcheung.xime.settings.InputLanguage.JAPANESE),
                     ),
                     currentInputModeId = currentModeId,
@@ -366,7 +439,7 @@ class LanguageKeyButtonTest {
         setKey()
         rule.onNodeWithTag("language-key").performTouchInput {
             down(Offset(center.x, height * 0.85f))
-            moveTo(Offset(center.x, height * 0.85f - 65f * density))
+            moveTo(Offset(center.x, height * 0.85f - 90f * density))
             up()
         }
         rule.runOnIdle { assertTrue(events.isEmpty()) }
@@ -441,6 +514,7 @@ class LanguageKeyButtonTest {
         val target = first.positionOnScreen + Offset(first.size.width / 2f, -200f)
         rule.onNodeWithTag("language-key").performTouchInput { moveTo(target - key.positionOnScreen) }
         rule.mainClock.advanceTimeByFrame()
+        rule.mainClock.advanceTimeByFrame()
         rule.onNodeWithTag("language-schema:first").assertIsSelected()
         rule.onNodeWithTag("language-key").performTouchInput { up() }
         rule.runOnIdle { assertEquals(listOf("schema:first"), events) }
@@ -451,12 +525,14 @@ class LanguageKeyButtonTest {
         holdKey()
         moveToSecondSchema()
         val key = rule.onNodeWithTag("language-key").fetchSemanticsNode()
-        val englishId = com.kingzcheung.xime.settings.InputModes.ENGLISH
-        val last = rule.onNodeWithTag("language-schema:$englishId").fetchSemanticsNode()
+        // Default language order is Chinese, English, then newly enabled Japanese.
+        val lastId = "second"
+        val last = rule.onNodeWithTag("language-schema:$lastId").fetchSemanticsNode()
         val target = last.positionOnScreen + Offset(last.size.width / 2f, last.size.height + 20f)
         rule.onNodeWithTag("language-key").performTouchInput { moveTo(target - key.positionOnScreen) }
-        rule.mainClock.advanceTimeByFrame()
-        rule.onNodeWithTag("language-schema:$englishId").assertIsSelected()
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.onNodeWithTag("language-schema:$lastId").assertIsSelected()
         rule.onNodeWithTag("language-key").performTouchInput { up() }
-        rule.runOnIdle { assertEquals(listOf("schema:$englishId"), events) }
+        rule.runOnIdle { assertEquals(listOf("schema:$lastId"), events) }
     }}

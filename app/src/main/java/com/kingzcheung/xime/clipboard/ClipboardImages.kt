@@ -34,13 +34,19 @@ data class ClipboardImage(val uri: String, val mimeType: String, val timestamp: 
 data class ImagePasteFailure(val image: ClipboardImage, val packageName: String)
 
 /** Copied images stay local; the optional gallery feed contains screenshots, never all photos. */
-class ClipboardImages private constructor(private val context: Context) {
+class ClipboardImages private constructor(
+    private val context: Context,
+    private val sharedLifetime: Boolean
+) {
     companion object {
         private const val MAX_BYTES = 32L * 1024 * 1024
         @Volatile private var instance: ClipboardImages? = null
         fun getInstance(context: Context): ClipboardImages = instance ?: synchronized(this) {
-            instance ?: ClipboardImages(context.applicationContext).also { instance = it }
+            instance ?: ClipboardImages(context.applicationContext, true).also { instance = it }
         }
+
+        /** Independent image storage/listeners; caller must [close] it when no longer used. */
+        fun create(context: Context): ClipboardImages = ClipboardImages(context.applicationContext, false)
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
@@ -102,6 +108,24 @@ class ClipboardImages private constructor(private val context: Context) {
                     // The single consumer must survive a provider/observer failure.
                     android.util.Log.w("ClipboardImages", "Image refresh failed (${error.javaClass.simpleName}); retry on next refresh")
                 }
+            }
+        }
+    }
+
+    /**
+     * Stops only this instance's work. The shared application store keeps its process lifetime.
+     * Finish caller-owned operations (such as prepare) before closing; do not reuse after close.
+     */
+    suspend fun close() {
+        if (sharedLifetime) return
+        withContext(NonCancellable) {
+            boardPrefs.unregisterOnSharedPreferenceChangeListener(pinListener)
+            refreshRequests.close()
+            scope.coroutineContext[Job]!!.cancelAndJoin()
+            withContext(Dispatchers.Main.immediate) {
+                // Join first: an in-flight refresh can still register the observer.
+                if (observing) context.contentResolver.unregisterContentObserver(observer)
+                observing = false
             }
         }
     }

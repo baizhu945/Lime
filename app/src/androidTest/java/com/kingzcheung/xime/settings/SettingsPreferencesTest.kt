@@ -1,35 +1,63 @@
 package com.kingzcheung.xime.settings
 
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.SharedPreferences
 import androidx.test.platform.app.InstrumentationRegistry
+import com.kingzcheung.xime.rime.RimeEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
+import java.util.UUID
 import org.junit.Test
 
 class SettingsPreferencesTest {
 
     private lateinit var context: Context
+    private lateinit var testContext: Context
+    private val preferenceFiles = mutableSetOf<String>()
+    private val prefix = "settings_preferences_test_${UUID.randomUUID()}_"
 
     @Before
     fun setup() {
-        context = InstrumentationRegistry.getInstrumentation().targetContext
-        context.getSharedPreferences("kime_settings", Context.MODE_PRIVATE)
-            .edit()
-            .clear()
-            .commit()
+        // Instrumentation runs as the target UID; use unique disposable names there,
+        // never the target app's real preference namespaces.
+        testContext = InstrumentationRegistry.getInstrumentation().targetContext
+        context = object : ContextWrapper(testContext) {
+            override fun getApplicationContext(): Context = this
+
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                val isolatedName = prefix + name
+                preferenceFiles.add(isolatedName)
+                return testContext.getSharedPreferences(isolatedName, mode)
+            }
+        }
+    }
+
+    @After
+    fun tearDown() {
+        preferenceFiles.forEach { testContext.deleteSharedPreferences(it) }
+    }
+
+    private fun rimeStoredSchema(): String? = try {
+        if (RimeEngine.isInitialized()) {
+            RimeEngine.getInstance().getUserConfigString("var/previously_selected_schema")
+                ?.takeIf { it.isNotBlank() }
+        } else null
+    } catch (_: Throwable) {
+        null
     }
 
     @Test
-    fun currentSchemaUsesDefaultThenMigratesLegacy() {
-        // 引擎未初始化（测试环境）且无历史数据时使用默认方案
-        assertEquals("wubi86", SettingsPreferences.getCurrentSchema(context))
-        // 模拟旧版本 SharedPreferences 数据：一次性迁移读取
-        context.getSharedPreferences("kime_settings", Context.MODE_PRIVATE)
-            .edit()
-            .putString("current_schema", "wubi98")
-            .commit()
+    fun currentSchemaUsesRimeOrDefaultAndDualWriteTakesPriority() {
+        val prefs = context.getSharedPreferences("kime_settings", Context.MODE_PRIVATE)
+        val rime = rimeStoredSchema()
+        assertEquals(rime ?: "rime_ice", SettingsPreferences.getCurrentSchema(context))
+        assertEquals(rime != null, prefs.getBoolean("current_schema_dual", false))
+        assertTrue(prefs.edit().putString("current_schema", "wubi98")
+            .putBoolean("current_schema_dual", true).commit())
         assertEquals("wubi98", SettingsPreferences.getCurrentSchema(context))
     }
 
@@ -200,7 +228,7 @@ class SettingsPreferencesTest {
     
     @Test
     fun smartPredictionSettings() {
-        assertFalse("Smart prediction should be disabled by default", 
+        assertTrue("Smart prediction should be enabled by default",
             SettingsPreferences.isSmartPredictionEnabled(context))
         
         SettingsPreferences.setSmartPredictionEnabled(context, true)
@@ -214,26 +242,28 @@ class SettingsPreferencesTest {
     
     @Test
     fun sttSettings() {
-        assertFalse("STT should be disabled by default", 
+        assertTrue("STT should be enabled by default",
             SettingsPreferences.isSttEnabled(context))
-        
+
+        SettingsPreferences.setSttEnabled(context, false)
+        assertFalse("STT should be disabled", SettingsPreferences.isSttEnabled(context))
         SettingsPreferences.setSttEnabled(context, true)
-        assertTrue("STT should be enabled", 
-            SettingsPreferences.isSttEnabled(context))
+        assertTrue("STT should be enabled", SettingsPreferences.isSttEnabled(context))
     }
     
     @Test
     fun schemaLegacyMigration() {
         val schemas = listOf("wubi86", "wubi98", "wubi_pinyin")
 
-        // 方案状态以 librime user.yaml 为准；引擎未初始化时回退读取旧 SharedPreferences 数据
+        val prefs = context.getSharedPreferences("kime_settings", Context.MODE_PRIVATE)
+        val rime = rimeStoredSchema()
         for (schema in schemas) {
-            context.getSharedPreferences("kime_settings", Context.MODE_PRIVATE)
-                .edit()
-                .putString("current_schema", schema)
-                .commit()
-            assertEquals("Current schema should be $schema",
-                schema, SettingsPreferences.getCurrentSchema(context))
+            assertTrue(prefs.edit().putString("current_schema", schema)
+                .remove("current_schema_dual").commit())
+            assertEquals("Rime takes priority over legacy, if available",
+                rime ?: schema, SettingsPreferences.getCurrentSchema(context))
+            assertEquals(rime != null, prefs.getBoolean("current_schema_dual", false))
+            assertEquals(rime ?: schema, prefs.getString("current_schema", null))
         }
     }
     
@@ -255,12 +285,18 @@ class SettingsPreferencesTest {
         SettingsPreferences.setDarkMode(context, if (defaultDarkMode == 2) 0 else 2)
         SettingsPreferences.setSoundEnabled(context, false)
         
-        context.getSharedPreferences("kime_settings", Context.MODE_PRIVATE)
-            .edit()
-            .clear()
-            .commit()
-        
-        assertEquals("wubi86", SettingsPreferences.getCurrentSchema(context))
+        val prefs = context.getSharedPreferences("kime_settings", Context.MODE_PRIVATE)
+        assertTrue(prefs.edit().putString("current_schema", "test_override")
+            .putBoolean("current_schema_dual", true).commit())
+        assertEquals("test_override", SettingsPreferences.getCurrentSchema(context))
+        val rime = rimeStoredSchema()
+        assertTrue(prefs.edit().clear().commit())
+        assertTrue(prefs.all.isEmpty())
+
+        assertEquals(rime ?: "rime_ice", SettingsPreferences.getCurrentSchema(context))
+        assertEquals(rime != null, prefs.getBoolean("current_schema_dual", false))
+        assertEquals(rime, prefs.getString("current_schema", null))
+        assertEquals("Reading isolated preferences must not alter Rime", rime, rimeStoredSchema())
         assertEquals(defaultDarkMode, SettingsPreferences.getDarkMode(context))
         assertTrue(SettingsPreferences.isSoundEnabled(context))
     }

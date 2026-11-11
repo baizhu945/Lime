@@ -72,6 +72,12 @@ internal class PinyinEditDisplay(raw: String, preedit: String, isT9: Boolean = f
     fun displayOffset(raw: Int): Int = offsets.indexOfLast { it <= raw }.coerceAtLeast(0)
 }
 
+/** Remove an automatic display boundary without deleting or locking a nine-key digit. */
+internal fun t9DeleteAutomaticSeparator(text: String, caret: Int, raw: String): Pair<String, Int>? {
+    if ('\'' in raw || caret !in 1..text.length || text[caret - 1] != '\'') return null
+    return text.removeRange(caret - 1, caret) to caret - 1
+}
+
 /** Nine-key code and its displayed reading match key for key; syllable delimiters are not keys. */
 internal fun codeKeysBefore(text: String, caret: Int): Int = text.take(caret.coerceAtLeast(0)).count { it != '\'' }
 
@@ -94,6 +100,8 @@ internal fun pinyinPreviewText(preedit: String): String = preedit.trim()
     .replace(Regex("(?<=[a-zA-ZüÜ'])\\s+(?=[a-zA-ZüÜ'])"), "'")
 
 internal val merged14Groups = listOf("qw", "er", "ty", "ui", "op", "as", "df", "gh", "jk", "l", "zx", "cv", "bn", "m")
+/** Group tokens are ambiguous taps; a single letter is an exact key or flick. */
+internal fun merged14MultiTapGroup(key: String?): String? = key?.takeIf { it.length > 1 && it in merged14Groups }
 internal fun merged14Representative(c: Char): Char = merged14Groups.firstOrNull { c in it }?.first() ?: c
 
 /** Only substitute a dictionary reading when every entered key is accounted for. */

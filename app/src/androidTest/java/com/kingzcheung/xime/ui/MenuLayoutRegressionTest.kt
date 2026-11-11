@@ -85,12 +85,12 @@ class MenuLayoutRegressionTest {
                 onKeyPressDown = { feedback += it }), Modifier.width(360.dp).height(224.dp))
         } }
         val initial = rule.onNodeWithTag("toolbar-leading").fetchSemanticsNode().boundsInRoot
-        rule.onNodeWithContentDescription("CyIME Logo").performTouchInput { down(center); up() }
-        rule.onNodeWithContentDescription("CyIME Logo").assertDoesNotExist()
+        rule.onNodeWithContentDescription("Lime Logo").performTouchInput { down(center); up() }
+        rule.onNodeWithContentDescription("Lime Logo").assertDoesNotExist()
         rule.onAllNodesWithContentDescription("返回").assertCountEquals(1)
         assertEquals(initial, rule.onNodeWithTag("toolbar-leading").fetchSemanticsNode().boundsInRoot)
         rule.onNodeWithContentDescription("返回").performClick()
-        rule.onNodeWithContentDescription("CyIME Logo").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Lime Logo").assertIsDisplayed()
         rule.onNodeWithTag("keyboard-overlay").assertDoesNotExist()
     }
 }

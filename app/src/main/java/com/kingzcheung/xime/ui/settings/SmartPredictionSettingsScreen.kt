@@ -539,6 +539,12 @@ internal fun LearningDataControls(
             Text("输入后自动保存。语料方案与实际输入记录分开统计；可导出到电脑查看、删改后再导入。",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             // Stack actions so large fonts and narrow keyboards cannot clip labels.
+            Button(onClick = onSave, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                Text(if (busy) "保存中…" else "立即保存到本机")
+            }
+            OutlinedButton(onClick = onRefresh, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                Text("刷新统计")
+            }
             Button(onClick = onExport, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("导出文件") }
             OutlinedButton(onClick = onImport, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("导入学习文件") }
             if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodySmall)

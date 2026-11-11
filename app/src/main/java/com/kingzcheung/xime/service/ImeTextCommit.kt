@@ -261,7 +261,8 @@ internal class ImeTextCommit(private val service: XimeInputMethodService) {
         val prefix = compositionCommitPrefix(asTyped, input, candidates.shownPreedit(state.inputProfile), t9,
             usesMergedLetterKeys(state.inputProfile.layout), partial,
             englishDelivered = candidates.pendingEnglishText.isNotEmpty(),
-            japanesePreview = service.japaneseInputController.conversionPreview()) {
+            japanesePreview = if (asTyped) service.japaneseInputController.literalPreview()
+                else service.japaneseInputController.conversionPreview()) {
             if (action?.isPluginCandidate == true && !t9) action.commitText
             else engine.conversionPreview().ifEmpty { input }
         }

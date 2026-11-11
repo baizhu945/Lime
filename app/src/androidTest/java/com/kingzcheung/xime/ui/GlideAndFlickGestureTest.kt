@@ -48,7 +48,7 @@ class GlideAndFlickGestureTest {
     private val app = ApplicationProvider.getApplicationContext<Application>()
     private val prefs = SettingsPreferences.getPrefsPublic(app)
     private val preferenceKeys = listOf("cursor_gesture_mode", "symbol_input_mode", "reverse_symbol_swipe",
-        "neighbor_correction", "glide_typing", "t9_flick_letters", "fourteen_letter_swipe_dp",
+        "neighbor_correction", "glide_typing", "glide_typing_v2", "t9_flick_letters", "fourteen_letter_swipe_dp",
         SettingsPreferences.KEY_SPLIT_KEYBOARD, SettingsPreferences.KEY_SHOW_PRESS_BUBBLE)
     private var originalPreferences: Map<String, Any?> = emptyMap()
     private val schema = mutableStateOf("rime_ice")
@@ -60,7 +60,7 @@ class GlideAndFlickGestureTest {
         prefs.edit().putString("cursor_gesture_mode", "SPACE")
             .putString("symbol_input_mode", SymbolInputMode.SWIPE_UP.name)
             .putBoolean("reverse_symbol_swipe", true).putBoolean("neighbor_correction", false)
-            .putBoolean("glide_typing", true).putBoolean("t9_flick_letters", true)
+            .putBoolean("glide_typing", true).putBoolean("glide_typing_v2", true).putBoolean("t9_flick_letters", true)
             .putFloat("fourteen_letter_swipe_dp", 24f)
             .putBoolean(SettingsPreferences.KEY_SPLIT_KEYBOARD, false)
             .putBoolean(SettingsPreferences.KEY_SHOW_PRESS_BUBBLE, false).commit()

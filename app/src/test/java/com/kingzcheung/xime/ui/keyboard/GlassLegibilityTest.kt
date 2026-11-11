@@ -42,6 +42,52 @@ class GlassLegibilityTest {
         }
     }
 
+    @Test fun functionScaleMatchesActualBackgroundRules() {
+        val key = Color(0xFF222222)
+        val function = Color(0xFF444444)
+        assertEquals(0.5f, glassFunctionKeyScale(function, key, function), 0f)
+        assertEquals(1f, glassFunctionKeyScale(key, key, function), 0f)
+        assertEquals(1f, glassFunctionKeyScale(function, function, function), 0f)
+        val glass = com.kingzcheung.xime.ui.theme.TransparentGlassTheme.create()
+        assertEquals(1f, glassFunctionKeyScale(glass.specialKeyDark, glass.keyBgDark!!, glass.specialKeyDark), 0f)
+    }
+
+    @Test fun unreachableContrastPrefersMoreTransparentTiedBest() {
+        val input = FrostedGlassConfig(enabled = true, backgroundOpacity = 0f, keyOpacity = 0f)
+        val result = input.legibleOver(Color.White, listOf(Color.White to Color.White), scales = listOf(0.5f))
+        assertEquals(input, result)
+    }
+
+    @Test fun actualLavenderPaletteHasIndependentSliderSolution() {
+        val surface = Color(0xFF1E1838)
+        val key = Color(0x60FFFFFF)
+        val text = Color(0xFFE8EAED)
+        val function = Color(0xFF8D79D1)
+        val keys = listOf(key to text, function to Color.White)
+        val raw = FrostedGlassConfig(enabled = true, backgroundOpacity = .35f, keyOpacity = .15f)
+        val result = raw.legibleOver(surface, keys, scales = listOf(1f, .5f))
+        assertTrue("must transmit: $result", (1f - result.backgroundOpacity) * (1f - result.keyOpacity) >= .08f)
+        assertTrue("sliders must not be coupled: $result", result.keyOpacity < .3f)
+        for (host in listOf(Color.White, Color.Black)) {
+            val panel = surface.copy(alpha = result.backgroundOpacity).compositeOver(host)
+            keys.forEachIndexed { i, (color, label) ->
+                val fill = frostedKeyColor(color, label, result, opacityScale = if (i == 0) 1f else .5f).compositeOver(panel)
+                assertTrue("host=$host role=$i result=$result contrast=${contrast(label, fill)}", contrast(label, fill) >= GLASS_LABEL_CONTRAST)
+            }
+        }
+        assertEquals(.35f, raw.backgroundOpacity, 0f)
+        assertEquals(.15f, raw.keyOpacity, 0f)
+    }
+
+    @Test fun opaqueAndTransparentEndpointsAreNotReduced() {
+        val keys = listOf(Color(0xFF252525) to Color.White)
+        for (bg in listOf(0f, 1f)) for (key in listOf(0f, 1f)) {
+            val raw = FrostedGlassConfig(enabled = true, backgroundOpacity = bg, keyOpacity = key)
+            val result = raw.legibleOver(Color.Black, keys)
+            assertTrue(result.backgroundOpacity >= bg && result.keyOpacity >= key)
+        }
+    }
+
     @Test fun readableSettingsAreKeptExactly() {
         val dark = FrostedGlassConfig.defaults(isDark = true, enabled = true)
         val p = palettes.first()

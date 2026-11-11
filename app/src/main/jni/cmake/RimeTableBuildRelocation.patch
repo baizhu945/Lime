@@ -1,0 +1,235 @@
+--- a/src/rime/dict/table.cc
++++ b/src/rime/dict/table.cc
+@@ -260,7 +260,8 @@
+ bool Table::AddString(const string& src,
+                       table::StringType* dest,
+                       double weight) {
+-  string_table_builder_->Add(src, weight, &dest->str_id());
++  string_table_builder_->AddMapped(
++      src, weight, reinterpret_cast<char*>(&dest->str_id()) - address());
+   return true;
+ }
+ 
+@@ -271,6 +272,7 @@
+ 
+ bool Table::OnBuildFinish() {
+   string_table_builder_->Build();
++  string_table_builder_->UpdateMappedReferences(address());
+   // saving string table image
+   size_t image_size = string_table_builder_->BinarySize();
+   char* image = Allocate<char>(image_size);
+@@ -279,6 +281,10 @@
+     return false;
+   }
+   string_table_builder_->Dump(image, image_size);
++  // Allocate may have closed and remapped the file, including all roots.
++  metadata_ = Find<table::Metadata>(0);
++  syllabary_ = metadata_->syllabary.get();
++  index_ = metadata_->index.get();
+   metadata_->string_table = image;
+   metadata_->string_table_size = image_size;
+   return true;
+@@ -446,6 +452,7 @@
+       AddString(syllable, &syllabary_->at[i++], 0.0);
+     }
+   }
++  metadata_ = Find<table::Metadata>(0);
+   metadata_->syllabary = syllabary_;
+ 
+   LOG(INFO) << "creating table index.";
+@@ -454,6 +461,8 @@
+     LOG(ERROR) << "Error creating table index.";
+     return false;
+   }
++  metadata_ = Find<table::Metadata>(0);
++  syllabary_ = metadata_->syllabary.get();
+   metadata_->index = index_;
+ 
+   if (!OnBuildFinish()) {
+@@ -478,9 +487,12 @@
+   if (!index) {
+     return NULL;
+   }
++  // Only file-relative offsets may survive a nested allocation. In particular,
++  // a reference to a node is just as unstable as the containing index pointer.
++  const size_t index_offset = reinterpret_cast<char*>(index) - address();
+   for (const auto& v : vocabulary) {
+     int syllable_id = v.first;
+-    auto& node(index->at[syllable_id]);
++    auto& node(Find<table::HeadIndex>(index_offset)->at[syllable_id]);
+     const auto& entries(v.second.entries);
+     if (!BuildEntryList(entries, &node.entries)) {
+       return NULL;
+@@ -492,10 +504,11 @@
+       if (!next_level_index) {
+         return NULL;
+       }
+-      node.next_level = reinterpret_cast<table::PhraseIndex*>(next_level_index);
++      Find<table::HeadIndex>(index_offset)->at[syllable_id].next_level =
++          reinterpret_cast<table::PhraseIndex*>(next_level_index);
+     }
+   }
+-  return index;
++  return Find<table::HeadIndex>(index_offset);
+ }
+ 
+ table::TrunkIndex* Table::BuildTrunkIndex(const Code& prefix,
+@@ -504,10 +517,12 @@
+   if (!index) {
+     return NULL;
+   }
++  const size_t index_offset = reinterpret_cast<char*>(index) - address();
+   size_t count = 0;
+   for (const auto& v : vocabulary) {
+     int syllable_id = v.first;
+-    auto& node(index->at[count++]);
++    const size_t node_index = count++;
++    auto& node(Find<table::TrunkIndex>(index_offset)->at[node_index]);
+     node.key = syllable_id;
+     const auto& entries(v.second.entries);
+     if (!BuildEntryList(entries, &node.entries)) {
+@@ -521,18 +536,19 @@
+         if (!next_level_index) {
+           return NULL;
+         }
+-        node.next_level =
++        Find<table::TrunkIndex>(index_offset)->at[node_index].next_level =
+             reinterpret_cast<table::PhraseIndex*>(next_level_index);
+       } else {
+         auto tail_index = BuildTailIndex(code, *v.second.next_level);
+         if (!tail_index) {
+           return NULL;
+         }
+-        node.next_level = reinterpret_cast<table::PhraseIndex*>(tail_index);
++        Find<table::TrunkIndex>(index_offset)->at[node_index].next_level =
++            reinterpret_cast<table::PhraseIndex*>(tail_index);
+       }
+     }
+   }
+-  return index;
++  return Find<table::TrunkIndex>(index_offset);
+ }
+ 
+ table::TailIndex* Table::BuildTailIndex(const Code& prefix,
+@@ -546,24 +562,28 @@
+   if (!index) {
+     return NULL;
+   }
++  const size_t index_offset = reinterpret_cast<char*>(index) - address();
+   size_t count = 0;
+   for (const auto& src : page.entries) {
+     DLOG(INFO) << "count: " << count;
+     DLOG(INFO) << "entry: " << src->text;
+-    auto& dest(index->at[count++]);
++    const size_t entry_index = count++;
+     size_t extra_code_length = src->code.size() - Code::kIndexCodeMaxLength;
+     DLOG(INFO) << "extra code length: " << extra_code_length;
+-    dest.extra_code.size = extra_code_length;
+-    dest.extra_code.at = Allocate<SyllableId>(extra_code_length);
+-    if (!dest.extra_code.at) {
++    auto extra_code = Allocate<SyllableId>(extra_code_length);
++    if (!extra_code) {
+       LOG(ERROR) << "Error creating code sequence; file size: " << file_size();
+       return NULL;
+     }
++    auto& dest(Find<table::TailIndex>(index_offset)->at[entry_index]);
++    dest.extra_code.size = extra_code_length;
++    dest.extra_code.at = extra_code;
+     std::copy(src->code.begin() + Code::kIndexCodeMaxLength, src->code.end(),
+               dest.extra_code.begin());
+-    BuildEntry(*src, &dest.entry);
++    if (!BuildEntry(*src, &dest.entry))
++      return NULL;
+   }
+-  return index;
++  return Find<table::TailIndex>(index_offset);
+ }
+ 
+ Array<table::Entry>* Table::BuildEntryArray(const ShortDictEntryList& entries) {
+@@ -583,12 +603,15 @@
+                            List<table::Entry>* dest) {
+   if (!dest)
+     return false;
+-  dest->size = src.size();
+-  dest->at = Allocate<table::Entry>(src.size());
+-  if (!dest->at) {
++  const size_t dest_offset = reinterpret_cast<char*>(dest) - address();
++  auto entries = Allocate<table::Entry>(src.size());
++  if (!entries) {
+     LOG(ERROR) << "Error creating table entries; file size: " << file_size();
+     return false;
+   }
++  dest = Find<List<table::Entry>>(dest_offset);
++  dest->size = src.size();
++  dest->at = entries;
+   size_t i = 0;
+   for (auto d = src.begin(); d != src.end(); ++d, ++i) {
+     if (!BuildEntry(**d, &dest->at[i]))
+@@ -600,3 +623,5 @@
+ bool Table::BuildEntry(const ShortDictEntry& dict_entry, table::Entry* entry) {
++  // AddString only records an offset in the heap-owned builder. No mapped-file
++  // allocation occurs here, so entry and callers' array/list pointers stay valid.
+   if (!entry)
+     return false;
+--- a/src/rime/dict/string_table.cc
++++ b/src/rime/dict/string_table.cc
+@@ -74,7 +74,20 @@
+                              double weight,
+                              StringId* reference) {
+   keys_.push_back(key.c_str(), key.length(), (float)weight);
+-  references_.push_back(reference);
++  references_.push_back({reference, 0, false});
++}
++
++void StringTableBuilder::AddMapped(const string& key, double weight,
++                                   size_t offset) {
++  keys_.push_back(key.c_str(), key.length(), (float)weight);
++  references_.push_back({nullptr, offset, true});
++}
++
++void StringTableBuilder::UpdateMappedReferences(char* base) {
++  for (size_t i = 0; i < references_.size(); ++i) {
++    if (references_[i].mapped)
++      *reinterpret_cast<StringId*>(base + references_[i].offset) = keys_[i].id();
++  }
+ }
+ 
+ void StringTableBuilder::Clear() {
+@@ -94,8 +107,8 @@
+   }
+   marisa::Agent agent;
+   for (size_t i = 0; i < keys_.size(); ++i) {
+-    if (references_[i]) {
+-      *references_[i] = keys_[i].id();
++    if (references_[i].direct) {
++      *references_[i].direct = keys_[i].id();
+     }
+   }
+ }
+--- a/src/rime/dict/string_table.h
++++ b/src/rime/dict/string_table.h
+@@ -44,6 +44,10 @@
+   void Add(const string& key,
+            double weight = 1.0,
+            StringId* reference = nullptr);
++  // For a mapping that may move during construction. Offsets are from its base,
++  // not relative to the StringId field as in the on-disk OffsetPtr format.
++  void AddMapped(const string& key, double weight, size_t offset);
++  void UpdateMappedReferences(char* base);
+   void Clear();
+   void Build();
+   void Dump(char* ptr, size_t size);
+@@ -52,7 +56,12 @@
+   void UpdateReferences();
+ 
+   marisa::Keyset keys_;
+-  vector<StringId*> references_;
++  struct Reference {
++    StringId* direct;
++    size_t offset;
++    bool mapped;
++  };
++  vector<Reference> references_;
+ };
+ 
+ }  // namespace rime

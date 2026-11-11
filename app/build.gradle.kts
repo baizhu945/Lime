@@ -23,6 +23,16 @@ apply(from = "build-logic/tasks-cangjie.gradle.kts")
 apply(from = "build-logic/tasks-t9-grammar.gradle.kts")
 apply(from = "build-logic/tasks-rime-manifest.gradle.kts")
 
+// The optional sentence model is excluded from the app APK, but the real
+// asynchronous refinement instrumentation test needs it in the test APK.
+val t9RefinementTestAssets = tasks.register<Copy>("prepareT9RefinementTestAssets") {
+    from("src/main/assets/rime_chinese/t9_sentence.onnx") { rename { "refinement_fixture.onnx" } }
+    into(layout.buildDirectory.dir("generated/t9-refinement-test-assets"))
+}
+tasks.configureEach {
+    if (name.startsWith("merge") && name.endsWith("AndroidTestAssets")) dependsOn(t9RefinementTestAssets)
+}
+
 // 获取 Git 提交哈希
 fun getGitHash(): String {
     return try {
@@ -52,6 +62,7 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.kingzcheung.xime"
+    sourceSets.getByName("androidTest").assets.srcDir(layout.buildDirectory.dir("generated/t9-refinement-test-assets").get().asFile)
     if (providers.gradleProperty("bundleModels").orNull == "true") {
         sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/bundled-model-assets").get().asFile)
     }
@@ -80,8 +91,8 @@ android {
         // 按发布批次定号：兼容修复升 PATCH，兼容功能升 MINOR 并归零 PATCH。
         // 不兼容变更升 MAJOR；日常编辑不逐次升号。完整规则见 docs/packaging.md。
         // versionCode 是独立递增的交付序号；同批普通版与内置版共用。
-        versionCode = 20261394
-        versionName = "2.00.04"
+        versionCode = 20261395
+        versionName = "2.01.00"
 
 
         // Isolated Compose rendering on a local x86 emulator; ordinary device tests keep the full app.

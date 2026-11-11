@@ -13,7 +13,7 @@ Android application/JNI linking tail. `android/log.h` routes logs to stderr and
 `FindBoost.cmake` keeps the vendored Boost targets instead of a system version.
 
 The helper downloads pinned official CMake/Ninja wheels, the Linux ONNX Runtime
-1.28 library and JNI headers into its cache, without a global package install.
+1.31.1 library and JNI headers into its cache, without a global package install.
 It checks the ONNX C API against the production headers and records dependency,
 source, adapter and library hashes. A Java runtime containing the compiler
 module is sufficient; the helper provides a local `javac` launcher for that
@@ -46,20 +46,27 @@ comparison exit codes separately.
 `MergedLetterProbe.java` additionally exercises full/double pinyin syllable
 selection against the production JNI and deployed prisms. Compile it together
 with `../android_replay/RimeEngine.java`; arguments are the built `library_dir`
-and a separate test user-resource directory with `rime_ice`, `pinyin_14jian`,
-`double_pinyin_flypy`, and `double_pinyin_flypy_14jian` enabled. Do not point it at
-an installed application's data. It confirms a partial Chinese candidate to
+and a separate test user-resource directory whose `default.custom.yaml` enables
+`rime_ice`, `pinyin_14jian`, `double_pinyin_flypy`, and
+`double_pinyin_flypy_14jian` in `schema_list`. Schema source files alone are not
+enough: maintenance deploys only enabled schemas. Do not point it at an installed
+application's data. It confirms a partial Chinese candidate to
 check prefix preservation, so this is distinct from the no-selection T9 corpus
 protocol. It never commits a full input or adds training phrases.
 
 The probe covers grouped/exact letters, real `lo`/`luo` shared codes, `xian`
-versus `xi+an`, a chosen `ni` followed by `n`, reselecting the first unconfirmed
-syllable, raw/caret/confirmed-text preservation, stale selections, suffix edits,
-explicit delimiters, caret movement and clear/schema invalidation. Candidate
-pronunciation checks use actual Chinese dictionary syllable IDs, not displayed
-labels or another dictionary's English word IDs. This verifies one unconfirmed
-syllable constraint; it does not claim nine-key-style chaining of several
-syllable choices before selecting Chinese text.
+versus `xi+an`, a chosen `ni` followed by `n`, competing choices in fresh
+compositions, raw/caret/confirmed-text preservation, stale selections, suffix
+edits, explicit delimiters, caret movement and clear/schema invalidation.
+Candidate pronunciation checks use actual Chinese dictionary syllable IDs, not
+displayed labels or another dictionary's English word IDs. Chaining several
+unconfirmed syllables is covered separately by `PinyinChainProbe.java`.
+
+`ContextEditProbe.cc` links to the host JNI library and uses a real `Context`
+with ordered update observers to check no-op edits, one-shot evidence, nested
+caret notifications and nested edits. Nested notifications before the engine's
+observer can conservatively discard outer edit evidence and therefore clear a
+lock; the probe checks safety, not preservation in that reentrant case.
 
 `T9PartialClearProbe.java` (same arguments as `MergedLetterProbe`, run on a copy of a deployed replay
 root's `user` directory) checks that ending a T9 composition after a partial choice starts the next

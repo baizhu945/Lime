@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PixelMap
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -17,6 +18,7 @@ import com.kingzcheung.xime.ui.keyboard.HandwritingKeyboardLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -30,13 +32,13 @@ class HandwritingTouchTest {
             HandwritingEngine.initialize(InstrumentationRegistry.getInstrumentation().targetContext)
         })
         val events = mutableListOf<String>()
-        val height = mutableStateOf(300.dp)
+        val panelHeightState = mutableStateOf(300.dp)
         rule.setContent {
             MaterialTheme {
                 HandwritingKeyboardLayout(onKeyPress = { events += it },
                     onRecognition = { events += "result" }, bottomPaddingDp = 0,
                     keyTextColor = Color.Black,
-                    modifier = Modifier.fillMaxWidth().height(height.value).background(Color.White))
+                    modifier = Modifier.fillMaxWidth().height(panelHeightState.value).background(Color.White))
             }
         }
         rule.mainClock.autoAdvance = false
@@ -47,29 +49,48 @@ class HandwritingTouchTest {
             }
             rule.mainClock.advanceTimeByFrame()
         }
-        fun blank(): Boolean {
+        // 语言提示叠在画布之上；用各高度落笔前的截图比较，而不是假定整个画布纯白。
+        lateinit var baseline: PixelMap
+        fun snapshot(): PixelMap {
             rule.mainClock.advanceTimeByFrame()
-            val pixels = canvas.captureToImage().toPixelMap()
-            return (20 until pixels.width - 20 step 4).all { x ->
-                (20 until pixels.height - 20 step 4).all { y -> pixels[x, y].red > 0.95f }
+            return canvas.captureToImage().toPixelMap()
+        }
+        fun blank(): Boolean {
+            val pixels = snapshot()
+            if (pixels.width != baseline.width || pixels.height != baseline.height) return false
+            return (0 until pixels.width).all { x ->
+                (0 until pixels.height).all { y ->
+                    val before = baseline[x, y]
+                    val after = pixels[x, y]
+                    abs(before.red - after.red) < 0.08f && abs(before.green - after.green) < 0.08f &&
+                        abs(before.blue - after.blue) < 0.08f
+                }
             }
         }
         fun stroke() {
-            canvas.performTouchInput { down(Offset(60f, 70f)); moveTo(Offset(100f, 70f)); moveTo(Offset(220f, 70f)); up() }
+            // 避开左上角不透明语言胶囊，确保截图能看到实际笔迹。
+            canvas.performTouchInput {
+                val y = height * 0.65f
+                down(Offset(width * 0.2f, y)); moveTo(Offset(width * 0.4f, y)); moveTo(Offset(width * 0.7f, y)); up()
+            }
             rule.mainClock.advanceTimeByFrame()
         }
         val keys = listOf("delete", "space", "number", "symbol", "ime_switch", "，", "。", "enter")
+        lateinit var normalBaseline: PixelMap
         for (panelHeight in listOf(300.dp, 180.dp)) {
-            rule.runOnIdle { height.value = panelHeight }
+            rule.runOnIdle { panelHeightState.value = panelHeight }
             rule.mainClock.advanceTimeByFrame()
             rule.runOnIdle { events.clear() }
+            baseline = snapshot()
+            if (panelHeight == 300.dp) normalBaseline = baseline
             keys.forEach(::jitter)
             rule.mainClock.advanceTimeBy(1200)
             rule.runOnIdle { assertEquals("空白时每次轻微移动的点击只能执行对应按键", keys, events) }
             assertTrue("按功能键不能留下任何笔迹", blank())
         }
-        rule.runOnIdle { height.value = 300.dp; events.clear() }
+        rule.runOnIdle { panelHeightState.value = 300.dp; events.clear() }
         rule.mainClock.advanceTimeByFrame()
+        baseline = normalBaseline
         stroke(); assertFalse("实际落笔应渲染", blank())
         jitter("delete")
         rule.mainClock.advanceTimeBy(1500)

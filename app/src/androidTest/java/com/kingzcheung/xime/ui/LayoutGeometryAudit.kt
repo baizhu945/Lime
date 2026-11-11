@@ -17,11 +17,12 @@ internal fun ComposeContentTestRule.geometryIssues(rootTag: String, allowViewpor
     val issues = mutableListOf<String>()
     data class Action(val label: String, val rect: androidx.compose.ui.geometry.Rect, val region: android.graphics.Region)
     val actions = mutableListOf<Action>()
-    fun containsAction(node: SemanticsNode): Boolean = node.config.contains(SemanticsActions.OnClick) || node.children.any(::containsAction)
+    fun containsAction(node: SemanticsNode): Boolean = node.config.contains(SemanticsActions.OnClick) ||
+        (!node.config.isClearingSemantics && node.children.any(::containsAction))
     fun labelled(node: SemanticsNode): Boolean = node.config.contains(SemanticsProperties.TestTag) ||
         node.config.getOrNull(SemanticsProperties.Text)?.any { it.text.isNotEmpty() } == true ||
         node.config.getOrNull(SemanticsProperties.ContentDescription)?.any { it.isNotEmpty() } == true ||
-        node.children.any(::labelled)
+        (!node.config.isClearingSemantics && node.children.any(::labelled))
     fun shape(node: SemanticsNode): RenderedControlShape? = node.config.getOrNull(ControlShape) ?: node.children.firstNotNullOfOrNull { shape(it) }
     fun region(node: SemanticsNode): android.graphics.Region {
         val bounds = node.boundsInRoot
@@ -37,7 +38,7 @@ internal fun ComposeContentTestRule.geometryIssues(rootTag: String, allowViewpor
         }
         return android.graphics.Region().apply { setPath(translated, box) }
     }
-    fun walk(node: SemanticsNode, scrolling: Boolean) {
+    fun walk(node: SemanticsNode, scrolling: Boolean, actionsHidden: Boolean = false) {
         val config = node.config
         val label = config.getOrNull(SemanticsProperties.TestTag)
             ?: config.getOrNull(SemanticsProperties.Text)?.joinToString { it.text }
@@ -65,9 +66,12 @@ internal fun ComposeContentTestRule.geometryIssues(rootTag: String, allowViewpor
                 issues += "$label: 元素越出面板 $bounds / $viewport"
             }
             // Unlabelled sibling click barriers are intentional modal backdrops, not controls.
-            if (config.contains(SemanticsActions.OnClick) && labelled(node) && node.children.none(::containsAction)) actions += Action(label, bounds, region(node))
+            if (!actionsHidden && config.contains(SemanticsActions.OnClick) && labelled(node) &&
+                (config.isClearingSemantics || node.children.none(::containsAction))) actions += Action(label, bounds, region(node))
         }
-        node.children.forEach { walk(it, hasScroll) }
+        // Unmerged children remain available for text-layout auditing, but clearAndSetSemantics
+        // hides their actions (e.g. the keyboard underneath an active tool overlay).
+        node.children.forEach { walk(it, hasScroll, actionsHidden || config.isClearingSemantics) }
     }
     runOnIdle { walk(root, false) }
     actions.forEachIndexed { i, a -> actions.drop(i + 1).forEach { b ->

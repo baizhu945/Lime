@@ -6,35 +6,30 @@ import kotlinx.coroutines.launch
 object LanguagePreferences {
     private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
     const val KEY = "enabled_input_languages"
-    /** 整合版默认带日语：只能做一次，用户之后关掉了不再打开。 */
-    private const val JAPANESE_DEFAULT_ADDED = "japanese_language_added_v1"
     fun enabled(context: Context): Set<InputLanguage> {
         val prefs = SettingsPreferences.getPrefsPublic(context)
         val stored = prefs.getStringSet(KEY, null)
         // Imported profiles without language metadata remain usable, without pretending to be Chinese.
-        return (if (stored == null) setOf(InputLanguage.CHINESE, InputLanguage.ENGLISH)
-        else InputLanguage.entries.filterTo(mutableSetOf()) { it.id in stored } + InputLanguage.ENGLISH) + InputLanguage.UNSPECIFIED
+        val base = if (stored == null) setOf(InputLanguage.CHINESE, InputLanguage.ENGLISH)
+        else InputLanguage.entries.filterTo(mutableSetOf()) { it.id in stored } + InputLanguage.ENGLISH
+        return base + InputLanguage.UNSPECIFIED
     }
     fun initialize(context: Context) {
         val prefs = SettingsPreferences.getPrefsPublic(context)
-        // 默认启用日语，语言键才能按「中 → 英 → 日 → 中」循环；只补一次，尊重用户之后的关闭。
-        if (!prefs.getBoolean(JAPANESE_DEFAULT_ADDED, false)) {
-            val current = enabled(context)
-            if (InputLanguage.JAPANESE !in current) {
-                InputModes.moveLanguageLast(context, InputLanguage.JAPANESE)
-                prefs.edit().putStringSet(KEY, (current + InputLanguage.JAPANESE).map { it.id }.toSet())
-                    .putBoolean(JAPANESE_DEFAULT_ADDED, true).commit()
-                runCatching {
-                    val schemas = SchemaManager.getEnabledSchemas(context)
-                    SchemaManager.setEnabledSchemas(context, (schemas + JapaneseSchemas.ids).distinct())
-                }
-            } else {
-                prefs.edit().putBoolean(JAPANESE_DEFAULT_ADDED, true).commit()
-            }
+        val stored = prefs.getStringSet(KEY, null)
+        if (stored != null && InputLanguage.ENGLISH.id in stored) return
+        // New installs start with Chinese/English only. Other languages are personal choices;
+        // never auto-enable Japanese or reset a user's existing choices/order.
+        val edit = prefs.edit().putStringSet(KEY,
+            enabled(context).filterNot { it == InputLanguage.UNSPECIFIED }.map { it.id }.toSet())
+        if (stored != null && prefs.getString(InputModes.LANGUAGE_ORDER_KEY, null).isNullOrBlank()) {
+            // Legacy profiles could contain just a native language. Append newly required
+            // English behind those existing choices, atomically with the enabled-language set.
+            val previous = InputModes.languageOrder(emptyList()).filter { it.id in stored }.map { it.id }
+            edit.putString(InputModes.LANGUAGE_ORDER_KEY,
+                InputModes.languageOrder(previous + InputLanguage.ENGLISH.id).joinToString("\n") { it.id })
         }
-        if (prefs.getStringSet(KEY, null)?.contains(InputLanguage.ENGLISH.id) != true) {
-            prefs.edit().putStringSet(KEY, enabled(context).map { it.id }.toSet()).commit()
-        }
+        check(edit.commit()) { "无法初始化语言设置" }
     }
     /**
      * Turning a schema on in 方案管理 (or installing it from the market) also turns its language on: otherwise a

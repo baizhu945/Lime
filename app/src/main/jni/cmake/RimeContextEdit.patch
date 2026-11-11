@@ -1,0 +1,219 @@
+diff --git a/src/rime/context.cc b/src/rime/context.cc
+index 0f856cf2..fb0cff67 100644
+--- a/src/rime/context.cc
++++ b/src/rime/context.cc
+@@ -15,6 +15,38 @@ namespace rime {
+ 
+ const string kSelectedBeforeEditing = "selected_before_editing";
+ 
++bool Context::ConsumeInputEdit(const string& old_input, uint64_t old_epoch,
++                               InputEdit* result) {
++  InputEdit edit = std::move(input_edit_);
++  input_edit_ = InputEdit();
++  if (!result || !edit.valid || edit.old_input != old_input ||
++      edit.old_epoch != old_epoch || edit.new_input != input_ ||
++      edit.new_epoch != composition_epoch_ || edit.start > edit.old_end ||
++      edit.old_end > edit.old_input.size()) return false;
++  *result = std::move(edit);
++  return true;
++}
++
++void Context::NotifyUpdate() {
++  input_edit_ = InputEdit();
++  update_notifier_(this);
++}
++
++void Context::NotifyInputEdit(string old_input, size_t start, size_t old_end,
++                              uint64_t old_epoch) {
++  struct Scope {
++    InputEdit& slot;
++    InputEdit previous;
++    explicit Scope(InputEdit& s) : slot(s), previous(std::move(s)) {
++      previous.valid = false;
++    }
++    ~Scope() { slot = std::move(previous); }
++  } scope(input_edit_);
++  input_edit_ = {std::move(old_input), input_, start, old_end, old_epoch,
++                 composition_epoch_, true};
++  update_notifier_(this);
++}
++
+ bool Context::Commit() {
+   if (!IsComposing())
+     return false;
+@@ -63,6 +95,9 @@ an<Candidate> Context::GetSelectedCandidate() const {
+ }
+ 
+ bool Context::PushInput(char ch) {
++  string old_input = input_;
++  const size_t start = (std::min)(caret_pos_, input_.size());
++  const uint64_t old_epoch = composition_epoch_;
+   if (caret_pos_ >= input_.length()) {
+     input_.push_back(ch);
+     caret_pos_ = input_.length();
+@@ -71,11 +106,16 @@ bool Context::PushInput(char ch) {
+     ++caret_pos_;
+   }
+   BumpCompositionEpoch();
+-  update_notifier_(this);
++  NotifyInputEdit(std::move(old_input), start, start, old_epoch);
+   return true;
+ }
+ 
+ bool Context::PushInput(const string& str) {
++  if (str.empty())
++    return true;
++  string old_input = input_;
++  const size_t start = (std::min)(caret_pos_, input_.size());
++  const uint64_t old_epoch = composition_epoch_;
+   if (caret_pos_ >= input_.length()) {
+     input_ += str;
+     caret_pos_ = input_.length();
+@@ -84,26 +124,34 @@ bool Context::PushInput(const string& str) {
+     caret_pos_ += str.length();
+   }
+   BumpCompositionEpoch();
+-  update_notifier_(this);
++  NotifyInputEdit(std::move(old_input), start, start, old_epoch);
+   return true;
+ }
+ 
+ bool Context::PopInput(size_t len) {
++  if (len == 0)
++    return true;
+   if (caret_pos_ < len)
+     return false;
++  string old_input = input_;
++  const uint64_t old_epoch = composition_epoch_;
+   caret_pos_ -= len;
+   input_.erase(caret_pos_, len);
+   BumpCompositionEpoch();
+-  update_notifier_(this);
++  NotifyInputEdit(std::move(old_input), caret_pos_, caret_pos_ + len, old_epoch);
+   return true;
+ }
+ 
+ bool Context::DeleteInput(size_t len) {
++  if (len == 0)
++    return true;
+-  if (caret_pos_ + len > input_.length())
++  if (caret_pos_ > input_.length() || len > input_.length() - caret_pos_)
+     return false;
++  string old_input = input_;
++  const uint64_t old_epoch = composition_epoch_;
+   input_.erase(caret_pos_, len);
+   BumpCompositionEpoch();
+-  update_notifier_(this);
++  NotifyInputEdit(std::move(old_input), caret_pos_, caret_pos_ + len, old_epoch);
+   return true;
+ }
+ 
+@@ -112,7 +160,7 @@ void Context::Clear() {
+   caret_pos_ = 0;
+   composition_.clear();
+   BumpCompositionEpoch();
+-  update_notifier_(this);
++  NotifyUpdate();
+ }
+ 
+ void Context::AbortComposition() {
+@@ -147,7 +195,7 @@ bool Context::Highlight(size_t index) {
+     return false;
+   }
+   seg.selected_index = new_index;
+-  update_notifier_(this);
++  NotifyUpdate();
+   DLOG(INFO) << "selection changed from: " << previous_index
+              << " to: " << new_index;
+   return true;
+@@ -212,7 +260,7 @@ bool Context::ReopenPreviousSegment() {
+         composition_.back().status >= Segment::kSelected) {
+       composition_.back().Reopen(caret_pos());
+     }
+-    update_notifier_(this);
++    NotifyUpdate();
+     return true;
+   }
+   return false;
+@@ -241,7 +289,7 @@ bool Context::ReopenPreviousSelection() {
+         composition_.pop_back();
+       }
+       it->Reopen(caret_pos());
+-      update_notifier_(this);
++      NotifyUpdate();
+       return true;
+     }
+   }
+@@ -264,7 +312,7 @@ bool Context::ClearNonConfirmedComposition() {
+ 
+ bool Context::RefreshNonConfirmedComposition() {
+   if (ClearNonConfirmedComposition()) {
+-    update_notifier_(this);
++    NotifyUpdate();
+     return true;
+   }
+   return false;
+@@ -275,7 +323,7 @@ void Context::set_caret_pos(size_t caret_pos) {
+     caret_pos_ = input_.length();
+   else
+     caret_pos_ = caret_pos;
+-  update_notifier_(this);
++  NotifyUpdate();
+ }
+ 
+ void Context::set_composition(Composition&& comp) {
+@@ -290,9 +338,10 @@ void Context::set_input(const string& value) {
+   }
+   input_ = value;
+   caret_pos_ = input_.length();
+-  update_notifier_(this);
++  NotifyUpdate();
+ }
+ 
+ void Context::set_option(const string& name, bool value) {
+-  BumpCompositionEpoch();
++  if (get_option(name) != value)
++    BumpCompositionEpoch();
+   options_[name] = value;
+diff --git a/src/rime/context.h b/src/rime/context.h
+index 23785e47..74117134 100644
+--- a/src/rime/context.h
++++ b/src/rime/context.h
+@@ -71,6 +71,19 @@ class RIME_DLL Context {
+   // 用于 T9 增量 compose 等跨键缓存的失效判定；纯追加 set_input 不递增。
+   uint64_t composition_epoch() const { return composition_epoch_; }
+ 
++  struct InputEdit {
++    string old_input;
++    string new_input;
++    size_t start = 0;
++    size_t old_end = 0;
++    uint64_t old_epoch = 0;
++    uint64_t new_epoch = 0;
++    bool valid = false;
++  };
++  // One-shot evidence for the current synchronous update only.
++  bool ConsumeInputEdit(const string& old_input, uint64_t old_epoch,
++                        InputEdit* result);
++
+   void set_caret_pos(size_t caret_pos);
+   size_t caret_pos() const { return caret_pos_; }
+ 
+@@ -106,6 +119,9 @@ class RIME_DLL Context {
+  private:
+   string GetSoftCursor() const;
+   void BumpCompositionEpoch() { ++composition_epoch_; }
++  void NotifyUpdate();
++  void NotifyInputEdit(string old_input, size_t start, size_t old_end,
++                       uint64_t old_epoch);
+ 
+   string input_;
+   size_t caret_pos_ = 0;
+@@ -114,6 +130,7 @@ class RIME_DLL Context {
+   map<string, bool> options_;
+   map<string, string> properties_;
+   uint64_t composition_epoch_ = 1;
++  InputEdit input_edit_;
+ 
+   Notifier commit_notifier_;
+   Notifier select_notifier_;

@@ -578,6 +578,26 @@ bool T9DecodeJoint(const T9ScriptQuery& q, const T9ScriptOptions& o, bool (*is_n
     final.emplace_back(rank, line);
   }
   std::stable_sort(final.begin(), final.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+  // Compare exact dictionary words with the winning pronunciation using the same
+  // dictionary interpolation already granted to OOV words. Do not let that
+  // unigram evidence override a different pronunciation or committed context.
+  if (o.t9_ngram_ && o.t9_ngram_dictionary_prior_ > 0 && is_numeric_input(input) &&
+      preceding.empty() && (o.t9_left_context_.empty() || o.t9_left_context_ == "\x1e") && !final.empty()) {
+    const Code best_code = final.front().second->code;
+    for (auto& item : final) {
+      const auto& line = item.second;
+      if (!line->entry || !line->previous || line->previous->entry || line->code != best_code ||
+          line->entry->commit_count > 0 || line->matched_length < total ||
+          !std::isfinite(line->entry->weight)) continue;
+      const auto& lm = lm_entry_of(line->entry);
+      if (!lm.parts.empty()) continue;  // already smoothed during decoding
+      const double reading = lm.reading;
+      const double mu = o.t9_ngram_dictionary_prior_;
+      item.first = reading + std::log((1 - mu) * std::exp(item.first - reading) +
+                                      mu * std::exp(line->entry->weight));
+    }
+    std::stable_sort(final.begin(), final.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+  }
   if (final.size() > o.t9_result_budget_) final.resize(o.t9_result_budget_);
   vector<T9Path> paths;
   double coverage = 0;

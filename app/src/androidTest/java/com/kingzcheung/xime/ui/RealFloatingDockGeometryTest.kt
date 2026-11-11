@@ -76,13 +76,24 @@ class RealFloatingDockGeometryTest {
         var downTime = 0L
         var pointerX = 0f
         var pointerY = 0f
+        var dragStartRect: Rect? = null
+        var dragStartOffsetX = 0
+        var dragStartOffsetY = 0
         var failure: Throwable? = null
         val evidence = mutableListOf<String>()
 
         fun expectDragPersistence(docking: Boolean) {
-            val state = checkNotNull(service).uiState.value
-            ledger.expect("floating_offset_x$suffix", state.floatingOffsetX)
-            ledger.expect("floating_offset_y$suffix", state.floatingOffsetY)
+            val actual = checkNotNull(service)
+            val start = checkNotNull(dragStartRect)
+            val shown = screenRect("floating-keyboard-card")
+            val density = actual.resources.displayMetrics.density
+            // The production card previews locally and commits the total delta only on UP/CANCEL.
+            val expectedX = dragStartOffsetX + ((shown.left - start.left) / density).roundToInt()
+            val expectedY = dragStartOffsetY - ((shown.top - start.top) / density).roundToInt()
+            evidence += "drag-end expectation from rendered delta: x=$expectedX, y=$expectedY, " +
+                "storedY=${prefs.all["floating_offset_y$suffix"]}, docking=$docking"
+            ledger.expect("floating_offset_x$suffix", expectedX)
+            ledger.expect("floating_offset_y$suffix", expectedY)
             if (docking) {
                 ledger.expect("floating_mode$suffix", false)
                 ledger.expect("keyboard_opacity$suffix", 1f)
@@ -139,7 +150,12 @@ class RealFloatingDockGeometryTest {
                         "floating_mode$suffix" to false))
                     checkNotNull(actual.keyboardCallbacks?.onFloatingModeChange).invoke(false)
                 }
+                var expandedHardwareToolbar = false
                 rule.waitUntil(10_000) {
+                    if (!expandedHardwareToolbar && exists("hardware-toolbar-keyboard")) {
+                        expandedHardwareToolbar = true
+                        rule.onNodeWithTag("hardware-toolbar-keyboard").performClick()
+                    }
                     !actual.uiState.value.isFloatingMode && actual.uiState.value.fixedOffsetX == signedOffset &&
                         actual.uiState.value.keyboardBottomPaddingDp == 48 && exists("fixed-keyboard-card")
                 }
@@ -163,6 +179,9 @@ class RealFloatingDockGeometryTest {
                 val bottom = host[1] + actual.keyboardContainer.height - minBottomDp * density
                 val travel = (bottom - card.bottom).coerceAtLeast(0f)
                 assertTrue("floating fixture starts above the docking region", travel > 16f * density)
+                dragStartRect = card
+                dragStartOffsetX = actual.uiState.value.floatingOffsetX
+                dragStartOffsetY = actual.uiState.value.floatingOffsetY
                 inject(MotionEvent.ACTION_DOWN, bar.center.x, bar.center.y)
                 repeat(24) { step ->
                     SystemClock.sleep(10)
@@ -181,11 +200,13 @@ class RealFloatingDockGeometryTest {
                 capture("offset-$signedOffset-armed", Rect(minOf(preview.left, floating.left), minOf(preview.top, floating.top),
                     maxOf(preview.right, floating.right), maxOf(preview.bottom, floating.bottom)))
                 assertEdges("preview must target saved fixed rectangle", before, preview, density)
-                rule.runOnUiThread { expectDragPersistence(docking = true) }
+                expectDragPersistence(docking = true)
                 inject(MotionEvent.ACTION_UP)
                 rule.waitUntil(10_000) { !actual.uiState.value.isFloatingMode && exists("fixed-keyboard-card") && !exists("floating-drag-bar") }
                 rule.waitForIdle()
                 val restored = screenRect("fixed-keyboard-card")
+                evidence += "docked state: x=${actual.uiState.value.floatingOffsetX}, " +
+                    "y=${actual.uiState.value.floatingOffsetY}, storedY=${prefs.all["floating_offset_y$suffix"]}"
                 capture("offset-$signedOffset-restored", restored)
                 assertEdges("all four preview edges must match real fixed keyboard", preview, restored, density)
                 assertEdges("restored keyboard must keep initial saved geometry", before, restored, density)
@@ -214,10 +235,11 @@ class RealFloatingDockGeometryTest {
             val cleanupErrors = mutableListOf<Throwable>()
             fun cleanup(block: () -> Unit) { runCatching(block).exceptionOrNull()?.let(cleanupErrors::add) }
             cleanup { if (touchDown) {
-                instrumentation.runOnMainSync { expectDragPersistence(docking = false) }
+                expectDragPersistence(docking = false)
                 inject(MotionEvent.ACTION_CANCEL)
             } }
             cleanup { instrumentation.runOnMainSync {
+                evidence += "geometry preference ledger: ${ledger.describe()}"
                 evidence += "preserved_external_preference_changes=${ledger.restore().joinToString(",")}"
                 service?.takeIf { ledger.hasMutations }?.let { actual ->
                     val currentLandscape = actual.resources.configuration.screenWidthDp > actual.resources.configuration.screenHeightDp
@@ -290,6 +312,7 @@ class RealFloatingDockGeometryTest {
         private val written = linkedMapOf<String, Any?>()
         private val pending = linkedMapOf<String, Any?>()
         val hasMutations get() = written.isNotEmpty() || pending.isNotEmpty()
+        fun describe() = "original=$original, written=$written, pending=$pending"
         fun capture(key: String) {
             if (!original.containsKey(key)) original[key] = prefs.all[key]
         }
@@ -308,7 +331,8 @@ class RealFloatingDockGeometryTest {
             acknowledgeServiceWrites()
             values.keys.forEach { key ->
                 check(!written.containsKey(key) || prefs.all[key] == written[key]) {
-                    "Preference $key was changed externally; stop instead of overwriting it"
+                    "Preference $key was changed externally; expected=${written[key]}, actual=${prefs.all[key]}, " +
+                        "pending=${pending[key]}; stop instead of overwriting it"
                 }
             }
             val edit = prefs.edit()

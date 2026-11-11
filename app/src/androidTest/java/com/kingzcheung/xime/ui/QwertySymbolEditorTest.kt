@@ -29,7 +29,10 @@ class QwertySymbolEditorTest {
             saveUiEvidence("qwerty-symbol-editor", rule.onRoot())
             rule.onNodeWithTag("symbol-editor-up").performScrollTo().performTextReplacement("★")
             rule.onNodeWithTag("symbol-editor-up").assertTextContains("★")
-            rule.onNodeWithText("保存符号").performScrollTo().assertIsEnabled().performClick()
+            // Text replacement focuses the field. Finish the real IME dismissal before
+            // scrolling/clicking, so its asynchronous insets cannot move the save target.
+            androidx.test.espresso.Espresso.closeSoftKeyboard()
+            rule.onNodeWithText("保存符号").performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
             rule.waitUntil(10_000) {
                 rule.onAllNodesWithText("已保存，键盘上立即生效").fetchSemanticsNodes().isNotEmpty()
             }
@@ -53,7 +56,8 @@ class QwertySymbolEditorTest {
             }
         } catch (failure: Throwable) {
             saveUiEvidence("qwerty-symbol-editor-failure", rule.onRoot())
-            android.util.Log.e("SymbolEditorTest", "prefs=" + SettingsPreferences.getPrefsPublic(context).all)
+            android.util.Log.e("SymbolEditorTest", "symbol editor failed; test value persisted=" +
+                (QwertySwipeSymbols.load(context, false)["up.q"] == "★"))
             throw failure
         } finally {
             QwertySwipeSymbols.save(context, false, previous)

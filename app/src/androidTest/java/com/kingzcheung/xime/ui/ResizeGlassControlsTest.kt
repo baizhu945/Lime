@@ -81,7 +81,7 @@ class ResizeGlassControlsTest {
                 MaterialTheme {
                     dispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
                     val opacityEditing = remember(showing) { mutableStateOf(false) }
-                    Box(Modifier.size(360.dp, 400.dp)) {
+                    Box(Modifier.size(360.dp, 400.dp).testTag("resize-fixture-root")) {
                         if (showing) CompositionLocalProvider(
                             LocalKeyboardResizeOpacityEditing provides opacityEditing,
                             LocalKeyboardResizePreviewState provides KeyboardResizePreviewState(
@@ -120,21 +120,31 @@ class ResizeGlassControlsTest {
         val cardTag = if (glassEnabled) "floating-keyboard-card" else "fixed-keyboard-resize-preview"
         val originalCardBounds = rule.onNodeWithTag(cardTag).fetchSemanticsNode().boundsInRoot
         val originalBodyBounds = rule.onNodeWithTag("resize-keyboard-body").fetchSemanticsNode().boundsInRoot
+        val originalSliderBounds = rule.onNodeWithTag("keyboard-opacity-slider").fetchSemanticsNode().boundsInRoot
         if (glassEnabled) rule.onNodeWithTag("floating-drag-bar").assertIsDisplayed()
-        fun assertDirectEditor() {
+        fun assertInlineControls() {
             rule.onNodeWithTag("keyboard-opacity-slider").assertIsDisplayed().assertIsEnabled()
-            rule.onNodeWithTag("keyboard-opacity-actions").assertIsDisplayed()
-            // 「透明度 N%」现在常驻滑条左边，直接拖动时也显示。
+            rule.onNodeWithTag("keyboard-opacity-actions").assertDoesNotExist()
+            // The full 「透明度 N%」 label stays centered over the inline track.
             rule.onNodeWithTag("keyboard-opacity-overlay-label", useUnmergedTree = true).assertIsDisplayed()
-            rule.onNodeWithTag("keyboard-resize-frame").assertDoesNotExist()
-            rule.onNodeWithTag("keyboard-resize-actions").assertDoesNotExist()
-            rule.onNodeWithTag("keyboard-resize-move-bar").assertDoesNotExist()
-            rule.onNodeWithTag("keyboard-resize-fixed-move-bar").assertDoesNotExist()
-            rule.onNodeWithTag("keyboard-resize-padding-bar").assertDoesNotExist()
-            rule.onNodeWithTag("floating-drag-bar").assertDoesNotExist()
-            assertEquals("hiding the drag bar must retain the whole card's bounds",
+            rule.onNodeWithTag("keyboard-resize-frame").assertIsDisplayed()
+            rule.onNodeWithTag("keyboard-resize-actions").assertIsDisplayed()
+            listOf("重置", "悬浮键盘", "分体键盘", "确认").forEach {
+                // Mode buttons remain visible even when unsupported by this fixture.
+                rule.onNodeWithContentDescription(it).assertIsDisplayed()
+            }
+            if (glassEnabled) {
+                rule.onNodeWithTag("keyboard-resize-move-bar").assertIsDisplayed()
+                rule.onNodeWithTag("floating-drag-bar").assertIsDisplayed()
+            } else {
+                rule.onNodeWithTag("keyboard-resize-fixed-move-bar").assertIsDisplayed()
+                rule.onNodeWithTag("keyboard-resize-padding-bar").assertIsDisplayed()
+            }
+            assertEquals("inline opacity adjustment must not move the track",
+                originalSliderBounds, rule.onNodeWithTag("keyboard-opacity-slider").fetchSemanticsNode().boundsInRoot)
+            assertEquals("inline opacity adjustment must retain the whole card's bounds",
                 originalCardBounds, rule.onNodeWithTag(cardTag).fetchSemanticsNode().boundsInRoot)
-            assertEquals("hiding the drag bar must retain the keyboard content's height and position",
+            assertEquals("inline opacity adjustment must retain the keyboard content's height and position",
                 originalBodyBounds, rule.onNodeWithTag("resize-keyboard-body").fetchSemanticsNode().boundsInRoot)
             rule.onNodeWithContentDescription("模糊强度").assertDoesNotExist()
             rule.onNodeWithContentDescription("背景不透明度").assertDoesNotExist()
@@ -146,10 +156,13 @@ class ResizeGlassControlsTest {
             }
             rule.waitForIdle()
         }
-        val originalSliderBounds = rule.onNodeWithTag("keyboard-opacity-slider").fetchSemanticsNode().boundsInRoot
         rule.onNodeWithTag("keyboard-opacity-overlay-label").performTouchInput { click() }
-        assertDirectEditor()
-        assertEquals("entering opacity editing must not move the track",
+        rule.runOnIdle {
+            assertNotEquals("touching the label must really edit opacity", .82f, opacity)
+            assertEquals(.82f, SettingsPreferences.getKeyboardOpacity(context))
+        }
+        assertInlineControls()
+        assertEquals("touching the inline label must not move the track",
             originalSliderBounds, rule.onNodeWithTag("keyboard-opacity-slider").fetchSemanticsNode().boundsInRoot)
         dragOpacity(.25f, .67f)
         val changed = opacity
@@ -165,35 +178,64 @@ class ResizeGlassControlsTest {
         File(directory, "direct-editor-glass-$glassEnabled.png").outputStream().use {
             rule.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
         }
-        // Blank space must not move the keyboard while only opacity is being adjusted.
-        rule.onNodeWithTag("keyboard-opacity-backdrop").performTouchInput {
-            swipe(Offset(40f, 30f), Offset(90f, 50f), durationMillis = 250)
+        // Hold the actual thumb so pressingOpacity is active before a second finger
+        // drags the blank frame area. Idle resize-frame drags are allowed to move it.
+        val fixture = rule.onNodeWithTag("resize-fixture-root")
+        val rootOrigin = fixture.fetchSemanticsNode().boundsInRoot.topLeft
+        val thumbCenter = rule.onNodeWithTag("keyboard-opacity-thumb", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot.center - rootOrigin
+        fixture.performTouchInput { down(0, thumbCenter) }
+        rule.waitForIdle()
+        fixture.performTouchInput {
+            down(1, Offset(40f, 30f))
+            moveTo(1, Offset(90f, 50f), delayMillis = 250)
+            up(1)
+            // Cancel the stationary primary pointer instead of submitting a new track tap.
+            cancel()
         }
-        rule.runOnIdle { assertEquals(initialRect, rect); assertEquals(0, containerDrags) }
-        rule.onNodeWithText("返回").performClick()
-        rule.onNodeWithTag("keyboard-resize-frame").assertIsDisplayed()
-        rule.onNodeWithTag("keyboard-resize-actions").assertIsDisplayed()
-        if (glassEnabled) rule.onNodeWithTag("floating-drag-bar").assertIsDisplayed()
+        rule.runOnIdle {
+            assertEquals(initialRect, rect)
+            assertEquals(0, containerDrags)
+            assertEquals(changed, opacity)
+            assertEquals(.82f, SettingsPreferences.getKeyboardOpacity(context))
+            assertEquals(originalMaterial, FrostedGlassPreferences.readProfiles(context))
+            assertEquals(0, geometryChanges)
+            assertEquals(0, canceled)
+            assertEquals(0, confirmed)
+        }
+        // There is no return page: the controls and the uncommitted draft stay inline.
+        assertInlineControls()
         rule.runOnIdle { assertEquals(changed, opacity); assertEquals(0, canceled) }
-        // A track tap is also an opacity edit and must immediately hide the rest of the controls.
+        // A real track tap edits opacity without entering a separate editor.
         rule.onNodeWithTag("keyboard-opacity-slider").performTouchInput { click(Offset(width * .1f, centerY)) }
-        assertDirectEditor()
+        assertInlineControls()
         // Match the actual IME: system Back cancels the whole transaction, even while editing opacity.
         rule.runOnIdle { dispatcher!!.onBackPressed() }
         rule.runOnIdle {
             assertEquals(1, canceled)
+            assertEquals(0, confirmed)
+            assertEquals(.82f, opacity)
             assertEquals(.82f, SettingsPreferences.getKeyboardOpacity(context))
             assertEquals(originalMaterial, FrostedGlassPreferences.readProfiles(context))
         }
         rule.onNodeWithText("重新调节").performClick()
         rule.runOnIdle { assertEquals(.82f, opacity) }
-        // Dragging the exposed track also enters the same direct mode; there is no submenu.
+        // Reopen a fresh transaction and really drag the same always-visible track.
         dragOpacity(.08f, .31f)
-        assertDirectEditor()
+        assertInlineControls()
         val chosen = opacity
-        rule.onNodeWithText("完成").performClick()
+        rule.runOnIdle {
+            assertNotEquals(.82f, chosen)
+            assertEquals(.82f, SettingsPreferences.getKeyboardOpacity(context))
+            assertEquals(1, canceled)
+            assertEquals(0, confirmed)
+            assertEquals(0, geometryChanges)
+        }
+        rule.onNodeWithContentDescription("确认").performClick()
         rule.runOnIdle {
             assertEquals(1, confirmed)
+            assertEquals(1, canceled)
+            assertEquals(0, containerDrags)
             assertEquals(chosen, SettingsPreferences.getKeyboardOpacity(context))
             assertEquals(originalMaterial, FrostedGlassPreferences.readProfiles(context))
             assertEquals(initialRect, rect)

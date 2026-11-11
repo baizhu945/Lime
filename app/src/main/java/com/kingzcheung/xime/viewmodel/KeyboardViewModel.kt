@@ -24,6 +24,7 @@ import com.kingzcheung.xime.settings.KeysConfigHelper
 import com.kingzcheung.xime.settings.SchemaInfo
 import com.kingzcheung.xime.speech.RecognitionState
 import com.kingzcheung.xime.rime.T9InputController
+import com.kingzcheung.xime.rime.t9CandidateNeedsNativeSelection
 import com.kingzcheung.xime.ui.keyboard.KeyboardCallbacks
 import com.kingzcheung.xime.ui.keyboard.KeyboardDispatchAction
 import com.kingzcheung.xime.ui.keyboard.KeyboardLayoutState
@@ -273,8 +274,9 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
         }
         callbacks.onT9RefreshAfterPreeditEdit = { controller.refreshAfterPreeditEdit() }
         callbacks.onT9RightCandidateWillBeSelected = { pinyin, text, textLength, revision ->
-            if (pinyin.isNullOrBlank()) controller.onRightCandidateSelectedByDirectCommit(revision)
-            else controller.onRightCandidateSelected(pinyin, text, textLength, revision)
+            if (t9CandidateNeedsNativeSelection(pinyin, text))
+                controller.onRightCandidateSelected(pinyin?.takeUnless { it.isBlank() }.orEmpty(), text, textLength, revision)
+            else controller.onRightCandidateSelectedByDirectCommit(revision)
         }
         callbacks.onT9ForceSendToRime = { controller.refreshRemainingInput() }
         callbacks.onT9RunLiteralInput = { controller.enqueueLiteralInput(it) }
@@ -428,11 +430,27 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
                 Triple(KeyboardViewState.Handwriting, KeyboardPage.Main(MainType.HANDWRITING), KeyboardLayoutState.Chinese)
             }
             is KeyboardDispatchAction.AsciiModeChanged -> {
-                if (hasTemporaryHandwriting || current is KeyboardViewState.Overlay) {
+                if (action.explicitLanguageChoice) asciiStateMachine.reset()
+                if (hasTemporaryHandwriting) {
+                    // Only an accepted language choice replaces the return target. Late engine
+                    // refreshes must not overwrite the layout captured when handwriting opened.
+                    val typing = initialKeyboardLayoutState(action.isAsciiMode, action.schemaId)
+                    if (action.explicitLanguageChoice) handwritingReturn = handwritingReturn?.let { saved ->
+                        when (val page = saved.page) {
+                            is KeyboardPage.Main -> if (page.type == MainType.FULL) saved.copy(layout = typing) else saved
+                            is KeyboardPage.Panel -> if (page.returnTo == MainType.FULL) saved.copy(panelLayout = typing) else saved
+                            else -> saved
+                        }
+                    }
+                    Triple(current, _page.value, _keyboardState.value)
+                } else if (current is KeyboardViewState.Overlay) {
                     FileLogger.i("XimeKeyboard", "AsciiModeChanged skipped: current=$current (overlay)")
                     Triple(current, _page.value, _keyboardState.value)
                 } else if (current is KeyboardViewState.NumberPanel || current is KeyboardViewState.CommonSymbolPanel) {
-                    FileLogger.i("XimeKeyboard", "AsciiModeChanged skipped: current=$current (panel)")
+                    if (action.explicitLanguageChoice && _page.value.textMainType() == MainType.FULL) {
+                        _savedKbStateBeforePanel = initialKeyboardLayoutState(action.isAsciiMode, action.schemaId)
+                    }
+                    FileLogger.i("XimeKeyboard", "AsciiModeChanged kept panel: current=$current, languageChoice=${action.explicitLanguageChoice}")
                     Triple(current, _page.value, _keyboardState.value)
                 } else if (!action.isAsciiMode && isHandwritingSchema(action.schemaId)) {
                     Triple(KeyboardViewState.Handwriting, KeyboardPage.Main(MainType.HANDWRITING), KeyboardLayoutState.Chinese)
@@ -660,6 +678,7 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
         if (currentRoute == route || currentRoute is OverlayRoute.Clipboard && route is OverlayRoute.Clipboard) leaveClipboard()
         // 从方向盘（编辑）面板打开剪贴板：记住编辑面板，粘贴或收起剪贴板后回到它，而不是回主键盘。
         else if (currentRoute == OverlayRoute.Edit && route is OverlayRoute.Clipboard && initialBackStack.isEmpty()) pushOverlay(route)
+        else if (currentRoute == OverlayRoute.Menu && route == OverlayRoute.SchemaList && initialBackStack.isEmpty()) pushOverlay(route)
         else showOverlay(route, initialBackStack)
     }
 

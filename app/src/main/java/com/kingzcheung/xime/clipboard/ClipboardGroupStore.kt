@@ -105,7 +105,10 @@ class ClipboardGroupStore private constructor(context: Context) {
         @Volatile private var instance: ClipboardGroupStore? = null
 
         fun getInstance(context: Context): ClipboardGroupStore = instance ?: synchronized(this) {
-            instance ?: ClipboardGroupStore(context.applicationContext).also { instance = it }
+            instance ?: create(context).also { instance = it }
         }
+
+        /** Independent group metadata bound to the supplied preference context. */
+        fun create(context: Context): ClipboardGroupStore = ClipboardGroupStore(context.applicationContext)
     }
 }

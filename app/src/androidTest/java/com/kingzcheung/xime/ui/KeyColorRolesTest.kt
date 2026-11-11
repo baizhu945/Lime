@@ -79,12 +79,14 @@ class KeyColorRolesTest {
         KeysConfigHelper.setActiveKeyboardSchema("rime_ice")
     }
     private data class Mode(val name: String, val schema: String = "rime_ice", val ascii: Boolean = false,
-        val layout: KeyboardLayoutState? = null, val split: Boolean = false, val handwriting: Boolean = false)
+        val layout: KeyboardLayoutState? = null, val split: Boolean = false, val handwriting: Boolean = false,
+        val enterText: String = "回车")
 
     @Test fun allInputModesUseNormalSpaceAndSeparateEnterColor() = verifyModes(true, listOf(
         Mode("english", ascii = true), Mode("pinyin26"), Mode("pinyin14", "pinyin_14jian"),
         Mode("t9", "t9_pinyin"), Mode("japanese26", "japanese"), Mode("kana", "japanese_kana"),
         Mode("stroke", "stroke"), Mode("number", layout = KeyboardLayoutState.Number),
+        Mode("number-done", layout = KeyboardLayoutState.Number, enterText = "完成"),
         Mode("symbols", layout = KeyboardLayoutState.CommonSymbol), Mode("handwriting", handwriting = true),
         Mode("split", ascii = true, split = true)))
 
@@ -113,7 +115,7 @@ class KeyColorRolesTest {
                         val vm = remember { KeyboardViewModel(app) }
                         SideEffect { currentVm = vm }
                         KeyboardView(vm, KeyboardUiState(currentSchemaId = mode.schema, isAsciiMode = mode.ascii,
-                            isDarkTheme = dark, themeId = "test_color_roles", keyboardHeightDp = 320, enterKeyText = "回车"),
+                            isDarkTheme = dark, themeId = "test_color_roles", keyboardHeightDp = 320, enterKeyText = mode.enterText),
                             KeyboardCallbacks(onKeyPress = { _, _ -> }, onCandidateSelect = {}),
                             modifier = Modifier.fillMaxSize())
                     }
@@ -145,7 +147,8 @@ class KeyColorRolesTest {
             val spaces = rule.onAllNodesWithContentDescription("空格", useUnmergedTree = true).fetchSemanticsNodes()
             assertTrue("${mode.name} has no space control", spaces.isNotEmpty())
             spaces.forEach { assertColorNear(bitmap, it.boundsInRoot.center - origin, palette.key.toArgb(), "${mode.name} space") }
-            val enterText = if (mode.layout is KeyboardLayoutState.Number || mode.schema == "stroke") "确定" else "回车"
+            // Stroke has a fixed confirmation action; number and other layouts use the editor action label.
+            val enterText = if (mode.schema == "stroke") "确定" else mode.enterText
             val enter = rule.onNodeWithContentDescription(enterText, useUnmergedTree = true).fetchSemanticsNode()
             assertColorNear(bitmap, enter.boundsInRoot.center - origin, palette.enter.toArgb(), "${mode.name} enter")
             listOf(enter, spaces.first()).forEach { node ->

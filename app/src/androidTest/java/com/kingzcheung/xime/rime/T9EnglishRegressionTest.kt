@@ -7,34 +7,51 @@ import com.kingzcheung.xime.service.TextCommitResult
 import com.kingzcheung.xime.service.deliver
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.File
 
-/** Actual packaged dictionaries, native selection, host acceptance and persistent user DB. */
+/** Packaged dictionaries with optional digit suffixes enabled, native selection and persistent learning. */
 class T9EnglishRegressionTest {
     @Test fun recallLearningAndCommitIsolation() = runBlocking {
+      // Use the same coroutine mutex as app startup/redeploy. Do not hold the native
+      // thread-owned rimeLock across accept()'s dispatcher switch or fixture setup.
+      val preparation = RimeConfigHelper::class.java.getDeclaredField("preparationMutex").apply {
+          isAccessible = true
+      }.get(null) as Mutex
+      preparation.withLock {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val engine = RimeEngine.getInstance()
-        val (user, shared) = RimeConfigHelper.initializeRimeDataAsync(context)
-        engine.initialize(user, shared)
-        assertTrue(RimeConfigHelper.ensureDeployment(context))
-        val previous = engine.getCurrentSchema()
-        engine.destroy()
         val baseline = InstrumentationRegistry.getArguments().getString("t9_baseline") == "true"
-        val fixture = File(context.filesDir, "ime-lab/t9-english-${System.currentTimeMillis()}").apply { mkdirs() }
-        val evidence = File(context.filesDir, "ime-lab/t9-english-${if (baseline) "before" else "after"}.jsonl")
-        evidence.writeText("")
+        val labDir = File(context.filesDir, "ime-lab").apply { check(mkdirs() || isDirectory) }
+        val fixture = java.nio.file.Files.createTempDirectory(labDir.toPath(), "t9-english-").toFile()
+        var user: String? = null
+        var shared: String? = null
+        var previous = ""
+        var replacedEngine = false
+        try {
+        val paths = RimeConfigHelper.initializeRimeDataAsync(context)
+        user = paths.first
+        shared = paths.second
+        engine.initialize(user, shared)
+        assertTrue("production deployment must be usable", RimeConfigHelper.ensureDeployment(context))
+        previous = engine.getCurrentSchema()
+        replacedEngine = true
+        engine.destroy()
+        val evidence = File.createTempFile("t9-english-${if (baseline) "before" else "after"}-", ".jsonl", labDir)
+        android.util.Log.i("T9EnglishRegression", "RESULT_FILE=${evidence.path}")
         val manifest = context.assets.open("rime-bundled-manifest.tsv").bufferedReader().use { it.readText() }
         manifest.lineSequence().filter { it.isNotBlank() }.forEach { line ->
             val fields = line.split('\t')
             File(fixture, fields[3]).apply {
                 parentFile?.mkdirs()
                 if (fields[3].endsWith(".gram")) {
-                    File(user, fields[3]).inputStream().use { i -> outputStream().use { i.copyTo(it) } }
+                    File(user!!, fields[3]).inputStream().use { i -> outputStream().use { i.copyTo(it) } }
                 } else context.assets.open(fields[2]).use { i -> outputStream().use { i.copyTo(it) } }
             }
         }
@@ -43,10 +60,13 @@ class T9EnglishRegressionTest {
             catch (_: java.io.FileNotFoundException) { }
         }
         File(fixture, "default.custom.yaml").writeText("patch:\n  schema_list:\n    - schema: t9_pinyin\n    - schema: rime_ice\n")
+        // Dota2 and steam42 are inferred from English prefixes, not dictionary entries.
+        // Production disables these optional completions to avoid crowding Chinese results.
+        File(fixture, "t9_pinyin.custom.yaml").writeText("patch:\n  t9_english/digit_suffixes: true\n")
         val compiled = File(fixture, "build").apply { mkdirs() }
         for (dict in listOf("rime_ice", "melt_eng", "radical_pinyin", "cyime_t9_english")) {
             for (suffix in listOf("table.bin", "reverse.bin")) {
-                val source = File(user, "build/$dict.$suffix")
+                val source = File(user!!, "build/$dict.$suffix")
                 if (source.isFile) source.copyTo(File(compiled, source.name))
             }
         }
@@ -85,7 +105,6 @@ class T9EnglishRegressionTest {
             }
             return learned
         }
-        try {
             start(deploy = true)
             // Independent ordinary words, proper names, upstream punctuation and literal numbers.
             val cases = linkedMapOf("steam" to "78326", "hello" to "43556", "world" to "96753",
@@ -119,7 +138,7 @@ class T9EnglishRegressionTest {
                 record("after_${it + 1}_accepted", "78326", "steam")
             }
             val after = rows()
-            if (baseline) return@runBlocking
+            if (baseline) return@withLock
             assertTrue("every accepted English selection must learn: $learnedCounts", learnedCounts.all { it })
             assertTrue("steam must move forward from ${beforeRank + 1}", after.indexOfFirst { it[0] == "steam" } < beforeRank)
             assertEquals("user_table", after.first { it[0] == "steam" }[2])
@@ -167,12 +186,20 @@ class T9EnglishRegressionTest {
             input("36822")
             assertEquals("Dota2 survives restart", "user_table", record("restart", "36822", "Dota2").first { it[0] == "Dota2" }[2])
         } finally {
-            android.util.Log.i("T9EnglishRegression", "RESULT_FILE=${evidence.path}")
-            engine.destroy()
-            engine.initialize(user, shared)
-            engine.ensureSession()
-            if (previous.isNotEmpty()) engine.switchSchema(previous)
-            assertTrue(fixture.deleteRecursively())
+            var fixtureDetached = !replacedEngine
+            try {
+                if (replacedEngine) {
+                    engine.destroy()
+                    fixtureDetached = true
+                    engine.initialize(checkNotNull(user), checkNotNull(shared))
+                    check(engine.ensureSession()) { "failed to restore production Rime session" }
+                    if (previous.isNotEmpty()) check(engine.switchSchema(previous)) { "failed to restore schema $previous" }
+                }
+            } finally {
+                if (fixtureDetached) check(fixture.deleteRecursively()) { "failed to clean fixture ${fixture.path}" }
+                else android.util.Log.e("T9EnglishRegression", "Fixture retained: ${fixture.path}")
+            }
         }
+      }
     }
 }
