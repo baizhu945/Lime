@@ -84,14 +84,15 @@ android {
     }
 
     defaultConfig {
-        // 沿用 Xime 的安装身份；源码 namespace 保持不变。
-        applicationId = "com.kingzcheung.xime"
+        // 已部署 Lime 的永久安装身份；保留历史后缀才能覆盖升级并通过更新包校验。
+        // 源码 namespace/JNI 类名保持不变，Debug 与 Release 不再使用不同包名。
+        applicationId = "com.kingzcheung.xime.migration"
         minSdk = 28
         targetSdk = 35
         // 按发布批次定号：兼容修复升 PATCH，兼容功能升 MINOR 并归零 PATCH。
         // 不兼容变更升 MAJOR；日常编辑不逐次升号。完整规则见 docs/packaging.md。
         // versionCode 是独立递增的交付序号；同批普通版与内置版共用。
-        versionCode = 20261395
+        versionCode = 20261396
         versionName = "2.01.00"
 
 
@@ -150,10 +151,6 @@ android {
     }
 
     buildTypes {
-        debug {
-            // 数据迁移验证完成前，测试包不能覆盖原 Xime 的私有数据。
-            applicationIdSuffix = ".migration"
-        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true

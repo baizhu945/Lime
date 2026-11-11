@@ -78,6 +78,10 @@ Lime 保留了概率采样，但不再把密度画成“概率汤”：
 - `app/src/main/java/com/kingzcheung/xime/ui/keyboard/KeyboardLayout.kt`：标准 26 键语言使用普通圆角键帽并启用底层概率采样，功能键保持原样；
 - `patches/cyime-librime.patch`：Rime 侧把触点概率并入音节图权值，并在整句重排时保留触点项。
 
+## 安装身份
+
+Lime 的安装包名固定为 `com.kingzcheung.xime.migration`；历史后缀也是安装身份的一部分，正式版与 Debug 版均保留它。更新使用相同证书覆盖安装，不要卸载或清除旧版数据。源码 namespace `com.kingzcheung.xime` 与安装包名不同，不应据此改回包名。
+
 ## 构建
 
 需要 JDK 17+、Android SDK 平台 37（`platforms;android-37.0`）、NDK `29.0.14206865`。本仓库在 NixOS 上用 `nix-shell` 提供工具链：
