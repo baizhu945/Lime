@@ -324,7 +324,7 @@ dependencies {
     implementation(libs.onnxruntime.android) {
         version { strictly(libs.versions.onnxruntimeAndroid.get()) }
     }
-    implementation("org.opencv:opencv:4.12.0")
+    implementation("org.opencv:opencv:5.1.0")
     implementation("androidx.camera:camera-camera2:1.6.2")
     implementation("androidx.camera:camera-lifecycle:1.6.2")
     implementation("androidx.camera:camera-view:1.6.2")
